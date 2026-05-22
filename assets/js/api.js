@@ -12,8 +12,9 @@ const API = (() => {
   function cacheKey(url) { return url; }
 
   async function get(action, params = {}, useCache = true) {
-    if (!BASE_URL) { showConfigWarning(); return null; }
-    const url = new URL(BASE_URL);
+    const base = window.APPS_SCRIPT_URL;
+    if (!base) { showConfigWarning(); return null; }
+    const url = new URL(base);
     url.searchParams.set('action', action);
     Object.entries(params).forEach(([k, v]) => {
       if (v !== null && v !== undefined) url.searchParams.set(k, v);
@@ -30,9 +31,10 @@ const API = (() => {
   }
 
   async function post(action, body = {}) {
-    if (!BASE_URL) { showConfigWarning(); return null; }
+    const base = window.APPS_SCRIPT_URL;
+    if (!base) { showConfigWarning(); return null; }
     cache.clear();
-    const res = await fetch(BASE_URL, {
+    const res = await fetch(base, {
       method: 'POST',
       body: JSON.stringify({ action, ...body }),
       redirect: 'follow',
