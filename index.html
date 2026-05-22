@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1D2B4F">
+  <title>Saretta Serviços</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+</head>
+<body>
+
+<div id="global-loading"></div>
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════════════
+     APP
+     ═══════════════════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- SIDEBAR — desktop -->
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <div class="sidebar-logo-text">⚙️ SARETTA</div>
+      <div class="sidebar-logo-sub">Gestão de Serviços</div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-page="home">
+        <span class="nav-icon">🏠</span> Dashboard
+      </button>
+      <button class="nav-item" data-page="os">
+        <span class="nav-icon">📋</span> Ordens de Serviço
+      </button>
+      <button class="nav-item" data-page="financeiro">
+        <span class="nav-icon">💰</span> Financeiro
+      </button>
+      <button class="nav-item" data-page="clientes">
+        <span class="nav-icon">👥</span> Clientes / Forn.
+      </button>
+      <button class="nav-item" data-page="estoque">
+        <span class="nav-icon">📦</span> Estoque
+      </button>
+      <button class="nav-item" data-page="compras">
+        <span class="nav-icon">🛍️</span> Compras
+      </button>
+      <button class="nav-item" data-page="fiado">
+        <span class="nav-icon">💸</span> Fiado
+      </button>
+      <button class="nav-item" data-page="insights">
+        <span class="nav-icon">📊</span> Insights
+      </button>
+      <button class="nav-item" data-page="config">
+        <span class="nav-icon">⚙️</span> Configurações
+      </button>
+    </nav>
+  </aside>
+
+  <!-- MAIN -->
+  <div id="main">
+    <!-- HEADER -->
+    <header id="top-header">
+      <button id="btn-menu" aria-label="Menu">☰</button>
+      <div style="flex:1">
+        <div class="header-logo">⚙️ Saretta</div>
+        <span class="header-sub">Gestão de Serviços</span>
+      </div>
+    </header>
+
+    <!-- PAGES -->
+    <div id="content">
+      <section id="page-home"       class="page"></section>
+      <section id="page-os"         class="page hidden"></section>
+      <section id="page-financeiro" class="page hidden"></section>
+      <section id="page-clientes"   class="page hidden"></section>
+      <section id="page-estoque"    class="page hidden"></section>
+      <section id="page-compras"    class="page hidden"></section>
+      <section id="page-fiado"      class="page hidden"></section>
+      <section id="page-insights"   class="page hidden"></section>
+      <section id="page-config"     class="page hidden"></section>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV — mobile -->
+  <nav id="bottom-nav">
+    <button class="bnav-item active" data-page="home">
+      <span class="bnav-icon">🏠</span>
+      <span>Início</span>
+    </button>
+    <button class="bnav-item" data-page="os">
+      <span class="bnav-icon">📋</span>
+      <span>OS</span>
+    </button>
+    <button class="bnav-item" data-page="financeiro">
+      <span class="bnav-icon">💰</span>
+      <span>Financeiro</span>
+    </button>
+    <button class="bnav-item" data-page="clientes">
+      <span class="bnav-icon">👥</span>
+      <span>Clientes</span>
+    </button>
+    <button class="bnav-item" id="btn-more">
+      <span class="bnav-icon">☰</span>
+      <span>Mais</span>
+    </button>
+  </nav>
+</div>
+
+<!-- DRAWER "Mais" — mobile -->
+<div id="more-drawer">
+  <div id="more-drawer-bg"></div>
+  <div id="more-drawer-content">
+    <div id="more-drawer-handle"></div>
+    <div class="drawer-grid">
+      <button class="drawer-item" data-page="estoque">
+        <span class="drawer-icon">📦</span>
+        <span>Estoque</span>
+      </button>
+      <button class="drawer-item" data-page="compras">
+        <span class="drawer-icon">🛍️</span>
+        <span>Compras</span>
+      </button>
+      <button class="drawer-item" data-page="fiado">
+        <span class="drawer-icon">💸</span>
+        <span>Fiado</span>
+      </button>
+      <button class="drawer-item" data-page="insights">
+        <span class="drawer-icon">📊</span>
+        <span>Insights</span>
+      </button>
+      <button class="drawer-item" data-page="config">
+        <span class="drawer-icon">⚙️</span>
+        <span>Config.</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAIS
+     ═══════════════════════════════════════════════════════ -->
+
+<!-- Confirmar -->
+<div id="modal-confirm" class="modal-center">
+  <div class="modal-center-box">
+    <div class="modal-header">
+      <h3>Confirmar ação</h3>
+      <button class="modal-close" onclick="Modal.close('modal-confirm')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-msg" style="color:var(--text-muted);font-size:.9rem;">Tem certeza?</p>
+    </div>
+    <div class="modal-footer">
+      <button id="confirm-yes" class="btn btn-danger">Confirmar</button>
+      <button id="confirm-no"  class="btn btn-outline">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cliente/Fornecedor -->
+<div id="modal-cliente" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3 id="modal-cli-title">Novo Cadastro</h3>
+      <button class="modal-close" onclick="Modal.close('modal-cliente')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="cli-form-id">
+      <div class="form-group">
+        <label>Nome *</label>
+        <input type="text" id="cli-form-nome" class="input" placeholder="Nome completo">
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="cli-form-tipo" class="input">
+          <option value="cliente">Cliente</option>
+          <option value="fornecedor">Fornecedor</option>
+          <option value="ambos">Ambos</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Telefone / WhatsApp</label>
+        <input type="tel" id="cli-form-tel" class="input" placeholder="(xx) xxxxx-xxxx">
+      </div>
+      <div class="form-group">
+        <label>Endereço / Cidade</label>
+        <input type="text" id="cli-form-end" class="input" placeholder="Rua, número, cidade">
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="cli-form-obs" class="input" rows="3" placeholder="Anotações sobre o cliente..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Clientes.saveForm()">Salvar</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-cliente')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Diária -->
+<div id="modal-diaria" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Registrar Dia</h3>
+      <button class="modal-close" onclick="Modal.close('modal-diaria')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="modal-diaria-os-id">
+      <input type="hidden" id="modal-diaria-id">
+      <div id="modal-diaria-info"></div>
+      <div class="form-group">
+        <label>Data</label>
+        <input type="date" id="modal-diaria-data" class="input">
+      </div>
+      <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px">Preencha ao menos 2 horários:</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>☀️ Manhã — Início</label>
+          <input type="time" id="modal-diaria-manha-in"  class="input" onchange="OS.calcDiariaPreview()">
+        </div>
+        <div class="form-group">
+          <label>☀️ Manhã — Fim</label>
+          <input type="time" id="modal-diaria-manha-fim" class="input" onchange="OS.calcDiariaPreview()">
+        </div>
+        <div class="form-group">
+          <label>🌤️ Tarde — Início</label>
+          <input type="time" id="modal-diaria-tarde-in"  class="input" onchange="OS.calcDiariaPreview()">
+        </div>
+        <div class="form-group">
+          <label>🌤️ Tarde — Fim</label>
+          <input type="time" id="modal-diaria-tarde-fim" class="input" onchange="OS.calcDiariaPreview()">
+        </div>
+      </div>
+      <div class="calc-preview">
+        <div class="calc-item">
+          <label>Total de Horas</label>
+          <span id="modal-diaria-horas">0h 00min</span>
+        </div>
+        <div class="calc-item">
+          <label>Valor Calculado</label>
+          <span id="modal-diaria-valor">R$ 0,00</span>
+        </div>
+      </div>
+      <div class="form-group mt-3">
+        <label>Valor Manual (sobrescreve o cálculo)</label>
+        <input type="number" id="modal-diaria-manual" class="input" step="0.01"
+          placeholder="Deixe vazio para usar o calculado"
+          onchange="OS.calcDiariaPreview()">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="OS.saveDiaria()">Salvar Dia</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-diaria')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Item OS -->
+<div id="modal-item" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Adicionar Item</h3>
+      <button class="modal-close" onclick="Modal.close('modal-item')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="modal-item-os-id">
+      <input type="hidden" id="modal-item-id">
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="modal-item-tipo" class="input">
+          <option value="material">📦 Material (desconta estoque)</option>
+          <option value="servico">🔧 Serviço / Extra (não desconta)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Do Estoque (opcional)</label>
+        <select id="modal-item-estoque" class="input"
+          onchange="if(this.value){const opt=this.options[this.selectedIndex];qs('#modal-item-unit').value=opt.dataset.unit||'';qs('#modal-item-desc').value=opt.text.split('(')[0].trim();}">
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Descrição *</label>
+        <input type="text" id="modal-item-desc" class="input" placeholder="Ex: Parafuso, Serviço de solda...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantidade</label>
+          <input type="number" id="modal-item-qtd" class="input" step="0.01" value="1"
+            onchange="qs('#modal-item-total').value=(+this.value*(+qs('#modal-item-unit').value||0)).toFixed(2)">
+        </div>
+        <div class="form-group">
+          <label>Valor Unitário</label>
+          <input type="number" id="modal-item-unit" class="input" step="0.01"
+            onchange="qs('#modal-item-total').value=((+qs('#modal-item-qtd').value||1)*(+this.value||0)).toFixed(2)">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Valor Total</label>
+        <input type="number" id="modal-item-total" class="input" step="0.01">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="OS.saveItem()">Adicionar</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-item')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Estoque -->
+<div id="modal-estoque" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3 id="modal-est-title">Item do Estoque</h3>
+      <button class="modal-close" onclick="Modal.close('modal-estoque')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="est-form-id">
+      <div class="form-group">
+        <label>Descrição *</label>
+        <input type="text" id="est-form-desc" class="input" placeholder="Ex: Parafuso M8, Cabo elétrico 2,5mm...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantidade</label>
+          <input type="number" id="est-form-qtd"  class="input" step="0.01" min="0" value="0">
+        </div>
+        <div class="form-group">
+          <label>Valor Unitário</label>
+          <input type="number" id="est-form-unit" class="input" step="0.01" min="0" placeholder="R$">
+        </div>
+        <div class="form-group">
+          <label>Unidade</label>
+          <input type="text"   id="est-form-und"  class="input" placeholder="un, m, kg, L...">
+        </div>
+        <div class="form-group">
+          <label>Data de Entrada</label>
+          <input type="date"   id="est-form-data" class="input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Fornecedor</label>
+        <select id="est-form-forn" class="input"></select>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="est-form-obs" class="input" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Estoque.saveForm()">Salvar</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-estoque')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Compra -->
+<div id="modal-compra" class="modal">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Nova Compra</h3>
+      <button class="modal-close" onclick="Modal.close('modal-compra')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Fornecedor</label>
+          <select id="compra-forn" class="input"></select>
+        </div>
+        <div class="form-group">
+          <label>Data da Compra</label>
+          <input type="date" id="compra-data" class="input">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Venc. 1ª Parcela</label>
+          <input type="date" id="compra-venc" class="input">
+        </div>
+        <div class="form-group">
+          <label>Nº de Parcelas</label>
+          <input type="number" id="compra-parc" class="input" value="1" min="1">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Competência</label>
+          <input type="month" id="compra-comp" class="input">
+        </div>
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="compra-cat" class="input"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <input type="text" id="compra-obs" class="input" placeholder="Opcional">
+      </div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
+      <div style="font-size:.88rem;font-weight:800;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Itens da Compra</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Descrição</label>
+          <input type="text" id="item-desc" class="input" placeholder="Ex: Parafuso M8">
+        </div>
+        <div class="form-group">
+          <label>Qtd</label>
+          <input type="number" id="item-qtd" class="input" value="1" min="0.01" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>Valor Unit. (R$)</label>
+          <input type="number" id="item-unit-val" class="input" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Unidade</label>
+          <input type="text" id="item-und" class="input" placeholder="un">
+        </div>
+      </div>
+      <button type="button" class="btn btn-outline btn-full mb-3" onclick="Compras.addItem()">+ Adicionar Item</button>
+      <div id="compra-itens-list"></div>
+      <div class="info-row total-row mt-2">
+        <span class="text-bold">Total da Compra:</span>
+        <strong id="compra-total-display" class="text-navy" style="font-size:1.1rem">R$ 0,00</strong>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Compras.saveForm()">Registrar Compra</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-compra')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fiado -->
+<div id="modal-fiado" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3 id="modal-fiado-title">Novo Fiado</h3>
+      <button class="modal-close" onclick="Modal.close('modal-fiado')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="fiado-form-id">
+      <div id="fiado-alert-new" class="alert alert-info mb-3">
+        💡 Gera automaticamente uma <strong>conta a pagar</strong> para a empresa reembolsar o colaborador.
+      </div>
+      <div class="form-group">
+        <label>Quem Pagou?</label>
+        <select id="fiado-form-pessoa" class="input">
+          <option value="rodrigo">Rodrigo</option>
+          <option value="odinei">Odinei</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Descrição *</label>
+        <input type="text" id="fiado-form-desc" class="input" placeholder="Ex: Almoço, material urgente...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor (R$) *</label>
+          <input type="number" id="fiado-form-valor" class="input" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Data</label>
+          <input type="date" id="fiado-form-data" class="input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Vencimento do Reembolso</label>
+        <input type="date" id="fiado-form-venc" class="input">
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="fiado-form-obs" class="input" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Fiado.saveForm()">Registrar</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-fiado')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lançamento Manual Financeiro -->
+<div id="modal-manual-lancamento" class="modal">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Lançamento Manual</h3>
+      <button class="modal-close" onclick="Modal.close('modal-manual-lancamento')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="manual-tipo" class="input">
+            <option value="pagar">💸 A Pagar (Despesa)</option>
+            <option value="receber">💰 A Receber (Receita)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="manual-status" class="input">
+            <option value="pendente">Pendente</option>
+            <option value="pago">Pago</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Descrição *</label>
+        <input type="text" id="manual-desc" class="input" placeholder="Ex: Almoço, combustível, serviço...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor (R$) *</label>
+          <input type="number" id="manual-valor" class="input" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Cliente / Forn.</label>
+          <select id="manual-cliente" class="input"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Competência</label>
+          <input type="month" id="manual-comp" class="input">
+        </div>
+        <div class="form-group">
+          <label>Vencimento</label>
+          <input type="date" id="manual-venc" class="input">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Data de Pagamento</label>
+          <input type="date" id="manual-pagto" class="input">
+        </div>
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="manual-categoria" class="input"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="manual-obs" class="input" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="manual-save-btn" class="btn btn-primary btn-lg" onclick="Financeiro.saveManual()">Salvar</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-manual-lancamento')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pagamento de Parcela -->
+<div id="modal-pagamento" class="modal-center">
+  <div class="modal-center-box">
+    <div class="modal-header">
+      <h3>Registrar Pagamento</h3>
+      <button class="modal-close" onclick="Modal.close('modal-pagamento')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pag-parcela-id">
+      <div class="info-row mb-3">
+        <span>Valor:</span>
+        <strong id="pag-valor" style="font-size:1.1rem;color:var(--navy)"></strong>
+      </div>
+      <div class="form-group">
+        <label>Data do Pagamento</label>
+        <input type="date" id="pag-data" class="input">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-success" onclick="Financeiro.confirmarPagamento()">✓ Confirmar</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-pagamento')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Categoria -->
+<div id="modal-categoria" class="modal-center">
+  <div class="modal-center-box">
+    <div class="modal-header">
+      <h3>Nova Categoria</h3>
+      <button class="modal-close" onclick="Modal.close('modal-categoria')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Nome *</label>
+        <input type="text" id="cat-form-nome" class="input" placeholder="Ex: Combustível, Ferramentas...">
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="cat-form-tipo" class="input">
+          <option value="entrada">Entrada (Receita)</option>
+          <option value="saida">Saída (Despesa)</option>
+          <option value="ambos">Ambos</option>
+          <option value="pagar">A Pagar (Fiado/etc)</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="Config.saveCat()">Criar</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-categoria')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SCRIPTS ──────────────────────────────────────────── -->
+<script src="assets/js/api.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/home.js"></script>
+<script src="assets/js/os.js"></script>
+<script src="assets/js/financeiro.js"></script>
+<script src="assets/js/clientes.js"></script>
+<script src="assets/js/estoque.js"></script>
+<script src="assets/js/compras.js"></script>
+<script src="assets/js/fiado.js"></script>
+<script src="assets/js/insights.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
