@@ -38,42 +38,40 @@ const Estoque = (() => {
         <input type="text" id="est-search" placeholder="Buscar..." class="input-search" value="${q}"
           oninput="Estoque.renderList(qs('#est-search').value)">
       </div>
-      <div class="card">
-        <div class="table-responsive">
-          ${items.length === 0 ? '<p class="p-3 text-muted">Nenhum item no estoque.</p>' : `
-          <table class="table">
-            <thead><tr>
-              <th>Descrição</th><th>Qtd</th><th>Un.</th>
-              <th>Valor Unit.</th><th>Fornecedor</th><th>Entrada</th><th></th>
-            </tr></thead>
-            <tbody>
-              ${items.map(e => `
-                <tr class="${Number(e.quantidade||0) <= 2 ? 'row-warning' : ''}">
-                  <td><strong>${e.descricao}</strong></td>
-                  <td>${e.quantidade}</td>
-                  <td>${e.unidade || 'un'}</td>
-                  <td>${Fmt.currency(e.valor_unit)}</td>
-                  <td>${App.clienteNome(e.fornecedor_id)}</td>
-                  <td>${Fmt.date(e.data_entrada)}</td>
-                  <td>
-                    <button class="btn btn-sm btn-outline" onclick="Estoque.openForm('${e.id}')">Editar</button>
-                    <button class="btn btn-sm btn-danger"  onclick="Estoque.confirmDelete('${e.id}')">Excluir</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-            <tfoot>
-              <tr class="table-total">
-                <td><strong>Total em estoque</strong></td>
-                <td colspan="2"></td>
-                <td><strong>${Fmt.currency(items.reduce((s, e) => s + Number(e.valor_unit||0) * Number(e.quantidade||0), 0))}</strong></td>
-                <td colspan="3"></td>
-              </tr>
-            </tfoot>
-          </table>`}
+      <div class="entity-list">
+        ${items.length === 0
+          ? '<div class="entity-empty">Nenhum item no estoque</div>'
+          : items.map(e => {
+            const baixo = Number(e.quantidade || 0) <= 2;
+            return `
+              <div class="entity-item${baixo ? '" style="background:var(--warning-lt)' : ''}" onclick="Estoque.tapCard('${e.id}')">
+                <div class="avatar ${avatarColor(e.descricao)} avatar-icon">📦</div>
+                <div class="entity-info">
+                  <div class="entity-name">${e.descricao}${baixo ? ' ⚠️' : ''}</div>
+                  <div class="entity-sub">${e.quantidade} ${e.unidade || 'un'} · ${Fmt.currency(e.valor_unit)}/un${e.fornecedor_id ? ' · ' + App.clienteNome(e.fornecedor_id) : ''}</div>
+                </div>
+                <div class="entity-right">
+                  <span class="entity-value">${Fmt.currency(Number(e.valor_unit||0) * Number(e.quantidade||0))}</span>
+                  <span class="entity-chevron">›</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        <div class="entity-item" style="background:var(--bg);cursor:default">
+          <div class="entity-info"><strong>Total em estoque</strong></div>
+          <div class="entity-right"><span class="entity-value">${Fmt.currency(items.reduce((s, e) => s + Number(e.valor_unit||0) * Number(e.quantidade||0), 0))}</span></div>
         </div>
       </div>
     `;
+  }
+
+  function tapCard(id) {
+    const e = allEstoque.find(x => x.id === id);
+    if (!e) return;
+    ActionSheet.open(e.descricao, [
+      { icon: '✏️', label: 'Editar',  fn: () => openForm(id) },
+      { icon: '🗑', label: 'Excluir', fn: () => confirmDelete(id), danger: true },
+    ]);
   }
 
   function openForm(id = null) {
@@ -122,5 +120,5 @@ const Estoque = (() => {
     });
   }
 
-  return { render, renderList, openForm, saveForm, confirmDelete };
+  return { render, renderList, tapCard, openForm, saveForm, confirmDelete };
 })();

@@ -19,8 +19,14 @@ const Clientes = (() => {
 
   function renderList(q = '', filtroTipo = '') {
     let items = allClientes.filter(c => c.ativo !== false && c.ativo !== 'false');
-    if (filtroTipo) items = items.filter(c => c.tipo === filtroTipo || c.tipo === 'ambos');
+    if (filtroTipo) items = items.filter(c => c.tipo === filtroTipo || (filtroTipo === 'ambos' && c.tipo === 'ambos'));
     if (q) items = filterRecords(items, q, ['nome','telefone','endereco']);
+
+    const tipoBadgeCli = t => {
+      if (t === 'cliente')    return '<span class="badge badge-info">Cliente</span>';
+      if (t === 'fornecedor') return '<span class="badge badge-secondary">Fornecedor</span>';
+      return '<span class="badge badge-success">Equipe</span>';
+    };
 
     const section = qs('#page-clientes');
     section.innerHTML = `
@@ -28,43 +34,50 @@ const Clientes = (() => {
         <h1>Clientes / Fornecedores</h1>
         <button class="btn btn-primary" onclick="Clientes.openForm()">+ Novo</button>
       </div>
-      <div class="filters-bar">
-        <input type="text" id="cli-search" placeholder="Buscar..." class="input-search" value="${q}"
+      <div class="mb-3">
+        <input type="text" id="cli-search" placeholder="Buscar nome ou endereço..." class="input-search" value="${q}"
           oninput="Clientes.applyFilters()">
-        <select id="cli-tipo" class="input-select" onchange="Clientes.applyFilters()">
-          <option value="">Todos</option>
-          <option value="cliente"    ${filtroTipo==='cliente'    ?'selected':''}>Clientes</option>
-          <option value="fornecedor" ${filtroTipo==='fornecedor' ?'selected':''}>Fornecedores</option>
-          <option value="ambos"      ${filtroTipo==='ambos'      ?'selected':''}>Ambos</option>
-        </select>
       </div>
-      <div class="card">
-        <div class="table-responsive">
-          ${items.length === 0 ? '<p class="p-3 text-muted">Nenhum cadastro encontrado.</p>' : `
-          <table class="table">
-            <thead><tr><th>Nome</th><th>Tipo</th><th>Telefone</th><th>Endereço</th><th></th></tr></thead>
-            <tbody>
-              ${items.map(c => `
-                <tr class="clickable" onclick="Clientes.openDetail('${c.id}')">
-                  <td><strong>${c.nome}</strong></td>
-                  <td><span class="badge ${c.tipo==='cliente'?'badge-info':c.tipo==='fornecedor'?'badge-secondary':'badge-success'}">${c.tipo}</span></td>
-                  <td>${c.telefone || '—'}</td>
-                  <td>${c.endereco || '—'}</td>
-                  <td>
-                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); Clientes.openForm('${c.id}')">Editar</button>
-                    <button class="btn btn-sm btn-danger"  onclick="event.stopPropagation(); Clientes.confirmDelete('${c.id}')">Excluir</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`}
-        </div>
+      <div class="tab-bar mb-3">
+        <button class="tab-btn ${filtroTipo===''?'active':''}"           onclick="Clientes.renderList(qs('#cli-search')?.value||'','')">Todos</button>
+        <button class="tab-btn ${filtroTipo==='cliente'?'active':''}"    onclick="Clientes.renderList(qs('#cli-search')?.value||'','cliente')">Clientes</button>
+        <button class="tab-btn ${filtroTipo==='fornecedor'?'active':''}" onclick="Clientes.renderList(qs('#cli-search')?.value||'','fornecedor')">Fornecedores</button>
+        <button class="tab-btn ${filtroTipo==='ambos'?'active':''}"      onclick="Clientes.renderList(qs('#cli-search')?.value||'','ambos')">Equipe</button>
+      </div>
+      <div class="entity-list">
+        ${items.length === 0
+          ? '<div class="entity-empty">Nenhum cadastro encontrado</div>'
+          : items.map(c => `
+            <div class="entity-item" onclick="Clientes.tapCard('${c.id}')">
+              <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
+              <div class="entity-info">
+                <div class="entity-name">${c.nome}</div>
+                <div class="entity-sub">${c.endereco || (c.telefone ? '📞 ' + c.telefone : 'Sem endereço')}</div>
+                <div class="entity-badges">${tipoBadgeCli(c.tipo)}${c.telefone && c.endereco ? `<span class="badge badge-secondary">📞 ${c.telefone}</span>` : ''}</div>
+              </div>
+              <div class="entity-right">
+                <span class="entity-chevron">›</span>
+              </div>
+            </div>
+          `).join('')}
       </div>
     `;
   }
 
   function applyFilters() {
-    renderList(qs('#cli-search')?.value || '', qs('#cli-tipo')?.value || '');
+    const q  = qs('#cli-search')?.value || '';
+    const tp = qs('#cli-tipo')?.value   || '';
+    renderList(q, tp);
+  }
+
+  function tapCard(id) {
+    const c = allClientes.find(x => x.id === id);
+    if (!c) return;
+    ActionSheet.open(c.nome, [
+      { icon: '👁', label: 'Ver Detalhes',  fn: () => openDetail(id) },
+      { icon: '✏️', label: 'Editar',        fn: () => openForm(id) },
+      { icon: '🗑', label: 'Inativar',      fn: () => confirmDelete(id), danger: true },
+    ]);
   }
 
   async function openDetail(id) {
@@ -112,43 +125,44 @@ const Clientes = (() => {
 
       <div class="card mt-4">
         <div class="card-header"><h3>Ordens de Serviço</h3></div>
-        <div class="table-responsive">
-          ${osList.length === 0 ? '<p class="p-3 text-muted">Nenhuma OS</p>' : `
-          <table class="table">
-            <thead><tr><th>Número</th><th>Tipo</th><th>Status</th><th>Início</th><th>Valor</th></tr></thead>
-            <tbody>
-              ${osList.map(o => `
-                <tr class="clickable" onclick="App.navigate('os', {id:'${o.id}'})">
-                  <td>${o.numero}</td>
-                  <td>${tipoBadge(o.tipo)}</td>
-                  <td>${statusBadge(o.status)}</td>
-                  <td>${Fmt.date(o.data_inicio)}</td>
-                  <td>${Fmt.currency(o.valor_fechamento || o.valor_calculado)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`}
+        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+          ${osList.length === 0
+            ? '<div class="entity-empty">Nenhuma OS</div>'
+            : osList.map(o => `
+              <div class="entity-item" onclick="App.navigate('os', {id:'${o.id}'})">
+                <div class="avatar avatar-sm ${o.status === 'fechado' ? 'av-green' : o.status === 'andamento' ? 'av-blue' : 'av-orange'} avatar-icon">🔧</div>
+                <div class="entity-info">
+                  <div class="entity-name">${o.numero}</div>
+                  <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
+                  <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
+                </div>
+                <div class="entity-right">
+                  <span class="entity-value">${Fmt.currency(o.valor_fechamento || o.valor_calculado)}</span>
+                  <span class="entity-chevron">›</span>
+                </div>
+              </div>
+            `).join('')}
         </div>
       </div>
 
       <div class="card mt-4">
-        <div class="card-header"><h3>Movimentações Financeiras</h3></div>
-        <div class="table-responsive">
-          ${parcelas.length === 0 ? '<p class="p-3 text-muted">Nenhuma movimentação</p>' : `
-          <table class="table">
-            <thead><tr><th>Descrição</th><th>Tipo</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead>
-            <tbody>
-              ${parcelas.map(p => `
-                <tr>
-                  <td>${p.descricao}</td>
-                  <td><span class="badge ${p.tipo==='receber'?'badge-success':'badge-danger'}">${p.tipo}</span></td>
-                  <td>${Fmt.date(p.data_vencimento)}</td>
-                  <td>${Fmt.currency(p.valor)}</td>
-                  <td>${statusBadge(p.status)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`}
+        <div class="card-header"><h3>Movimentações</h3></div>
+        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+          ${parcelas.length === 0
+            ? '<div class="entity-empty">Nenhuma movimentação</div>'
+            : parcelas.map(p => `
+              <div class="entity-item">
+                <div class="avatar avatar-sm ${p.tipo==='receber'?'av-green':'av-red'} avatar-icon">${p.tipo==='receber'?'↓':'↑'}</div>
+                <div class="entity-info">
+                  <div class="entity-name">${p.descricao}</div>
+                  <div class="entity-sub">Venc. ${Fmt.date(p.data_vencimento)}</div>
+                </div>
+                <div class="entity-right">
+                  <span class="entity-value ${p.tipo==='receber'?'text-green':'text-red'}">${Fmt.currency(p.valor)}</span>
+                  ${statusBadge(p.status)}
+                </div>
+              </div>
+            `).join('')}
         </div>
       </div>
     `;
@@ -202,5 +216,5 @@ const Clientes = (() => {
     });
   }
 
-  return { render, renderList, applyFilters, openDetail, openForm, saveForm, confirmDelete };
+  return { render, renderList, applyFilters, tapCard, openDetail, openForm, saveForm, confirmDelete };
 })();

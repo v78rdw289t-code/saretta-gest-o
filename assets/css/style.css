@@ -569,6 +569,115 @@ textarea.input { resize: vertical; min-height: 80px; }
   .stats-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
+/* ─── ENTITY LIST (card list mobile-first) ───────────────── */
+.entity-list {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.entity-item {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  gap: 13px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .12s;
+  -webkit-tap-highlight-color: transparent;
+  text-decoration: none;
+  color: inherit;
+}
+.entity-item:last-child { border-bottom: none; }
+.entity-item:active    { background: var(--bg); }
+
+/* Avatar círculo */
+.avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .88rem; font-weight: 800;
+  color: #fff; flex-shrink: 0;
+  letter-spacing: .5px; text-transform: uppercase;
+}
+.av-navy   { background: var(--navy); }
+.av-gold   { background: var(--gold-dk); color: #fff; }
+.av-green  { background: #16A34A; }
+.av-blue   { background: var(--info); }
+.av-orange { background: var(--warning); color: #fff; }
+.av-red    { background: var(--danger); }
+.av-purple { background: #7C3AED; }
+.av-teal   { background: #0891B2; }
+
+/* Avatar pequeno para listas compactas */
+.avatar-sm { width: 36px; height: 36px; font-size: .78rem; }
+
+/* Avatar com ícone (para itens sem nome) */
+.avatar-icon { font-size: 1.2rem; font-weight: 400; }
+
+.entity-info { flex: 1; min-width: 0; }
+.entity-name {
+  font-size: .92rem; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.entity-sub {
+  font-size: .75rem; color: var(--text-muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.entity-badges { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.entity-right {
+  flex-shrink: 0; display: flex; flex-direction: column;
+  align-items: flex-end; gap: 3px;
+}
+.entity-value   { font-size: .92rem; font-weight: 800; color: var(--text); }
+.entity-chevron { color: var(--text-light); font-size: .8rem; margin-top: 2px; }
+.entity-empty   { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: .875rem; }
+
+/* ─── ACTION SHEET ───────────────────────────────────────── */
+#action-sheet {
+  display: none; position: fixed; inset: 0; z-index: 450;
+}
+#action-sheet.open { display: flex; flex-direction: column; justify-content: flex-end; }
+#action-sheet-bg {
+  position: absolute; inset: 0;
+  background: rgba(29,43,79,.5); backdrop-filter: blur(2px);
+}
+#action-sheet-content {
+  position: relative; background: var(--card);
+  border-radius: 20px 20px 0 0; box-shadow: var(--shadow-lg);
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+#action-sheet-handle {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: var(--border); margin: 12px auto 4px;
+}
+#action-sheet-title {
+  padding: 8px 20px 12px;
+  font-size: .8rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .4px;
+  border-bottom: 1px solid var(--border);
+}
+.as-item {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px;
+  font-size: .95rem; font-weight: 600; color: var(--text);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.as-item:last-child { border-bottom: none; }
+.as-item:active     { background: var(--bg); }
+.as-item.as-danger  { color: var(--danger); }
+.as-icon { font-size: 1.1rem; width: 24px; text-align: center; flex-shrink: 0; }
+#action-sheet-cancel {
+  display: flex; align-items: center; justify-content: center;
+  padding: 15px 20px; margin-top: 6px;
+  background: var(--bg); font-size: .92rem; font-weight: 700;
+  color: var(--text-muted); cursor: pointer; border-radius: 12px;
+  margin: 8px 12px 0;
+}
+
 /* ─── SCROLLBAR ──────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

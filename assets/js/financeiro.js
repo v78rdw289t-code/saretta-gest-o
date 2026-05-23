@@ -120,48 +120,50 @@ const Financeiro = (() => {
     items = [...items].sort((a, b) => (a.data_vencimento > b.data_vencimento ? 1 : -1));
 
     if (!qs('#fin-table')) return;
-    if (items.length === 0) { qs('#fin-table').innerHTML = '<p class="p-3 text-muted">Nenhum lançamento encontrado.</p>'; return; }
+    if (items.length === 0) { qs('#fin-table').innerHTML = '<div class="entity-empty">Nenhum lançamento encontrado</div>'; return; }
 
     const total = items.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const isRec = tipo === 'receber';
+
     qs('#fin-table').innerHTML = `
-      <table class="table">
-        <thead><tr>
-          <th>Descrição</th><th>Cliente/Forn.</th>
-          <th>Competência</th><th>Vencimento</th><th>Pagamento</th>
-          <th>Valor</th><th>Status</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${items.map(p => {
-            const venc = new Date(p.data_vencimento + 'T00:00:00');
-            const hoje = new Date();
-            const vencido = p.status === 'pendente' && venc < hoje;
-            return `
-              <tr class="${vencido ? 'row-danger' : ''}">
-                <td>${p.descricao}</td>
-                <td>${App.clienteNome(p.cliente_id)}</td>
-                <td>${p.data_competencia ? Fmt.date(p.data_competencia) : '—'}</td>
-                <td>${Fmt.date(p.data_vencimento)}</td>
-                <td>${Fmt.date(p.data_pagamento)}</td>
-                <td><strong>${Fmt.currency(p.valor)}</strong></td>
-                <td>${statusBadge(p.status)}</td>
-                <td>
-                  ${p.status === 'pendente' ? `<button class="btn btn-sm btn-success" onclick="Financeiro.openPagamento('${p.id}')">Pagar</button>` : ''}
-                  <button class="btn btn-sm btn-outline" onclick="Financeiro.editarParcela('${p.id}')">Editar</button>
-                  <button class="btn btn-sm btn-danger"  onclick="Financeiro.cancelarParcela('${p.id}')">✕</button>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-        <tfoot>
-          <tr class="table-total">
-            <td colspan="5"><strong>Total</strong></td>
-            <td><strong>${Fmt.currency(total)}</strong></td>
-            <td colspan="2"></td>
-          </tr>
-        </tfoot>
-      </table>
+      <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+        ${items.map(p => {
+          const venc   = new Date(p.data_vencimento + 'T00:00:00');
+          const hoje   = new Date();
+          const vencido = p.status === 'pendente' && venc < hoje;
+          const clienteNome = App.clienteNome(p.cliente_id);
+          return `
+            <div class="entity-item${vencido ? '" style="background:var(--danger-lt)' : ''}" onclick="Financeiro.tapParcela('${p.id}')">
+              <div class="avatar avatar-sm ${isRec ? 'av-green' : 'av-red'}">${isRec ? '↓' : '↑'}</div>
+              <div class="entity-info">
+                <div class="entity-name">${p.descricao}</div>
+                <div class="entity-sub">${clienteNome ? clienteNome + ' · ' : ''}Venc. ${Fmt.date(p.data_vencimento)}${vencido ? ' ⚠' : ''}</div>
+              </div>
+              <div class="entity-right">
+                <span class="entity-value ${isRec ? 'text-green' : 'text-red'}">${Fmt.currency(p.valor)}</span>
+                ${statusBadge(p.status)}
+              </div>
+            </div>
+          `;
+        }).join('')}
+        <div class="entity-item" style="background:var(--bg);cursor:default">
+          <div class="entity-info"><strong>Total</strong></div>
+          <div class="entity-right"><span class="entity-value">${Fmt.currency(total)}</span></div>
+        </div>
+      </div>
     `;
+  }
+
+  function tapParcela(id) {
+    const p = allParcelas.find(x => x.id === id);
+    if (!p) return;
+    const actions = [];
+    if (p.status === 'pendente') {
+      actions.push({ icon: '💰', label: 'Registrar Pagamento', fn: () => openPagamento(id) });
+    }
+    actions.push({ icon: '✏️', label: 'Editar', fn: () => editarParcela(id) });
+    actions.push({ icon: '✕', label: 'Cancelar lançamento', fn: () => cancelarParcela(id), danger: true });
+    ActionSheet.open(p.descricao, actions);
   }
 
   function renderResumo() {
@@ -375,5 +377,5 @@ const Financeiro = (() => {
 
   return { render, switchTab, filtrar, renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
-           editarParcela, cancelarParcela };
+           editarParcela, cancelarParcela, tapParcela };
 })();

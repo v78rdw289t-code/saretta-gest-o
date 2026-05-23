@@ -44,41 +44,27 @@ const Fiado = (() => {
           <div class="stat-value">${Fmt.currency(totalRodrigo + totalOdinei)}</div>
         </div>
       </div>
-      <div class="filters-bar">
-        <select id="fiado-filtro" class="input-select" onchange="Fiado.renderList(this.value)">
-          <option value="">Todos</option>
-          <option value="rodrigo" ${filtro==='rodrigo'?'selected':''}>Rodrigo</option>
-          <option value="odinei"  ${filtro==='odinei' ?'selected':''}>Odinei</option>
-        </select>
+      <div class="tab-bar mb-3">
+        <button class="tab-btn ${filtro===''       ?'active':''}" onclick="Fiado.renderList('')">Todos</button>
+        <button class="tab-btn ${filtro==='rodrigo'?'active':''}" onclick="Fiado.renderList('rodrigo')">Rodrigo</button>
+        <button class="tab-btn ${filtro==='odinei' ?'active':''}" onclick="Fiado.renderList('odinei')">Odinei</button>
       </div>
-      <div class="card">
-        <div class="table-responsive">
-          ${items.length === 0 ? '<p class="p-3 text-muted">Nenhum registro de fiado.</p>' : `
-          <table class="table">
-            <thead><tr>
-              <th>Data</th><th>Pessoa</th><th>Descrição</th>
-              <th>Valor</th><th>Status</th><th></th>
-            </tr></thead>
-            <tbody>
-              ${items.map(f => `
-                <tr>
-                  <td>${Fmt.date(f.data)}</td>
-                  <td><span class="badge ${f.pessoa==='rodrigo'?'badge-blue':'badge-orange'}">${f.pessoa}</span></td>
-                  <td>${f.descricao}</td>
-                  <td><strong>${Fmt.currency(f.valor)}</strong></td>
-                  <td>${statusBadge(f.status)}</td>
-                  <td>
-                    ${f.status === 'pendente' ? `
-                      <button class="btn btn-sm btn-success" onclick="Fiado.quitar('${f.id}', '${f.parcela_pagar_id}')">Quitar</button>
-                      <button class="btn btn-sm btn-outline" onclick="Fiado.openForm('${f.id}')">Editar</button>
-                    ` : ''}
-                    <button class="btn btn-sm btn-danger" onclick="Fiado.confirmDelete('${f.id}')">✕</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`}
-        </div>
+      <div class="entity-list">
+        ${items.length === 0
+          ? '<div class="entity-empty">Nenhum registro de fiado</div>'
+          : items.map(f => `
+            <div class="entity-item" onclick="Fiado.tapCard('${f.id}')">
+              <div class="avatar ${f.pessoa === 'rodrigo' ? 'av-blue' : 'av-orange'}">${getInitials(f.pessoa)}</div>
+              <div class="entity-info">
+                <div class="entity-name">${f.descricao}</div>
+                <div class="entity-sub">${Fmt.date(f.data)} · <strong>${f.pessoa}</strong></div>
+              </div>
+              <div class="entity-right">
+                <span class="entity-value text-red">${Fmt.currency(f.valor)}</span>
+                ${statusBadge(f.status)}
+              </div>
+            </div>
+          `).join('')}
       </div>
     `;
   }
@@ -154,5 +140,17 @@ const Fiado = (() => {
     });
   }
 
-  return { render, renderList, openForm, saveForm, quitar, confirmDelete };
+  function tapCard(id) {
+    const f = allFiado.find(x => x.id === id);
+    if (!f) return;
+    const actions = [];
+    if (f.status === 'pendente') {
+      actions.push({ icon: '✅', label: 'Quitar',  fn: () => quitar(id, f.parcela_pagar_id) });
+      actions.push({ icon: '✏️', label: 'Editar',  fn: () => openForm(id) });
+    }
+    actions.push({ icon: '🗑', label: 'Excluir', fn: () => confirmDelete(id), danger: true });
+    ActionSheet.open(f.descricao, actions);
+  }
+
+  return { render, renderList, tapCard, openForm, saveForm, quitar, confirmDelete };
 })();

@@ -39,64 +39,69 @@ const OS = (() => {
 
     items = [...items].sort((a, b) => (a.data_criacao > b.data_criacao ? -1 : 1));
 
+    const statusAv = s => s === 'fechado' ? 'av-green' : s === 'andamento' ? 'av-blue' : s === 'acerto' ? 'av-orange' : 'av-navy';
+
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
         <h1>Ordens de Serviço</h1>
         <button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>
       </div>
-      <div class="filters-bar">
-        <input type="text" id="os-search" placeholder="Buscar..." class="input-search" value="${q}"
+      <div class="mb-3">
+        <input type="text" id="os-search" placeholder="Buscar OS ou cliente..." class="input-search" value="${q}"
           oninput="OS.applyFilters()">
-        <select id="os-filtro-status" class="input-select" onchange="OS.applyFilters()">
-          <option value="">Todos status</option>
-          <option value="rascunho"  ${filtroStatus==='rascunho'  ?'selected':''}>Rascunho</option>
-          <option value="andamento" ${filtroStatus==='andamento' ?'selected':''}>Em Andamento</option>
-          <option value="acerto"    ${filtroStatus==='acerto'    ?'selected':''}>Em Acerto</option>
-          <option value="fechado"   ${filtroStatus==='fechado'   ?'selected':''}>Fechado</option>
-        </select>
-        <select id="os-filtro-tipo" class="input-select" onchange="OS.applyFilters()">
-          <option value="">Todos tipos</option>
-          <option value="normal" ${filtroTipo==='normal' ?'selected':''}>Normal</option>
-          <option value="diaria" ${filtroTipo==='diaria' ?'selected':''}>Diária</option>
-        </select>
       </div>
-      <div class="card">
-        <div class="table-responsive">
-          ${items.length === 0 ? '<p class="p-3 text-muted">Nenhuma OS encontrada.</p>' : `
-          <table class="table">
-            <thead><tr>
-              <th>Número</th><th>Cliente</th><th>Tipo</th>
-              <th>Status</th><th>Início</th><th>Fim</th><th>Valor</th><th></th>
-            </tr></thead>
-            <tbody>
-              ${items.map(o => `
-                <tr class="clickable" onclick="OS.openDetail('${o.id}')">
-                  <td><strong>${o.numero}</strong></td>
-                  <td>${App.clienteNome(o.cliente_id)}</td>
-                  <td>${tipoBadge(o.tipo)}</td>
-                  <td>${statusBadge(o.status)}</td>
-                  <td>${Fmt.date(o.data_inicio)}</td>
-                  <td>${Fmt.date(o.data_fim)}</td>
-                  <td>${Fmt.currency(o.valor_fechamento || o.valor_calculado)}</td>
-                  <td>
-                    <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); OS.openForm('${o.id}')">Editar</button>
-                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); OS.confirmDelete('${o.id}')">Excluir</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`}
-        </div>
+      <div class="tab-bar mb-3">
+        <button class="tab-btn ${filtroStatus===''       ?'active':''}" onclick="OS.setStatus('')">Todas</button>
+        <button class="tab-btn ${filtroStatus==='andamento'?'active':''}" onclick="OS.setStatus('andamento')">Andamento</button>
+        <button class="tab-btn ${filtroStatus==='acerto' ?'active':''}" onclick="OS.setStatus('acerto')">Acerto</button>
+        <button class="tab-btn ${filtroStatus==='fechado'?'active':''}" onclick="OS.setStatus('fechado')">Fechadas</button>
+      </div>
+      <div class="entity-list">
+        ${items.length === 0
+          ? '<div class="entity-empty">Nenhuma OS encontrada</div>'
+          : items.map(o => `
+            <div class="entity-item" onclick="OS.tapCard('${o.id}')">
+              <div class="avatar ${statusAv(o.status)}">
+                <span style="font-size:.75rem;font-weight:800">${o.numero?.replace('OS-','')}</span>
+              </div>
+              <div class="entity-info">
+                <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
+                <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
+                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
+              </div>
+              <div class="entity-right">
+                <span class="entity-value">${o.valor_fechamento || o.valor_calculado ? Fmt.currency(o.valor_fechamento || o.valor_calculado) : ''}</span>
+                <span class="entity-chevron">›</span>
+              </div>
+            </div>
+          `).join('')}
       </div>
     `;
   }
 
   function applyFilters() {
     const q  = qs('#os-search')?.value || '';
-    const st = qs('#os-filtro-status')?.value || '';
-    const tp = qs('#os-filtro-tipo')?.value || '';
-    renderList(st, tp, q);
+    renderList(_currentStatus, '', q);
+  }
+
+  let _currentStatus = '';
+  function setStatus(s) {
+    _currentStatus = s;
+    applyFilters();
+  }
+
+  function tapCard(id) {
+    const o = allOS.find(x => x.id === id);
+    if (!o) return;
+    const actions = [
+      { icon: '👁', label: 'Abrir OS', fn: () => openDetail(id) },
+    ];
+    if (o.status !== 'fechado') {
+      actions.push({ icon: '✏️', label: 'Editar', fn: () => openForm(id) });
+    }
+    actions.push({ icon: '🗑', label: 'Excluir', fn: () => confirmDelete(id), danger: true });
+    ActionSheet.open(o.numero + ' — ' + App.clienteNome(o.cliente_id), actions);
   }
 
   // ─── DETALHE ────────────────────────────────────────────
@@ -905,7 +910,7 @@ const OS = (() => {
   }
 
   return {
-    render, renderList, applyFilters, openDetail, openForm, toggleTipo, saveForm,
+    render, renderList, applyFilters, setStatus, tapCard, openDetail, openForm, toggleTipo, saveForm,
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria,
     openItemForm, saveItem, deleteItem,
     openFechamento, calcFechamento, calcFechamentoNormal, saveFechamento,

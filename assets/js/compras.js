@@ -25,28 +25,25 @@ const Compras = (() => {
         <h1>Compras</h1>
         <button class="btn btn-primary" onclick="Compras.openForm()">+ Nova Compra</button>
       </div>
-      <div class="card">
-        <div class="table-responsive">
-          ${allCompras.length === 0 ? '<p class="p-3 text-muted">Nenhuma compra registrada.</p>' : `
-          <table class="table">
-            <thead><tr>
-              <th>Data</th><th>Fornecedor</th><th>Total</th><th>Observações</th><th></th>
-            </tr></thead>
-            <tbody>
-              ${allCompras.map(c => `
-                <tr class="clickable" onclick="Compras.openDetail('${c.id}')">
-                  <td>${Fmt.date(c.data)}</td>
-                  <td>${App.clienteNome(c.fornecedor_id)}</td>
-                  <td><strong>${Fmt.currency(c.valor_total)}</strong></td>
-                  <td>${c.observacoes || '—'}</td>
-                  <td>
-                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); Compras.confirmDelete('${c.id}')">Excluir</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`}
-        </div>
+      <div class="entity-list">
+        ${allCompras.length === 0
+          ? '<div class="entity-empty">Nenhuma compra registrada</div>'
+          : allCompras.map(c => {
+            const forn = App.clienteNome(c.fornecedor_id);
+            return `
+              <div class="entity-item" onclick="Compras.tapCard('${c.id}')">
+                <div class="avatar ${avatarColor(forn)} avatar-icon">🛒</div>
+                <div class="entity-info">
+                  <div class="entity-name">${forn || 'Fornecedor não informado'}</div>
+                  <div class="entity-sub">${Fmt.date(c.data)}${c.observacoes ? ' · ' + c.observacoes : ''}</div>
+                </div>
+                <div class="entity-right">
+                  <span class="entity-value text-red">${Fmt.currency(c.valor_total)}</span>
+                  <span class="entity-chevron">›</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
       </div>
     `;
   }
@@ -221,5 +218,14 @@ const Compras = (() => {
     } else Toast.error('Erro: ' + res?.error);
   }
 
-  return { render, renderList, openDetail, confirmDelete, openForm, addItem, removeItem, saveForm };
+  function tapCard(id) {
+    const c = allCompras.find(x => x.id === id);
+    if (!c) return;
+    ActionSheet.open('Compra — ' + Fmt.date(c.data), [
+      { icon: '👁', label: 'Ver Detalhes', fn: () => openDetail(id) },
+      { icon: '🗑', label: 'Excluir',      fn: () => confirmDelete(id), danger: true },
+    ]);
+  }
+
+  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, addItem, removeItem, saveForm };
 })();

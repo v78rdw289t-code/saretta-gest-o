@@ -226,6 +226,70 @@ function tipoBadge(tipo) {
     : '<span class="badge badge-secondary">Normal</span>';
 }
 
+// ─── ActionSheet ─────────────────────────────────────────────
+const ActionSheet = (() => {
+  let el = null;
+
+  function _build() {
+    el = document.createElement('div');
+    el.id = 'action-sheet';
+    el.innerHTML = `
+      <div id="action-sheet-bg"></div>
+      <div id="action-sheet-content">
+        <div id="action-sheet-handle"></div>
+        <div id="action-sheet-title"></div>
+        <div id="action-sheet-items"></div>
+        <div id="action-sheet-cancel">Cancelar</div>
+      </div>`;
+    document.body.appendChild(el);
+    document.getElementById('action-sheet-bg').onclick     = close;
+    document.getElementById('action-sheet-cancel').onclick = close;
+  }
+
+  function open(title, actions) {
+    if (!el) _build();
+    document.getElementById('action-sheet-title').textContent = title;
+    const container = document.getElementById('action-sheet-items');
+    container.innerHTML = actions.map((a, i) => `
+      <div class="as-item ${a.danger ? 'as-danger' : ''}" onclick="ActionSheet._run(${i})">
+        <span class="as-icon">${a.icon || '•'}</span>
+        <span>${a.label}</span>
+      </div>`).join('');
+    el._actions = actions;
+    el.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function _run(i) {
+    const fn = el._actions[i]?.fn;
+    close();
+    if (fn) setTimeout(fn, 160);
+  }
+
+  function close() {
+    if (el) el.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  return { open, close, _run };
+})();
+
+// ─── Avatar helpers ───────────────────────────────────────────
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const _AV_COLORS = ['av-navy','av-blue','av-green','av-orange','av-teal','av-purple','av-red','av-gold'];
+function avatarColor(name) {
+  if (!name) return 'av-navy';
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+  return _AV_COLORS[Math.abs(h) % _AV_COLORS.length];
+}
+
 // ─── Debounce ────────────────────────────────────────────────
 function debounce(fn, ms = 300) {
   let t;
