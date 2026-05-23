@@ -10,8 +10,15 @@ const Fmt = {
   },
   date(v) {
     if (!v) return '—';
-    const d = new Date(v + 'T00:00:00');
-    return d.toLocaleDateString('pt-BR');
+    let d;
+    if (typeof v === 'string' && v.includes('T')) {
+      // ISO datetime from Sheets: "2025-05-23T03:00:00.000Z"
+      d = new Date(v);
+    } else {
+      // Plain "YYYY-MM-DD"
+      d = new Date(String(v).substring(0, 10) + 'T00:00:00');
+    }
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
   },
   dateTime(v) {
     if (!v) return '—';
@@ -22,20 +29,39 @@ const Fmt = {
     return Math.floor(total / 60) + 'h ' + String(total % 60).padStart(2, '0') + 'min';
   },
   number(v, dec = 2) { return Number(v || 0).toFixed(dec); },
-  // Converte tempo do Google Sheets (decimal ou string "HH:MM")
+  // Converte tempo do Google Sheets (decimal, "HH:MM" ou ISO datetime "1899-12-30T08:00:00Z")
   time(v) {
     if (!v && v !== 0) return '—';
-    if (typeof v === 'string' && v.includes(':')) return v.substring(0, 5);
-    const totalMin = Math.round(Number(v) * 24 * 60);
+    if (typeof v === 'string') {
+      // ISO datetime: "1899-12-30T08:00:00.000Z" → pega a parte após o T
+      if (v.includes('T')) {
+        const t = v.split('T')[1] || '';
+        if (/^\d{2}:\d{2}/.test(t)) return t.substring(0, 5);
+      }
+      // "HH:MM" ou "HH:MM:SS"
+      if (/^\d{2}:\d{2}/.test(v)) return v.substring(0, 5);
+    }
+    // Decimal do Sheets: 0.333... = 08:00
+    const num = Number(v);
+    if (!Number.isFinite(num)) return '—';
+    const totalMin = Math.round(num * 24 * 60);
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
   },
-  // Converte decimal do Sheets para string usável em <input type="time">
+  // Converte para string usável em <input type="time">
   timeInput(v) {
     if (!v && v !== 0) return '';
-    if (typeof v === 'string' && v.includes(':')) return v.substring(0, 5);
-    const totalMin = Math.round(Number(v) * 24 * 60);
+    if (typeof v === 'string') {
+      if (v.includes('T')) {
+        const t = v.split('T')[1] || '';
+        if (/^\d{2}:\d{2}/.test(t)) return t.substring(0, 5);
+      }
+      if (/^\d{2}:\d{2}/.test(v)) return v.substring(0, 5);
+    }
+    const num = Number(v);
+    if (!Number.isFinite(num)) return '';
+    const totalMin = Math.round(num * 24 * 60);
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');

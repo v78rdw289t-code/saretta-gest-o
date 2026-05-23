@@ -119,6 +119,18 @@ const OS = (() => {
     applyFilters();
   }
 
+  function _maisOpcoes(id) {
+    const o = allOS.find(x => x.id === id) || currentOS;
+    const actions = [
+      { icon: '✏️', label: 'Editar OS', fn: () => openForm(id) },
+    ];
+    if (o && o.status !== 'fechado') {
+      actions.push({ icon: '✓', label: 'Fechar OS', fn: () => openFechamento() });
+    }
+    actions.push({ icon: '🗑', label: 'Excluir OS', fn: () => confirmDelete(id), danger: true });
+    ActionSheet.open(o ? o.numero : 'OS', actions);
+  }
+
   function tapCard(id) {
     const o = allOS.find(x => x.id === id);
     if (!o) return;
@@ -144,28 +156,42 @@ const OS = (() => {
     const cliente = App.clienteNome(currentOS.cliente_id);
 
     section.innerHTML = `
-      <div class="page-header">
-        <button class="btn btn-outline" onclick="OS.render()">← Voltar</button>
-        <h1>${currentOS.numero} — ${cliente}</h1>
-        <div class="btn-group">
-          ${currentOS.status !== 'fechado' ? `
-            ${currentOS.tipo === 'diaria' ? `<button class="btn btn-secondary" onclick="OS.openDiaria()">+ Registrar Dia</button>` : ''}
-            <button class="btn btn-primary" onclick="OS.openFechamento()">Fechar OS</button>
-          ` : ''}
-          <button class="btn btn-outline" onclick="OS.openForm('${id}')">Editar</button>
-          <button class="btn btn-danger"  onclick="OS.confirmDelete('${id}')">Excluir</button>
+      <!-- Header compacto -->
+      <div class="page-header" style="gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="OS.render()">← Voltar</button>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px">${currentOS.numero}</div>
+          <div style="font-weight:800;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cliente}</div>
         </div>
+        <button class="btn btn-outline btn-sm" style="font-size:1.2rem;letter-spacing:2px;padding:6px 12px"
+          onclick="OS._maisOpcoes('${id}')">⋯</button>
       </div>
+
+      <!-- Barra de ações principais -->
+      ${currentOS.status !== 'fechado' ? `
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          ${currentOS.tipo === 'diaria' ? `
+            <button class="btn btn-primary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openDiaria()">
+              ＋ Registrar Dia
+            </button>
+          ` : ''}
+          <button class="btn btn-secondary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openFechamento()">
+            ✓ Fechar OS
+          </button>
+        </div>
+      ` : `
+        <div style="text-align:center;margin-bottom:16px">${statusBadge('fechado')}</div>
+      `}
 
       <!-- Info resumida -->
       <div class="card mb-3">
         <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Cliente</div><strong>${cliente}</strong></div>
-          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
-          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Início</div>${Fmt.date(currentOS.data_inicio)}</div>
-          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Status</div>${statusBadge(currentOS.status)}</div>
-          ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Valor Fechamento</div><strong class="text-green" style="font-size:1.1rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
-          ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Observações</div>${currentOS.observacoes}</div>` : ''}
+          <div><div class="info-label">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
+          <div><div class="info-label">Status</div>${statusBadge(currentOS.status)}</div>
+          <div><div class="info-label">Início</div><strong>${Fmt.date(currentOS.data_inicio)}</strong></div>
+          ${currentOS.data_fim ? `<div><div class="info-label">Fim</div><strong>${Fmt.date(currentOS.data_fim)}</strong></div>` : '<div></div>'}
+          ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
+          ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
         </div>
       </div>
 
@@ -183,10 +209,7 @@ const OS = (() => {
         <div class="card mb-3">
           <div class="card-header">
             <h3>Dias Trabalhados</h3>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span class="badge badge-info">${diarias.length} dia(s)</span>
-              ${currentOS.status !== 'fechado' ? `<button class="btn btn-sm btn-primary" onclick="OS.openDiaria()">+ Dia</button>` : ''}
-            </div>
+            <span class="badge badge-info">${diarias.length} dia(s)</span>
           </div>
           <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
             ${diarias.length === 0
@@ -948,7 +971,7 @@ const OS = (() => {
   }
 
   return {
-    render, renderList, applyFilters, setStatus, tapCard, openDetail, openForm, toggleTipo, saveForm,
+    render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     openItemForm, saveItem, deleteItem,
     openFechamento, calcFechamento, calcFechamentoNormal, saveFechamento,

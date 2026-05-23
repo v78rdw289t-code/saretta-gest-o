@@ -204,9 +204,15 @@ img { max-width: 100%; }
 /* ─── PAGE HEADER ────────────────────────────────────────── */
 .page-header {
   display: flex; align-items: center; gap: 10px;
-  margin-bottom: 16px; flex-wrap: wrap;
+  margin-bottom: 16px; flex-wrap: nowrap;
 }
-.page-header h1 { font-size: 1.2rem; font-weight: 800; flex: 1; color: var(--text); }
+.page-header h1 { font-size: 1.2rem; font-weight: 800; flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ─── INFO LABEL (dentro de cards de detalhe) ────────────── */
+.info-label {
+  font-size: .72rem; color: var(--text-muted); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px;
+}
 
 /* ─── STATS ──────────────────────────────────────────────── */
 .stats-grid {
