@@ -194,8 +194,8 @@ const OS = (() => {
               : diarias.map(d => {
                   const valor = Number(d.valor_manual || d.valor_calculado || 0);
                   const horas = Number(d.horas_totais || 0);
-                  const manha = (d.manha_inicio && d.manha_fim) ? `☀️ ${d.manha_inicio}–${d.manha_fim}` : '';
-                  const tarde = (d.tarde_inicio  && d.tarde_fim)  ? `🌤 ${d.tarde_inicio}–${d.tarde_fim}` : '';
+                  const manha = (d.manha_inicio && d.manha_fim) ? `☀️ ${Fmt.time(d.manha_inicio)}–${Fmt.time(d.manha_fim)}` : '';
+                  const tarde = (d.tarde_inicio  && d.tarde_fim)  ? `🌤 ${Fmt.time(d.tarde_inicio)}–${Fmt.time(d.tarde_fim)}` : '';
                   const periodos = [manha, tarde].filter(Boolean).join('  ');
                   return `
                     <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
@@ -279,9 +279,13 @@ const OS = (() => {
             </div>
             <div class="form-group">
               <label>Cliente *</label>
-              <select name="cliente_id" class="input" required>
-                ${App.clienteOptions('cliente', os?.cliente_id)}
-              </select>
+              <div class="input-row">
+                <select name="cliente_id" id="os-form-cliente" class="input" required>
+                  ${App.clienteOptions('cliente', os?.cliente_id)}
+                </select>
+                <button type="button" class="btn-quick-add" title="Cadastrar novo cliente"
+                  onclick="App.quickAdd('os-form-cliente','cliente')">+</button>
+              </div>
             </div>
             <div id="datas-normais" class="${os?.tipo==='diaria'?'hidden':''}">
               <div class="form-row">
@@ -363,10 +367,10 @@ const OS = (() => {
     qs('#modal-diaria-os-id').value     = currentOS.id;
     qs('#modal-diaria-id').value        = diariaId || '';
     qs('#modal-diaria-data').value      = d?.data || DateUtil.today();
-    qs('#modal-diaria-manha-in').value  = d?.manha_inicio || '';
-    qs('#modal-diaria-manha-fim').value = d?.manha_fim    || '';
-    qs('#modal-diaria-tarde-in').value  = d?.tarde_inicio || '';
-    qs('#modal-diaria-tarde-fim').value = d?.tarde_fim    || '';
+    qs('#modal-diaria-manha-in').value  = Fmt.timeInput(d?.manha_inicio);
+    qs('#modal-diaria-manha-fim').value = Fmt.timeInput(d?.manha_fim);
+    qs('#modal-diaria-tarde-in').value  = Fmt.timeInput(d?.tarde_inicio);
+    qs('#modal-diaria-tarde-fim').value = Fmt.timeInput(d?.tarde_fim);
     qs('#modal-diaria-manual').value    = d?.valor_manual || '';
     qs('#modal-diaria-info').textContent = `Valor hora: ${Fmt.currency(cfg.valor_hora || 0)} | Fator normal: ${cfg.fator_manha || 1} | Extra: ${cfg.fator_extra || 1.5}`;
 

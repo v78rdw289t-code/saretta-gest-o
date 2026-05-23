@@ -346,7 +346,11 @@
       </div>
       <div class="form-group">
         <label>Fornecedor</label>
-        <select id="est-form-forn" class="input"></select>
+        <div class="input-row">
+          <select id="est-form-forn" class="input"></select>
+          <button type="button" class="btn-quick-add" title="Cadastrar fornecedor"
+            onclick="App.quickAdd('est-form-forn','fornecedor')">+</button>
+        </div>
       </div>
       <div class="form-group">
         <label>Observações</label>
@@ -372,7 +376,11 @@
       <div class="form-row">
         <div class="form-group">
           <label>Fornecedor</label>
-          <select id="compra-forn" class="input"></select>
+          <div class="input-row">
+            <select id="compra-forn" class="input"></select>
+            <button type="button" class="btn-quick-add" title="Cadastrar fornecedor"
+              onclick="App.quickAdd('compra-forn','fornecedor')">+</button>
+          </div>
         </div>
         <div class="form-group">
           <label>Data da Compra</label>
@@ -524,7 +532,11 @@
         </div>
         <div class="form-group">
           <label>Cliente / Forn.</label>
-          <select id="manual-cliente" class="input"></select>
+          <div class="input-row">
+            <select id="manual-cliente" class="input"></select>
+            <button type="button" class="btn-quick-add" title="Cadastrar novo"
+              onclick="App.quickAdd('manual-cliente','cliente')">+</button>
+          </div>
         </div>
       </div>
       <div class="form-row">

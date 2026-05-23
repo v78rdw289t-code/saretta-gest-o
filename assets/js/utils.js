@@ -22,6 +22,24 @@ const Fmt = {
     return Math.floor(total / 60) + 'h ' + String(total % 60).padStart(2, '0') + 'min';
   },
   number(v, dec = 2) { return Number(v || 0).toFixed(dec); },
+  // Converte tempo do Google Sheets (decimal ou string "HH:MM")
+  time(v) {
+    if (!v && v !== 0) return '—';
+    if (typeof v === 'string' && v.includes(':')) return v.substring(0, 5);
+    const totalMin = Math.round(Number(v) * 24 * 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  },
+  // Converte decimal do Sheets para string usável em <input type="time">
+  timeInput(v) {
+    if (!v && v !== 0) return '';
+    if (typeof v === 'string' && v.includes(':')) return v.substring(0, 5);
+    const totalMin = Math.round(Number(v) * 24 * 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  },
 };
 
 // ─── Datas ───────────────────────────────────────────────────

@@ -202,6 +202,7 @@ const Clientes = (() => {
       Modal.close('modal-cliente');
       await loadData();
       await App.loadGlobals();
+      if (!id) await App.onQuickAddDone(res.data?.id);
       renderList();
     } else Toast.error('Erro: ' + res?.error);
   }

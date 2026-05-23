@@ -8,6 +8,30 @@ const App = (() => {
   let allClientes = [];
   let allCategorias = [];
 
+  // ─── Quick Add (abre form de cliente sem sair da tela) ───
+  let _qaSelectId = null;
+  let _qaTipo = null;
+
+  function quickAdd(selectId, tipo = 'cliente') {
+    _qaSelectId = selectId;
+    _qaTipo = tipo;
+    // Pré-seleciona o tipo no form
+    Clientes.openForm();
+    setTimeout(() => {
+      const tipoEl = qs('#cli-form-tipo');
+      if (tipoEl) tipoEl.value = tipo;
+    }, 50);
+  }
+
+  async function onQuickAddDone(newId) {
+    if (!_qaSelectId) return;
+    await loadGlobals();
+    const sel = document.getElementById(_qaSelectId);
+    if (sel) sel.innerHTML = clienteOptions(_qaTipo, newId);
+    _qaSelectId = null;
+    _qaTipo = null;
+  }
+
   function navigate(page, params = {}) {
     if (!pages.includes(page)) return;
     currentPage = page;
@@ -114,7 +138,8 @@ const App = (() => {
   }
 
   return { navigate, init, loadGlobals, getClientes, getCategorias,
-           clienteNome, categoriaNome, clienteOptions, categoriaOptions };
+           clienteNome, categoriaNome, clienteOptions, categoriaOptions,
+           quickAdd, onQuickAddDone };
 })();
 
 document.addEventListener('DOMContentLoaded', () => App.init());
