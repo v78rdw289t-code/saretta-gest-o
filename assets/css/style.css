@@ -107,9 +107,9 @@ img { max-width: 100%; }
 #top-header {
   position: sticky; top: 0; z-index: 100;
   background: var(--navy);
-  height: var(--header-h);
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 16px 0;
   display: flex; align-items: center;
-  padding: 0 16px;
   gap: 12px;
   box-shadow: 0 2px 12px rgba(29,43,79,.3);
 }

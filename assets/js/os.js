@@ -41,12 +41,40 @@ const OS = (() => {
 
     const statusAv = s => s === 'fechado' ? 'av-green' : s === 'andamento' ? 'av-blue' : s === 'acerto' ? 'av-orange' : 'av-navy';
 
+    // Insights rápidos
+    const mes = new Date().toISOString().substring(0,7);
+    const totalAndamento = allOS.filter(o => o.status === 'andamento').length;
+    const totalAcerto    = allOS.filter(o => o.status === 'acerto').length;
+    const fechadasMes    = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes)).length;
+    const receitaMes     = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes))
+                                .reduce((s,o) => s + Number(o.valor_fechamento||0), 0);
+
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
         <h1>Ordens de Serviço</h1>
         <button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>
       </div>
+
+      <div class="stats-grid mb-3">
+        <div class="stat-card stat-blue" style="cursor:pointer" onclick="OS.setStatus('andamento')">
+          <div class="stat-label">Andamento</div>
+          <div class="stat-value">${totalAndamento}</div>
+        </div>
+        <div class="stat-card stat-orange" style="cursor:pointer" onclick="OS.setStatus('acerto')">
+          <div class="stat-label">Em Acerto</div>
+          <div class="stat-value">${totalAcerto}</div>
+        </div>
+        <div class="stat-card stat-green">
+          <div class="stat-label">Fechadas (mês)</div>
+          <div class="stat-value">${fechadasMes}</div>
+        </div>
+        <div class="stat-card stat-navy">
+          <div class="stat-label">Receita (mês)</div>
+          <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaMes)}</div>
+        </div>
+      </div>
+
       <div class="mb-3">
         <input type="text" id="os-search" placeholder="Buscar OS ou cliente..." class="input-search" value="${q}"
           oninput="OS.applyFilters()">
@@ -129,70 +157,69 @@ const OS = (() => {
         </div>
       </div>
 
-      <div class="grid-2col">
-        <div class="card">
-          <div class="card-header"><h3>Informações</h3></div>
-          <div class="card-body info-grid">
-            <div><label>Tipo</label>${tipoBadge(currentOS.tipo)}</div>
-            <div><label>Status</label>${statusBadge(currentOS.status)}</div>
-            <div><label>Cliente</label>${cliente}</div>
-            <div><label>Início</label>${Fmt.date(currentOS.data_inicio)}</div>
-            <div><label>Fim</label>${Fmt.date(currentOS.data_fim)}</div>
-            <div><label>Valor Calculado</label>${Fmt.currency(currentOS.valor_calculado)}</div>
-            <div><label>Valor Fechamento</label>${Fmt.currency(currentOS.valor_fechamento)}</div>
-            ${currentOS.observacoes ? `<div class="full-width"><label>Obs.</label>${currentOS.observacoes}</div>` : ''}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h3>Itens</h3>
-            ${currentOS.status !== 'fechado' ? `<button class="btn btn-sm btn-primary" onclick="OS.openItemForm()">+ Item</button>` : ''}
-          </div>
-          <div id="os-itens-list">
-            ${renderItens(itens)}
-          </div>
+      <!-- Info resumida -->
+      <div class="card mb-3">
+        <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Cliente</div><strong>${cliente}</strong></div>
+          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
+          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Início</div>${Fmt.date(currentOS.data_inicio)}</div>
+          <div><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Status</div>${statusBadge(currentOS.status)}</div>
+          ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Valor Fechamento</div><strong class="text-green" style="font-size:1.1rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
+          ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px">Observações</div>${currentOS.observacoes}</div>` : ''}
         </div>
       </div>
 
+      <!-- Itens -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3>Materiais / Itens</h3>
+          ${currentOS.status !== 'fechado' ? `<button class="btn btn-sm btn-primary" onclick="OS.openItemForm()">+ Item</button>` : ''}
+        </div>
+        <div id="os-itens-list">${renderItens(itens)}</div>
+      </div>
+
+      <!-- Dias (só para diária) -->
       ${currentOS.tipo === 'diaria' ? `
-        <div class="card mt-4">
+        <div class="card mb-3">
           <div class="card-header">
-            <h3>Dias Registrados</h3>
-            <span class="badge badge-info">${diarias.length} dia(s)</span>
+            <h3>Dias Trabalhados</h3>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="badge badge-info">${diarias.length} dia(s)</span>
+              ${currentOS.status !== 'fechado' ? `<button class="btn btn-sm btn-primary" onclick="OS.openDiaria()">+ Dia</button>` : ''}
+            </div>
           </div>
-          <div class="table-responsive">
-            ${diarias.length === 0 ? '<p class="p-3 text-muted">Nenhum dia registrado</p>' : `
-            <table class="table">
-              <thead><tr>
-                <th>Data</th><th>Manhã</th><th>Tarde</th><th>Horas</th><th>Valor</th><th></th>
-              </tr></thead>
-              <tbody>
-                ${diarias.map(d => `
-                  <tr>
-                    <td>${Fmt.date(d.data)}</td>
-                    <td>${d.manha_inicio || '—'} – ${d.manha_fim || '—'}</td>
-                    <td>${d.tarde_inicio || '—'} – ${d.tarde_fim || '—'}</td>
-                    <td>${Fmt.hours(d.horas_totais)}</td>
-                    <td>${Fmt.currency(d.valor_manual || d.valor_calculado)}</td>
-                    <td>
-                      ${currentOS.status !== 'fechado' ? `
-                      <button class="btn btn-sm btn-outline" onclick="OS.openDiaria('${d.id}')">Editar</button>
-                      <button class="btn btn-sm btn-danger"  onclick="OS.deleteDiaria('${d.id}')">Excluir</button>
-                      ` : ''}
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-              <tfoot>
-                <tr class="table-total">
-                  <td colspan="3"><strong>Total</strong></td>
-                  <td>${Fmt.hours(diarias.reduce((s,d)=>s+Number(d.horas_totais||0),0))}</td>
-                  <td>${Fmt.currency(diarias.reduce((s,d)=>s+Number(d.valor_manual||d.valor_calculado||0),0))}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>`}
+          <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+            ${diarias.length === 0
+              ? '<div class="entity-empty">Nenhum dia registrado ainda</div>'
+              : diarias.map(d => {
+                  const valor = Number(d.valor_manual || d.valor_calculado || 0);
+                  const horas = Number(d.horas_totais || 0);
+                  const manha = (d.manha_inicio && d.manha_fim) ? `☀️ ${d.manha_inicio}–${d.manha_fim}` : '';
+                  const tarde = (d.tarde_inicio  && d.tarde_fim)  ? `🌤 ${d.tarde_inicio}–${d.tarde_fim}` : '';
+                  const periodos = [manha, tarde].filter(Boolean).join('  ');
+                  return `
+                    <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
+                      <div class="avatar av-navy" style="font-size:.7rem;font-weight:800;flex-direction:column;gap:0;line-height:1.1">
+                        <span>${Fmt.date(d.data).split('/').slice(0,2).join('/')}</span>
+                      </div>
+                      <div class="entity-info">
+                        <div class="entity-name">${periodos || (d.valor_manual ? '💰 Valor manual' : 'Sem horários')}</div>
+                        <div class="entity-sub">${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}</div>
+                      </div>
+                      <div class="entity-right">
+                        <span class="entity-value">${Fmt.currency(valor)}</span>
+                        ${currentOS.status !== 'fechado' ? '<span class="entity-chevron">›</span>' : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+            ${diarias.length > 0 ? `
+              <div class="entity-item" style="background:var(--bg);cursor:default">
+                <div class="entity-info"><strong>Total (${diarias.length} dias)</strong></div>
+                <div class="entity-right">
+                  <span class="entity-value">${Fmt.currency(diarias.reduce((s,d)=>s+Number(d.valor_manual||d.valor_calculado||0),0))}</span>
+                </div>
+              </div>` : ''}
           </div>
         </div>
       ` : ''}
@@ -419,6 +446,13 @@ const OS = (() => {
       await loadData();
       openDetail(currentOS.id);
     });
+  }
+
+  function tapDiaria(id) {
+    ActionSheet.open('Dia registrado', [
+      { icon: '✏️', label: 'Editar', fn: () => openDiaria(id) },
+      { icon: '🗑', label: 'Excluir', fn: () => deleteDiaria(id), danger: true },
+    ]);
   }
 
   // ─── ITENS ──────────────────────────────────────────────
@@ -911,7 +945,7 @@ const OS = (() => {
 
   return {
     render, renderList, applyFilters, setStatus, tapCard, openDetail, openForm, toggleTipo, saveForm,
-    openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria,
+    openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     openItemForm, saveItem, deleteItem,
     openFechamento, calcFechamento, calcFechamentoNormal, saveFechamento,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
