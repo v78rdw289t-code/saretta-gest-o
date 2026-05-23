@@ -217,9 +217,11 @@ const OS = (() => {
               : diarias.map(d => {
                   const valor = Number(d.valor_manual || d.valor_calculado || 0);
                   const horas = Number(d.horas_totais || 0);
-                  const manha = (d.manha_inicio && d.manha_fim) ? `☀️ ${Fmt.time(d.manha_inicio)}–${Fmt.time(d.manha_fim)}` : '';
-                  const tarde = (d.tarde_inicio  && d.tarde_fim)  ? `🌤 ${Fmt.time(d.tarde_inicio)}–${Fmt.time(d.tarde_fim)}` : '';
-                  const periodos = [manha, tarde].filter(Boolean).join('  ');
+                  const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
+                  const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
+                  const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
+                  const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
+                  const periodos = [manha, tarde].filter(Boolean).join('   ');
                   return `
                     <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
                       <div class="avatar av-navy" style="font-size:.7rem;font-weight:800;flex-direction:column;gap:0;line-height:1.1">

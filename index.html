@@ -212,30 +212,47 @@
     <div class="modal-body">
       <input type="hidden" id="modal-diaria-os-id">
       <input type="hidden" id="modal-diaria-id">
-      <div id="modal-diaria-info"></div>
+
       <div class="form-group">
-        <label>Data</label>
+        <label>Data do Serviço</label>
         <input type="date" id="modal-diaria-data" class="input">
       </div>
-      <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px">Preencha ao menos 2 horários:</p>
-      <div class="form-row">
-        <div class="form-group">
-          <label>☀️ Manhã — Início</label>
-          <input type="time" id="modal-diaria-manha-in"  class="input" onchange="OS.calcDiariaPreview()">
-        </div>
-        <div class="form-group">
-          <label>☀️ Manhã — Fim</label>
-          <input type="time" id="modal-diaria-manha-fim" class="input" onchange="OS.calcDiariaPreview()">
-        </div>
-        <div class="form-group">
-          <label>🌤️ Tarde — Início</label>
-          <input type="time" id="modal-diaria-tarde-in"  class="input" onchange="OS.calcDiariaPreview()">
-        </div>
-        <div class="form-group">
-          <label>🌤️ Tarde — Fim</label>
-          <input type="time" id="modal-diaria-tarde-fim" class="input" onchange="OS.calcDiariaPreview()">
+
+      <!-- MANHÃ -->
+      <div class="periodo-block periodo-manha">
+        <div class="periodo-title">☀️ Manhã</div>
+        <div class="form-row" style="gap:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Entrada</label>
+            <input type="time" id="modal-diaria-manha-in" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Saída</label>
+            <input type="time" id="modal-diaria-manha-fim" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
         </div>
       </div>
+
+      <!-- TARDE -->
+      <div class="periodo-block periodo-tarde">
+        <div class="periodo-title">🌤 Tarde / Extra</div>
+        <div class="form-row" style="gap:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Entrada</label>
+            <input type="time" id="modal-diaria-tarde-in" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Saída</label>
+            <input type="time" id="modal-diaria-tarde-fim" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+        </div>
+      </div>
+
+      <!-- RESUMO CALCULADO -->
       <div class="calc-preview">
         <div class="calc-item">
           <label>Total de Horas</label>
@@ -246,12 +263,15 @@
           <span id="modal-diaria-valor">R$ 0,00</span>
         </div>
       </div>
+
       <div class="form-group mt-3">
-        <label>Valor Manual (sobrescreve o cálculo)</label>
+        <label>Valor fixo (opcional — substitui o cálculo)</label>
         <input type="number" id="modal-diaria-manual" class="input" step="0.01"
-          placeholder="Deixe vazio para usar o calculado"
-          onchange="OS.calcDiariaPreview()">
+          placeholder="R$ 0,00 — deixe vazio para usar o calculado"
+          oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
       </div>
+
+      <div id="modal-diaria-info"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary btn-lg" onclick="OS.saveDiaria()">Salvar Dia</button>

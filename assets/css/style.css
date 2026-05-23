@@ -434,14 +434,29 @@ textarea.input { resize: vertical; min-height: 80px; }
 .item-row:last-child { border-bottom: none; }
 
 /* ─── DIÁRIA PREVIEW ─────────────────────────────────────── */
+/* ─── BLOCO DE PERÍODO (manhã / tarde) ───────────────────── */
+.periodo-block {
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.periodo-manha { background: var(--gold-lt); border: 1.5px solid var(--gold); }
+.periodo-tarde  { background: var(--info-lt);  border: 1.5px solid var(--info);  }
+.periodo-title {
+  font-size: .8rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 10px;
+}
+.periodo-manha .periodo-title { color: var(--gold-dk); }
+.periodo-tarde  .periodo-title { color: var(--info); }
+
 .calc-preview {
-  background: var(--gold-lt); border: 1.5px solid var(--gold);
+  background: var(--success-lt); border: 1.5px solid var(--success);
   border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 12px;
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
 }
 .calc-item label { font-size: .72rem; color: var(--navy); font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 3px; }
 .calc-item span  { font-size: 1.15rem; font-weight: 800; color: var(--navy); }
-#modal-diaria-info { font-size: .75rem; color: var(--text-muted); margin-bottom: 10px; background: var(--bg); padding: 8px 12px; border-radius: var(--radius-xs); }
+#modal-diaria-info { font-size: .75rem; color: var(--text-muted); margin-top: 10px; background: var(--bg); padding: 8px 12px; border-radius: var(--radius-xs); }
 
 /* ─── BAR CHART ──────────────────────────────────────────── */
 .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
