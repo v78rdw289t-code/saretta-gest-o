@@ -1,13 +1,108 @@
 // ============================================================
-// INSIGHTS
+// INSIGHTS — Painel financeiro v2 (baseado no spec)
 // ============================================================
+//
+// Mapeamento do spec saretta_financeiro_spec.md → estrutura atual:
+//   "lancamento"        → parcelas (já existente)
+//   "categoria"         → categorias (sheet existente, vinculada via categoria_id)
+//   status pago/a_receber/atrasado → derivado de parcela.status + data_vencimento
+//   horas_trabalhadas   → somatório das diárias linkadas à OS (origem='os')
+//   regiao              → não implementado (precisa de parsing do endereço)
+//   taxa de visita      → não implementado (requer marcação manual)
+//
+// Seções implementadas (Fase 1):
+//   3.1 Visão Geral do Período
+//   3.2 Análise por Categoria
+//   3.3 Análise de Clientes (com alerta de concentração)
+//   3.4 Inadimplência e Recebimento
+//   3.8 Fluxo de Caixa Simplificado (semana a semana)
+//   + Dicas do Negócio (mantido)
 
 const Insights = (() => {
+  // Defaults do spec — podem virar config editável depois
+  const SPEC_DEFAULTS = {
+    custoHoraBase:      90,
+    diasUteisMes:       20,
+    horasDia:           7.5,
+    metaMargemPercent:  30,
+    alertaConcentracao: 40,
+  };
+
+  // Período selecionado (default: mês atual)
+  let _periodo = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
+  let _cache   = null;          // { parcelas, osList, diarias }
+
+  // ─── Helpers de período ─────────────────────────────────
+  // Retorna { start, end, label } no formato YYYY-MM-DD
+  function calcPeriodo(key) {
+    const hoje = new Date();
+    const y = hoje.getFullYear();
+    const m = hoje.getMonth();   // 0-11
+
+    function ymd(d) { return d.toISOString().substring(0, 10); }
+
+    if (key === 'mes_atual') {
+      return {
+        start: ymd(new Date(y, m, 1)),
+        end:   ymd(new Date(y, m + 1, 0)),
+        label: hoje.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+      };
+    }
+    if (key === 'mes_anterior') {
+      const d = new Date(y, m - 1, 1);
+      return {
+        start: ymd(d),
+        end:   ymd(new Date(y, m, 0)),
+        label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+      };
+    }
+    if (key === 'ultimos_3m') {
+      return {
+        start: ymd(new Date(y, m - 2, 1)),
+        end:   ymd(new Date(y, m + 1, 0)),
+        label: 'Últimos 3 meses',
+      };
+    }
+    if (key === 'ultimos_6m') {
+      return {
+        start: ymd(new Date(y, m - 5, 1)),
+        end:   ymd(new Date(y, m + 1, 0)),
+        label: 'Últimos 6 meses',
+      };
+    }
+    if (key === 'ano') {
+      return {
+        start: ymd(new Date(y, 0, 1)),
+        end:   ymd(new Date(y, 11, 31)),
+        label: `Ano ${y}`,
+      };
+    }
+    return calcPeriodo('mes_atual');
+  }
+
+  // Parcela cai no período se data_competencia OR data_pagamento estiver no range
+  function noPeriodo(p, periodo, campo = 'data_competencia') {
+    const d = String(p[campo] || '').substring(0, 10);
+    return d && d >= periodo.start && d <= periodo.end;
+  }
+
+  // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render() {
     const section = qs('#page-insights');
     section.innerHTML = `
-      <div class="page-header"><h1>Insights</h1></div>
-      <p class="text-muted mb-4" style="font-size:.875rem">Análise dos últimos 6 meses</p>
+      <div class="page-header"><h1>📊 Insights</h1></div>
+
+      <!-- Seletor de período -->
+      <div class="card mb-3" style="padding:6px">
+        <div class="tab-bar" style="margin:0">
+          <button class="tab-btn ${_periodo==='mes_atual'?'active':''}"    onclick="Insights.setPeriodo('mes_atual')">Mês atual</button>
+          <button class="tab-btn ${_periodo==='mes_anterior'?'active':''}" onclick="Insights.setPeriodo('mes_anterior')">Mês ant.</button>
+          <button class="tab-btn ${_periodo==='ultimos_3m'?'active':''}"   onclick="Insights.setPeriodo('ultimos_3m')">3 meses</button>
+          <button class="tab-btn ${_periodo==='ultimos_6m'?'active':''}"   onclick="Insights.setPeriodo('ultimos_6m')">6 meses</button>
+          <button class="tab-btn ${_periodo==='ano'?'active':''}"          onclick="Insights.setPeriodo('ano')">Ano</button>
+        </div>
+      </div>
+
       <div id="insights-content">
         <div class="loading-pulse p-4">Carregando dados...</div>
       </div>
@@ -15,156 +110,152 @@ const Insights = (() => {
     await loadInsights();
   }
 
-  function buildTips(parcelas, osList, recPorMes, pagPorMes, topClientes, porCliente) {
-    const tips = [];
-
-    // Tendência de receita
-    const recAtual = recPorMes[5]?.competencia || 0;
-    const recAnterior = recPorMes[4]?.competencia || 0;
-    if (recAnterior > 0) {
-      const delta = ((recAtual / recAnterior) - 1) * 100;
-      if (delta >= 10) {
-        tips.push({ icon: '📈', type: 'success', title: 'Receita em Alta', text: `Receita cresceu ${delta.toFixed(0)}% em relação ao mês anterior. Continue o bom trabalho!` });
-      } else if (delta <= -10) {
-        tips.push({ icon: '📉', type: 'danger', title: 'Queda na Receita', text: `Receita caiu ${Math.abs(delta).toFixed(0)}% em relação ao mês anterior. Vale revisar os serviços em andamento.` });
-      }
-    }
-
-    // Margem operacional do último mês
-    const despAtual = pagPorMes[5]?.competencia || 0;
-    if (recAtual > 0) {
-      const margem = ((recAtual - despAtual) / recAtual) * 100;
-      if (margem < 20) {
-        tips.push({ icon: '⚠️', type: 'warning', title: 'Margem Baixa', text: `Margem operacional em ${margem.toFixed(0)}% este mês. Verifique os custos — o ideal é manter acima de 30%.` });
-      } else if (margem >= 50) {
-        tips.push({ icon: '💪', type: 'success', title: 'Boa Margem', text: `Margem de ${margem.toFixed(0)}% este mês. Excelente controle de despesas!` });
-      }
-    }
-
-    // Concentração de clientes (risco)
-    if (topClientes.length > 0) {
-      const totalRecGeral = Object.values(porCliente).reduce((s, v) => s + v, 0);
-      if (totalRecGeral > 0) {
-        const topPercent = (topClientes[0][1] / totalRecGeral) * 100;
-        if (topPercent > 40) {
-          tips.push({ icon: '🎯', type: 'warning', title: 'Alta Concentração', text: `"${topClientes[0][0]}" representa ${topPercent.toFixed(0)}% da receita total. Diversifique sua carteira de clientes para reduzir o risco.` });
-        }
-      }
-    }
-
-    // OS em andamento há muito tempo
-    const hoje = new Date();
-    const osAntigas = osList.filter(o => {
-      if (o.status !== 'andamento') return false;
-      const inicio = new Date(String(o.data_inicio || o.data_criacao).substring(0, 10) + 'T00:00:00');
-      return (hoje - inicio) > 30 * 24 * 60 * 60 * 1000;
-    });
-    if (osAntigas.length > 0) {
-      tips.push({ icon: '🔧', type: 'warning', title: 'OS Antigas Abertas', text: `${osAntigas.length} OS em andamento há mais de 30 dias. Considere atualizá-las ou fechar as concluídas.` });
-    }
-
-    // Contas a vencer nos próximos 7 dias
-    const em7dias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const hojeStr = hoje.toISOString().split('T')[0];
-    const vencendo = parcelas.filter(p =>
-      p.tipo === 'pagar' && p.status === 'pendente' &&
-      p.data_vencimento >= hojeStr && p.data_vencimento <= em7dias
-    );
-    if (vencendo.length > 0) {
-      const totalVenc = vencendo.reduce((s, p) => s + Number(p.valor || 0), 0);
-      tips.push({ icon: '📅', type: 'danger', title: 'Contas Vencendo', text: `${vencendo.length} conta${vencendo.length > 1 ? 's' : ''} totalizando ${Fmt.currency(totalVenc)} vencem nos próximos 7 dias.` });
-    }
-
-    // Melhor mês
-    const melhorMes = recPorMes.reduce((best, r) => r.competencia > best.competencia ? r : best, recPorMes[0]);
-    if (melhorMes && melhorMes.competencia > 0) {
-      const [ano, mes] = melhorMes.mes.split('-');
-      const nomeMes = new Date(Number(ano), Number(mes) - 1, 1).toLocaleDateString('pt-BR', { month: 'long' });
-      tips.push({ icon: '🏆', type: 'info', title: 'Melhor Mês', text: `${nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1)} foi seu melhor mês com ${Fmt.currency(melhorMes.competencia)} de receita.` });
-    }
-
-    // Estoque baixo (se tiver dados de OS sem itens de estoque — dica genérica)
-    const totalOS = osList.length;
-    const fechadas = osList.filter(o => o.status === 'fechado').length;
-    if (totalOS > 0) {
-      const taxaFechamento = (fechadas / totalOS) * 100;
-      if (taxaFechamento < 50 && totalOS >= 5) {
-        tips.push({ icon: '📊', type: 'info', title: 'Taxa de Conclusão', text: `${taxaFechamento.toFixed(0)}% das suas OS foram fechadas. Manter acima de 70% indica boa produtividade.` });
-      }
-    }
-
-    // Sem dados suficientes
-    if (tips.length === 0) {
-      tips.push({ icon: '💡', type: 'navy', title: 'Dica', text: 'Continue registrando suas OS e lançamentos financeiros para receber insights personalizados sobre o seu negócio.' });
-    }
-
-    return tips;
+  function setPeriodo(p) {
+    _periodo = p;
+    render();
   }
 
   async function loadInsights() {
-    const shown = Loading.maybeShow('parcelas', 'os');
-    const [parRes, osRes] = await Promise.all([
+    const shown = Loading.maybeShow('parcelas', 'os', 'diarias');
+    const [parRes, osRes, diRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
+      API.db.read('diarias'),
     ]);
     if (shown) Loading.hide();
 
-    const parcelas = parRes?.data || [];
-    const osList   = osRes?.data  || [];
+    _cache = {
+      parcelas: parRes?.data || [],
+      osList:   osRes?.data  || [],
+      diarias:  diRes?.data  || [],
+    };
 
-    // Últimos 6 meses
-    const meses = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      meses.push(d.toISOString().substring(0, 7));
-    }
+    const periodo = calcPeriodo(_periodo);
 
-    const recPorMes = meses.map(m => ({
-      mes: m,
-      competencia: parcelas.filter(p => p.tipo === 'receber' && String(p.data_competencia||'').startsWith(m)).reduce((s, p) => s + Number(p.valor||0), 0),
-      caixa:       parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago' && String(p.data_pagamento||'').startsWith(m)).reduce((s, p) => s + Number(p.valor||0), 0),
-    }));
-    const pagPorMes = meses.map(m => ({
-      mes: m,
-      competencia: parcelas.filter(p => p.tipo === 'pagar' && String(p.data_competencia||'').startsWith(m)).reduce((s, p) => s + Number(p.valor||0), 0),
-      caixa:       parcelas.filter(p => p.tipo === 'pagar' && p.status === 'pago' && String(p.data_pagamento||'').startsWith(m)).reduce((s, p) => s + Number(p.valor||0), 0),
-    }));
+    // Pre-filtra parcelas pelo período (regime de competência)
+    const parcelasPeriodo = _cache.parcelas.filter(p => noPeriodo(p, periodo));
 
-    const osPorMes = meses.map(m => ({
-      mes: m,
-      total: osList.filter(o => String(o.data_criacao||'').startsWith(m)).length,
-      fechadas: osList.filter(o => o.status === 'fechado' && String(o.data_atualizacao||'').startsWith(m)).length,
-    }));
+    // Métricas básicas
+    const receitas = parcelasPeriodo.filter(p => p.tipo === 'receber');
+    const despesas = parcelasPeriodo.filter(p => p.tipo === 'pagar');
+    const faturamento = sumValor(receitas);
+    const totalDesp   = sumValor(despesas);
+    const lucro       = faturamento - totalDesp;
+    const margem      = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
 
-    // Top clientes
+    // Horas trabalhadas no período (das diárias)
+    const horasPeriodo = _cache.diarias.filter(d => {
+      const data = String(d.data || '').substring(0, 10);
+      return data >= periodo.start && data <= periodo.end;
+    }).reduce((s, d) => s + Number(d.horas_totais || 0), 0);
+
+    const custoHora   = horasPeriodo > 0 ? totalDesp / horasPeriodo : 0;
+    const receitaHora = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
+
+    // Top clientes no período (por receita)
     const porCliente = {};
-    parcelas.filter(p => p.tipo === 'receber').forEach(p => {
-      const k = App.clienteNome(p.cliente_id) || 'Desconhecido';
+    receitas.forEach(p => {
+      const k = App.clienteNome(p.cliente_id) || 'Sem cliente';
       porCliente[k] = (porCliente[k] || 0) + Number(p.valor || 0);
     });
-    const topClientes = Object.entries(porCliente).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const clientesRanked = Object.entries(porCliente).sort((a, b) => b[1] - a[1]);
+    const top5Clientes   = clientesRanked.slice(0, 5);
+    const concentracao   = clientesRanked[0] && faturamento > 0
+      ? (clientesRanked[0][1] / faturamento) * 100 : 0;
 
-    // Top categorias despesa
-    const porCategoria = {};
-    parcelas.filter(p => p.tipo === 'pagar').forEach(p => {
-      const k = App.categoriaNome(p.categoria_id) || 'Sem Categoria';
-      porCategoria[k] = (porCategoria[k] || 0) + Number(p.valor || 0);
+    // Categorias de receita e despesa
+    const porCategoriaRec = agruparPorCategoria(receitas);
+    const porCategoriaDesp = agruparPorCategoria(despesas);
+
+    // Inadimplência (pendentes + atrasados — todos, não só do período)
+    const hojeStr = new Date().toISOString().substring(0, 10);
+    const aReceber = _cache.parcelas.filter(p =>
+      p.tipo === 'receber' && p.status === 'pendente'
+    );
+    const atrasados = aReceber.filter(p =>
+      String(p.data_vencimento || '').substring(0, 10) < hojeStr
+    );
+    const totalReceber  = sumValor(aReceber);
+    const totalAtrasado = sumValor(atrasados);
+
+    // Prazo médio de recebimento (apenas das parcelas pagas no período)
+    const recebidasNoPeriodo = receitas.filter(p => p.status === 'pago' && p.data_pagamento);
+    const prazos = recebidasNoPeriodo.map(p => {
+      const venc  = new Date(String(p.data_vencimento || '').substring(0,10));
+      const pagto = new Date(String(p.data_pagamento  || '').substring(0,10));
+      return (pagto - venc) / 86400000;
+    }).filter(n => Number.isFinite(n));
+    const prazoMedio = prazos.length > 0
+      ? prazos.reduce((s, n) => s + n, 0) / prazos.length : null;
+
+    // Fluxo de caixa por semana (apenas para mês atual)
+    const semanas = _periodo === 'mes_atual' ? _calcSemanas(periodo, _cache.parcelas) : null;
+
+    // Dicas
+    const tips = buildTips({
+      receitas, despesas, faturamento, totalDesp, margem, top5Clientes,
+      concentracao, atrasados, horasPeriodo, custoHora,
     });
-    const topCategorias = Object.entries(porCategoria).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-    const maxRec = Math.max(...recPorMes.map(r => r.competencia), 1);
-    const maxPag = Math.max(...pagPorMes.map(r => r.competencia), 1);
-
-    // Gerar dicas
-    const tips = buildTips(parcelas, osList, recPorMes, pagPorMes, topClientes, porCliente);
 
     qs('#insights-content').innerHTML = `
-      <!-- DICAS DO NEGÓCIO -->
+      <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">Período: <strong>${periodo.label}</strong></p>
+
+      ${_renderDicas(tips)}
+      ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora })}
+      ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
+      ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
+      ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
+      ${semanas ? _renderFluxoCaixa(semanas) : ''}
+    `;
+  }
+
+  // ─── HELPERS ─────────────────────────────────────────────
+  function sumValor(arr) { return arr.reduce((s, p) => s + Number(p.valor || 0), 0); }
+
+  function agruparPorCategoria(parcelas) {
+    const out = {};
+    parcelas.forEach(p => {
+      const k = App.categoriaNome(p.categoria_id) || 'Sem categoria';
+      out[k] = (out[k] || 0) + Number(p.valor || 0);
+    });
+    return Object.entries(out).sort((a, b) => b[1] - a[1]);
+  }
+
+  function _calcSemanas(periodo, parcelas) {
+    const start = new Date(periodo.start + 'T00:00:00');
+    const end   = new Date(periodo.end + 'T23:59:59');
+    const semanas = [];
+    let s = new Date(start);
+    while (s <= end) {
+      const e = new Date(Math.min(s.getTime() + 6 * 86400000, end.getTime()));
+      const sStr = s.toISOString().substring(0,10);
+      const eStr = e.toISOString().substring(0,10);
+      const ent = sumValor(parcelas.filter(p =>
+        p.tipo === 'receber' && p.status === 'pago' &&
+        String(p.data_pagamento || '').substring(0,10) >= sStr &&
+        String(p.data_pagamento || '').substring(0,10) <= eStr
+      ));
+      const sai = sumValor(parcelas.filter(p =>
+        p.tipo === 'pagar' && p.status === 'pago' &&
+        String(p.data_pagamento || '').substring(0,10) >= sStr &&
+        String(p.data_pagamento || '').substring(0,10) <= eStr
+      ));
+      semanas.push({
+        label: `${s.getDate()}/${s.getMonth()+1}–${e.getDate()}/${e.getMonth()+1}`,
+        entradas: ent, saidas: sai, saldo: ent - sai,
+      });
+      s = new Date(e.getTime() + 86400000);
+    }
+    return semanas;
+  }
+
+  // ─── RENDERERS ───────────────────────────────────────────
+  function _renderDicas(tips) {
+    return `
       <div class="card mb-4">
         <div class="card-header">
           <h3>💡 Dicas do Negócio</h3>
-          <span class="badge badge-gold">${tips.length} insight${tips.length !== 1 ? 's' : ''}</span>
+          <span class="badge badge-gold">${tips.length}</span>
         </div>
         <div class="card-body">
           ${tips.map(t => `
@@ -178,98 +269,93 @@ const Insights = (() => {
           `).join('')}
         </div>
       </div>
+    `;
+  }
 
-      <div class="grid-2col">
-        <div class="card">
-          <div class="card-header"><h3>Receitas por Mês</h3></div>
-          <div class="card-body">
-            ${recPorMes.map(r => `
-              <div class="bar-row">
-                <div class="bar-label">${r.mes.substring(5)}</div>
-                <div class="bar-track">
-                  <div class="bar bar-green" style="width:${(r.competencia/maxRec*100).toFixed(0)}%"></div>
-                </div>
-                <div class="bar-value">${Fmt.currency(r.competencia)}</div>
-              </div>
-            `).join('')}
+  function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora }) {
+    const margemClass = margem >= SPEC_DEFAULTS.metaMargemPercent ? 'stat-green'
+                      : margem >= 20 ? 'stat-orange' : 'stat-red';
+    return `
+      <div class="card mb-4">
+        <div class="card-header"><h3>📈 Visão Geral</h3></div>
+        <div class="card-body">
+          <div class="stats-grid">
+            <div class="stat-card stat-green">
+              <div class="stat-label">Faturamento</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(faturamento)}</div>
+            </div>
+            <div class="stat-card stat-red">
+              <div class="stat-label">Despesas</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(totalDesp)}</div>
+            </div>
+            <div class="stat-card ${lucro >= 0 ? 'stat-blue' : 'stat-red'}">
+              <div class="stat-label">Lucro</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(lucro)}</div>
+            </div>
+            <div class="stat-card ${margemClass}">
+              <div class="stat-label">Margem</div>
+              <div class="stat-value" style="font-size:1rem">${margem.toFixed(1)}%</div>
+              <div class="stat-sub">meta: ${SPEC_DEFAULTS.metaMargemPercent}%</div>
+            </div>
           </div>
-        </div>
 
-        <div class="card">
-          <div class="card-header"><h3>Despesas por Mês</h3></div>
-          <div class="card-body">
-            ${pagPorMes.map(r => `
-              <div class="bar-row">
-                <div class="bar-label">${r.mes.substring(5)}</div>
-                <div class="bar-track">
-                  <div class="bar bar-red" style="width:${(r.competencia/maxPag*100).toFixed(0)}%"></div>
-                </div>
-                <div class="bar-value">${Fmt.currency(r.competencia)}</div>
-              </div>
-            `).join('')}
+          <div class="info-row mt-3">
+            <span>Horas registradas:</span>
+            <strong>${Fmt.hours(horasPeriodo)}</strong>
           </div>
+          ${horasPeriodo > 0 ? `
+            <div class="info-row">
+              <span>Custo/hora real:</span>
+              <strong>${Fmt.currency(custoHora)}/h</strong>
+            </div>
+            <div class="info-row">
+              <span>Receita/hora:</span>
+              <strong class="${receitaHora > custoHora ? 'text-green' : 'text-red'}">${Fmt.currency(receitaHora)}/h</strong>
+            </div>
+            <div class="info-row">
+              <span style="font-size:.78rem;color:var(--text-muted)">Base de referência:</span>
+              <span style="font-size:.78rem;color:var(--text-muted)">${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}/h</span>
+            </div>
+          ` : `
+            <p class="text-muted mt-2" style="font-size:.82rem">Registre diárias para calcular custo/hora real.</p>
+          `}
         </div>
+      </div>
+    `;
+  }
 
+  function _renderCategorias(porRec, porDesp) {
+    const maxRec  = Math.max(...porRec.map(c  => c[1]), 1);
+    const maxDesp = Math.max(...porDesp.map(c => c[1]), 1);
+    return `
+      <div class="grid-2col mb-4">
         <div class="card">
-          <div class="card-header"><h3>Resultado (Competência)</h3></div>
+          <div class="card-header"><h3>🟢 Receitas por Categoria</h3></div>
           <div class="card-body">
-            ${meses.map((m, i) => {
-              const res = recPorMes[i].competencia - pagPorMes[i].competencia;
-              const nomeMes = new Date(Number(m.split('-')[0]), Number(m.split('-')[1]) - 1, 1)
-                .toLocaleDateString('pt-BR', { month: 'short' });
-              return `
-                <div class="info-row">
-                  <span style="font-size:.85rem">${nomeMes} ${m.split('-')[0]}</span>
-                  <strong class="${res >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(res)}</strong>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h3>OS por Mês</h3></div>
-          <div class="card-body">
-            ${osPorMes.map(o => {
-              const nomeMes = new Date(Number(o.mes.split('-')[0]), Number(o.mes.split('-')[1]) - 1, 1)
-                .toLocaleDateString('pt-BR', { month: 'short' });
-              return `
-                <div class="info-row">
-                  <span style="font-size:.85rem">${nomeMes}</span>
-                  <span style="font-size:.85rem"><strong>${o.total}</strong> abertas · <strong class="text-green">${o.fechadas}</strong> fechadas</span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h3>Top 5 Clientes</h3></div>
-          <div class="card-body">
-            ${topClientes.length === 0 ? '<p class="text-muted">Sem dados</p>' :
-              topClientes.map(([nome, val], i) => `
-                <div class="info-row">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <span style="width:22px;height:22px;border-radius:50%;background:var(--navy);color:#fff;font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center">${i+1}</span>
-                    <span style="font-size:.875rem">${nome}</span>
+            ${porRec.length === 0 ? '<p class="text-muted">Sem receitas no período</p>' :
+              porRec.map(([nome, val]) => `
+                <div class="bar-row">
+                  <div class="bar-label">${nome}</div>
+                  <div class="bar-track">
+                    <div class="bar bar-green" style="width:${(val/maxRec*100).toFixed(0)}%"></div>
                   </div>
-                  <strong class="text-green">${Fmt.currency(val)}</strong>
+                  <div class="bar-value">${Fmt.currency(val)}</div>
                 </div>
               `).join('')}
           </div>
         </div>
 
         <div class="card">
-          <div class="card-header"><h3>Top 5 Despesas</h3></div>
+          <div class="card-header"><h3>🔴 Despesas por Categoria</h3></div>
           <div class="card-body">
-            ${topCategorias.length === 0 ? '<p class="text-muted">Sem dados</p>' :
-              topCategorias.map(([nome, val], i) => `
-                <div class="info-row">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <span style="width:22px;height:22px;border-radius:50%;background:var(--danger);color:#fff;font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center">${i+1}</span>
-                    <span style="font-size:.875rem">${nome}</span>
+            ${porDesp.length === 0 ? '<p class="text-muted">Sem despesas no período</p>' :
+              porDesp.map(([nome, val]) => `
+                <div class="bar-row">
+                  <div class="bar-label">${nome}</div>
+                  <div class="bar-track">
+                    <div class="bar bar-red" style="width:${(val/maxDesp*100).toFixed(0)}%"></div>
                   </div>
-                  <strong class="text-red">${Fmt.currency(val)}</strong>
+                  <div class="bar-value">${Fmt.currency(val)}</div>
                 </div>
               `).join('')}
           </div>
@@ -278,5 +364,168 @@ const Insights = (() => {
     `;
   }
 
-  return { render };
+  function _renderClientes(top5, concentracao, todos) {
+    const alerta = concentracao > SPEC_DEFAULTS.alertaConcentracao;
+    return `
+      <div class="card mb-4">
+        <div class="card-header">
+          <h3>👥 Análise de Clientes</h3>
+          ${alerta ? `<span class="badge badge-orange">⚠ Concentração ${concentracao.toFixed(0)}%</span>` : ''}
+        </div>
+        <div class="card-body">
+          ${top5.length === 0 ? '<p class="text-muted">Sem receitas no período</p>' : `
+            ${alerta ? `
+              <div class="tip-card tip-warning" style="margin-bottom:14px">
+                <span class="tip-icon">🎯</span>
+                <div class="tip-body">
+                  <div class="tip-title">Risco de Dependência</div>
+                  <div class="tip-text">"${top5[0][0]}" representa ${concentracao.toFixed(0)}% da receita do período. Acima de ${SPEC_DEFAULTS.alertaConcentracao}% é alerta — diversifique a carteira.</div>
+                </div>
+              </div>
+            ` : ''}
+            ${top5.map(([nome, val], i) => {
+              const pct = (val / sumArrSecond(todos)) * 100;
+              return `
+                <div class="info-row">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+                    <span style="width:22px;height:22px;border-radius:50%;background:var(--navy);color:#fff;font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex:0 0 auto">${i+1}</span>
+                    <span style="font-size:.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nome}</span>
+                  </div>
+                  <div style="text-align:right;flex:0 0 auto">
+                    <strong class="text-green">${Fmt.currency(val)}</strong>
+                    <div style="font-size:.7rem;color:var(--text-muted)">${pct.toFixed(0)}%</div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            ${todos.length > 5 ? `
+              <p class="text-muted mt-2" style="font-size:.78rem">+ ${todos.length - 5} outros clientes</p>
+            ` : ''}
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  function _renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio }) {
+    return `
+      <div class="card mb-4">
+        <div class="card-header"><h3>⏰ Inadimplência e Recebimento</h3></div>
+        <div class="card-body">
+          <div class="stats-grid">
+            <div class="stat-card stat-orange">
+              <div class="stat-label">A Receber</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(totalReceber)}</div>
+            </div>
+            <div class="stat-card stat-red">
+              <div class="stat-label">Atrasado</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(totalAtrasado)}</div>
+              <div class="stat-sub">${atrasados.length} conta(s)</div>
+            </div>
+          </div>
+          ${prazoMedio !== null ? `
+            <div class="info-row mt-3">
+              <span>Prazo médio de recebimento:</span>
+              <strong class="${prazoMedio <= 0 ? 'text-green' : 'text-orange'}">${prazoMedio.toFixed(0)} dia(s) ${prazoMedio < 0 ? 'antes' : 'após'} venc.</strong>
+            </div>
+          ` : ''}
+          ${atrasados.length > 0 ? `
+            <div style="margin-top:14px">
+              <div style="font-size:.78rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:6px">Contas atrasadas</div>
+              ${atrasados.slice(0, 5).map(p => {
+                const venc = new Date(String(p.data_vencimento).substring(0,10));
+                const diasAtraso = Math.floor((Date.now() - venc.getTime()) / 86400000);
+                return `
+                  <div class="info-row">
+                    <div style="min-width:0;flex:1">
+                      <div style="font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descricao}</div>
+                      <div style="font-size:.7rem;color:var(--text-muted)">${App.clienteNome(p.cliente_id)} · venceu há ${diasAtraso} dia(s)</div>
+                    </div>
+                    <strong class="text-red" style="flex:0 0 auto">${Fmt.currency(p.valor)}</strong>
+                  </div>
+                `;
+              }).join('')}
+              ${atrasados.length > 5 ? `<p class="text-muted mt-1" style="font-size:.78rem">+ ${atrasados.length - 5} outra(s)</p>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function _renderFluxoCaixa(semanas) {
+    const max = Math.max(...semanas.flatMap(s => [s.entradas, s.saidas]), 1);
+    return `
+      <div class="card mb-4">
+        <div class="card-header"><h3>💸 Fluxo de Caixa (semanas do mês)</h3></div>
+        <div class="card-body">
+          ${semanas.map(s => `
+            <div style="margin-bottom:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <strong style="font-size:.85rem">${s.label}</strong>
+                <strong class="${s.saldo >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(s.saldo)}</strong>
+              </div>
+              <div class="bar-row" style="margin-bottom:3px">
+                <div class="bar-label" style="font-size:.7rem">↓ ${Fmt.currency(s.entradas)}</div>
+                <div class="bar-track">
+                  <div class="bar bar-green" style="width:${(s.entradas/max*100).toFixed(0)}%"></div>
+                </div>
+              </div>
+              <div class="bar-row">
+                <div class="bar-label" style="font-size:.7rem">↑ ${Fmt.currency(s.saidas)}</div>
+                <div class="bar-track">
+                  <div class="bar bar-red" style="width:${(s.saidas/max*100).toFixed(0)}%"></div>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function sumArrSecond(entries) {
+    return entries.reduce((s, [, v]) => s + v, 0) || 1;
+  }
+
+  // ─── DICAS (mantém + adapta para período selecionado) ────
+  function buildTips({ receitas, despesas, faturamento, totalDesp, margem, top5Clientes, concentracao, atrasados, horasPeriodo, custoHora }) {
+    const tips = [];
+
+    if (faturamento === 0 && totalDesp === 0) {
+      tips.push({ icon: '💡', type: 'navy', title: 'Sem dados', text: 'Não há lançamentos neste período. Registre receitas e despesas para começar a ver insights.' });
+      return tips;
+    }
+
+    // Margem
+    if (margem < 20 && faturamento > 0) {
+      tips.push({ icon: '⚠️', type: 'danger', title: 'Margem Crítica', text: `Margem em ${margem.toFixed(0)}% — abaixo do mínimo seguro. Revise as despesas ou aumente o ticket.` });
+    } else if (margem >= SPEC_DEFAULTS.metaMargemPercent) {
+      tips.push({ icon: '💪', type: 'success', title: 'Margem Saudável', text: `Margem de ${margem.toFixed(0)}% acima da meta (${SPEC_DEFAULTS.metaMargemPercent}%). Excelente!` });
+    }
+
+    // Concentração
+    if (concentracao > SPEC_DEFAULTS.alertaConcentracao && top5Clientes.length > 0) {
+      tips.push({ icon: '🎯', type: 'warning', title: 'Alta Concentração', text: `"${top5Clientes[0][0]}" = ${concentracao.toFixed(0)}% do faturamento. Diversifique a carteira para reduzir risco.` });
+    }
+
+    // Inadimplência
+    if (atrasados.length > 0) {
+      const total = atrasados.reduce((s, p) => s + Number(p.valor || 0), 0);
+      tips.push({ icon: '⏰', type: 'danger', title: `${atrasados.length} Conta(s) Atrasada(s)`, text: `${Fmt.currency(total)} em recebíveis vencidos. Priorize a cobrança.` });
+    }
+
+    // Custo/hora vs base de referência
+    if (horasPeriodo > 0 && custoHora > SPEC_DEFAULTS.custoHoraBase * 1.2) {
+      tips.push({ icon: '📊', type: 'warning', title: 'Custo Operacional Alto', text: `Custo/hora real (${Fmt.currency(custoHora)}) está ${((custoHora/SPEC_DEFAULTS.custoHoraBase-1)*100).toFixed(0)}% acima da base de referência (${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}).` });
+    }
+
+    if (tips.length === 0) {
+      tips.push({ icon: '✅', type: 'success', title: 'Tudo em ordem', text: 'Nenhum alerta crítico para o período selecionado. Continue assim.' });
+    }
+
+    return tips;
+  }
+
+  return { render, setPeriodo };
 })();
