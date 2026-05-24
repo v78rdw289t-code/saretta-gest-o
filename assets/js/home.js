@@ -145,12 +145,12 @@ const Home = (() => {
     if (!q) return;
     _searching = true;
 
-    Loading.show();
+    const shown = Loading.maybeShow('clientes', 'os');
     const [cliRes, osRes] = await Promise.all([
       API.db.read('clientes'),
       API.db.read('os'),
     ]);
-    Loading.hide();
+    if (shown) Loading.hide();
 
     const clientes = filterRecords(cliRes?.data || [], q, ['nome','telefone','endereco']);
     const osList   = filterRecords(osRes?.data  || [], q, ['numero','observacoes']);

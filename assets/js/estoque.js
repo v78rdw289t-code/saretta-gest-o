@@ -11,9 +11,9 @@ const Estoque = (() => {
   }
 
   async function loadData() {
-    Loading.show();
+    const shown = Loading.maybeShow('estoque');
     const res = await API.db.read('estoque');
-    Loading.hide();
+    if (shown) Loading.hide();
     allEstoque = (res?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
   }
 

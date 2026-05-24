@@ -12,9 +12,9 @@ const Clientes = (() => {
   }
 
   async function loadData() {
-    Loading.show();
+    const shown = Loading.maybeShow('clientes');
     const res = await API.db.read('clientes');
-    Loading.hide();
+    if (shown) Loading.hide();
     allClientes = res?.data || [];
   }
 

@@ -129,6 +129,22 @@ const App = (() => {
 
     // Sempre abre na home
     navigate('home');
+
+    // Pré-carrega em background os sheets mais usados — quando o usuário
+    // navegar para OS, Financeiro ou Estoque, os dados já estarão no cache
+    // (TTL 5min). Não bloqueia a Home.
+    setTimeout(() => prefetchMainData(), 800);
+  }
+
+  // Dispara reads silenciosos pra popular o cache.
+  // Não esperamos as promises — só queremos que o cache seja preenchido.
+  function prefetchMainData() {
+    if (!LocalConfig.getUrl()) return;
+    if (typeof API === 'undefined') return;
+    // Em paralelo, sem await — popula o cache em background.
+    API.db.read('os').catch(() => {});
+    API.db.read('parcelas').catch(() => {});
+    API.db.read('estoque').catch(() => {});
   }
 
   return { navigate, init, loadGlobals, getClientes, getCategorias,

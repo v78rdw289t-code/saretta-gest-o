@@ -12,12 +12,12 @@ const Fiado = (() => {
   }
 
   async function loadData() {
-    Loading.show();
+    const shown = Loading.maybeShow('fiado', 'parcelas');
     const [fRes, pRes] = await Promise.all([
       API.db.read('fiado'),
       API.db.read('parcelas'),
     ]);
-    Loading.hide();
+    if (shown) Loading.hide();
     allFiado    = (fRes?.data || []).sort((a, b) => a.data > b.data ? -1 : 1);
     allParcelas = pRes?.data || [];
   }

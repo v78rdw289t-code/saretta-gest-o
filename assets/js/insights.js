@@ -102,12 +102,12 @@ const Insights = (() => {
   }
 
   async function loadInsights() {
-    Loading.show();
+    const shown = Loading.maybeShow('parcelas', 'os');
     const [parRes, osRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
     ]);
-    Loading.hide();
+    if (shown) Loading.hide();
 
     const parcelas = parRes?.data || [];
     const osList   = osRes?.data  || [];

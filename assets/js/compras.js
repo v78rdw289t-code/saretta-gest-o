@@ -12,9 +12,9 @@ const Compras = (() => {
   }
 
   async function loadData() {
-    Loading.show();
+    const shown = Loading.maybeShow('compras');
     const res = await API.db.read('compras');
-    Loading.hide();
+    if (shown) Loading.hide();
     allCompras = (res?.data || []).sort((a, b) => a.data > b.data ? -1 : 1);
   }
 

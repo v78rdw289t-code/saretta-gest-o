@@ -21,9 +21,9 @@ const Financeiro = (() => {
   }
 
   async function loadData() {
-    Loading.show();
+    const shown = Loading.maybeShow('parcelas');
     const res = await API.db.read('parcelas');
-    Loading.hide();
+    if (shown) Loading.hide();
     allParcelas = res?.data || [];
   }
 

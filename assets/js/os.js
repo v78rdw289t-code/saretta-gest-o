@@ -15,13 +15,13 @@ const OS = (() => {
   }
 
   async function loadData() {
-    Loading.show();
+    const shown = Loading.maybeShow('os', 'diarias', 'os_itens');
     const [osRes, dRes, iRes] = await Promise.all([
       API.db.read('os'),
       API.db.read('diarias'),
       API.db.read('os_itens'),
     ]);
-    Loading.hide();
+    if (shown) Loading.hide();
     allOS      = osRes?.data || [];
     allDiarias = dRes?.data  || [];
     allItens   = iRes?.data  || [];

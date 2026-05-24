@@ -139,6 +139,19 @@ const Modal = {
 const Loading = {
   show() { document.getElementById('global-loading')?.classList.add('visible'); },
   hide() { document.getElementById('global-loading')?.classList.remove('visible'); },
+  // Mostra o spinner SOMENTE se algum dos sheets não está em cache.
+  // Retorna true se o spinner foi de fato exibido — para você saber
+  // se precisa chamar hide() depois.
+  //   const shown = Loading.maybeShow('os', 'parcelas');
+  //   ... await fetch ...
+  //   if (shown) Loading.hide();
+  maybeShow(...sheets) {
+    if (typeof API === 'undefined' || !API.db?.isCached) { this.show(); return true; }
+    const allCached = sheets.every(s => API.db.isCached(s));
+    if (allCached) return false;
+    this.show();
+    return true;
+  },
 };
 
 // ─── Helpers de DOM ──────────────────────────────────────────
