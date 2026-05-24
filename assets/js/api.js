@@ -23,7 +23,7 @@ const API = (() => {
     fecharOS:        ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias'],
     registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'parcelas'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
-    pagarParcela:    ()     => ['parcelas', 'fiado'],
+    pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
     excluirOS:       ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque'],
   };
 

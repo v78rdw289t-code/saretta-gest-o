@@ -164,14 +164,23 @@ const Insights = (() => {
     const lucro       = faturamento - totalDesp;
     const margem      = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
 
-    // Horas trabalhadas no período (das diárias)
-    const horasPeriodo = _cache.diarias.filter(d => {
+    // Horas trabalhadas no período:
+    //   - Diárias: horas_totais cuja data está no período
+    //   - OS normais: horas_calculadas, usando data_atualizacao || data_inicio
+    const horasDiarias = _cache.diarias.filter(d => {
       const data = String(d.data || '').substring(0, 10);
       return data >= periodo.start && data <= periodo.end;
     }).reduce((s, d) => s + Number(d.horas_totais || 0), 0);
 
-    const custoHora   = horasPeriodo > 0 ? totalDesp / horasPeriodo : 0;
-    const receitaHora = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
+    const horasOSNormal = _cache.osList.filter(o => {
+      if (o.tipo !== 'normal') return false;
+      const ref = String(o.data_atualizacao || o.data_inicio || '').substring(0, 10);
+      return ref >= periodo.start && ref <= periodo.end;
+    }).reduce((s, o) => s + Number(o.horas_calculadas || 0), 0);
+
+    const horasPeriodo = horasDiarias + horasOSNormal;
+    const custoHora    = horasPeriodo > 0 ? totalDesp   / horasPeriodo : 0;
+    const receitaHora  = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
 
     // Top clientes no período (por receita)
     const porCliente = {};
@@ -225,7 +234,7 @@ const Insights = (() => {
       </p>
 
       ${_renderDicas(tips)}
-      ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora })}
+      ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora })}
       ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
       ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
@@ -296,9 +305,10 @@ const Insights = (() => {
     `;
   }
 
-  function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora }) {
+  function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora }) {
     const margemClass = margem >= SPEC_DEFAULTS.metaMargemPercent ? 'stat-green'
                       : margem >= 20 ? 'stat-orange' : 'stat-red';
+    const horasClass = horasPeriodo >= 40 ? 'stat-green' : horasPeriodo > 0 ? 'stat-blue' : 'stat-navy';
     return `
       <div class="card mb-4">
         <div class="card-header"><h3>📈 Visão Geral</h3></div>
@@ -323,25 +333,39 @@ const Insights = (() => {
             </div>
           </div>
 
-          <div class="info-row mt-3">
-            <span>Horas registradas:</span>
-            <strong>${Fmt.hours(horasPeriodo)}</strong>
+          <div class="stats-grid mt-3">
+            <div class="stat-card ${horasClass}">
+              <div class="stat-label">⏱ Horas no Mês</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasPeriodo)}</div>
+              ${horasPeriodo > 0 ? `<div class="stat-sub">${Fmt.currency(receitaHora)}/h</div>` : ''}
+            </div>
+            <div class="stat-card stat-navy">
+              <div class="stat-label">📋 OS Normais</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasOSNormal)}</div>
+              <div class="stat-sub">calculadora</div>
+            </div>
+            <div class="stat-card stat-blue">
+              <div class="stat-label">📅 Diárias</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasDiarias)}</div>
+              <div class="stat-sub">registro do dia</div>
+            </div>
           </div>
+
           ${horasPeriodo > 0 ? `
+            <div class="info-row mt-3">
+              <span>Faturamento / hora trabalhada:</span>
+              <strong class="${receitaHora > custoHora ? 'text-green' : 'text-red'}">${Fmt.currency(receitaHora)}/h</strong>
+            </div>
             <div class="info-row">
               <span>Custo/hora real:</span>
               <strong>${Fmt.currency(custoHora)}/h</strong>
-            </div>
-            <div class="info-row">
-              <span>Receita/hora:</span>
-              <strong class="${receitaHora > custoHora ? 'text-green' : 'text-red'}">${Fmt.currency(receitaHora)}/h</strong>
             </div>
             <div class="info-row">
               <span style="font-size:.78rem;color:var(--text-muted)">Base de referência:</span>
               <span style="font-size:.78rem;color:var(--text-muted)">${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}/h</span>
             </div>
           ` : `
-            <p class="text-muted mt-2" style="font-size:.82rem">Registre diárias para calcular custo/hora real.</p>
+            <p class="text-muted mt-2" style="font-size:.82rem">Registre diárias ou salve cálculos em OS normais para ver horas e ${'$'}/hora.</p>
           `}
         </div>
       </div>

@@ -5,6 +5,7 @@
 const Config = (() => {
   let allConfig = [];
   let allCategorias = [];
+  let allContas = [];
 
   async function render() {
     await loadData();
@@ -13,13 +14,15 @@ const Config = (() => {
 
   async function loadData() {
     Loading.show();
-    const [cfgRes, catRes] = await Promise.all([
+    const [cfgRes, catRes, conRes] = await Promise.all([
       API.db.read('config'),
       API.db.read('categorias'),
+      API.db.read('contas'),
     ]);
     Loading.hide();
     allConfig     = cfgRes?.data || [];
     allCategorias = catRes?.data || [];
+    allContas     = (conRes?.data || []).sort((a, b) => (Number(a.ordem)||0) - (Number(b.ordem)||0));
   }
 
   function getCfg(chave, def = '') {
@@ -141,7 +144,7 @@ const Config = (() => {
                 ${allCategorias.map(c => `
                   <tr>
                     <td>${c.nome}</td>
-                    <td><span class="badge ${c.tipo==='entrada'?'badge-success':c.tipo==='saida'?'badge-danger':'badge-secondary'}">${c.tipo}</span></td>
+                    <td><span class="badge ${c.tipo==='entrada'?'badge-success':c.tipo==='saida'?'badge-danger':c.tipo==='os'?'badge-info':'badge-secondary'}">${c.tipo}</span></td>
                     <td>${c.ativo !== false && c.ativo !== 'false' ? '✓' : '—'}</td>
                     <td>
                       <button class="btn btn-sm btn-danger" onclick="Config.toggleCat('${c.id}', ${c.ativo})">
@@ -152,6 +155,41 @@ const Config = (() => {
                 `).join('')}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>💳 Contas</h3>
+            <button class="btn btn-sm btn-primary" onclick="Config.openContaForm()">+ Nova Conta</button>
+          </div>
+          <div class="card-body">
+            <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:12px">
+              O saldo inicial é o ponto de partida — não conta como receita.
+              Cada pagamento/recebimento debita/credita a conta escolhida.
+            </p>
+            <div class="table-responsive">
+              <table class="table">
+                <thead><tr><th>Nome</th><th>Saldo Inicial</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  ${allContas.length === 0 ? `
+                    <tr><td colspan="4" class="text-muted" style="text-align:center;padding:14px">Nenhuma conta cadastrada</td></tr>
+                  ` : allContas.map(c => `
+                    <tr>
+                      <td><strong>${c.nome}</strong></td>
+                      <td>${Fmt.currency(Number(c.saldo_inicial || 0))}</td>
+                      <td>${c.ativo !== false && c.ativo !== 'false' ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-secondary">Inativa</span>'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-outline" onclick="Config.openContaForm('${c.id}')">Editar</button>
+                        <button class="btn btn-sm btn-danger"  onclick="Config.toggleConta('${c.id}', ${c.ativo})">
+                          ${c.ativo !== false && c.ativo !== 'false' ? 'Desativar' : 'Ativar'}
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -253,6 +291,45 @@ const Config = (() => {
     await loadData(); renderView();
   }
 
+  // ─── CONTAS ─────────────────────────────────────────────
+  let _editContaId = '';
+  function openContaForm(id = '') {
+    _editContaId = id;
+    const c = id ? allContas.find(x => x.id === id) : null;
+    qs('#conta-form-nome').value     = c?.nome || '';
+    qs('#conta-form-saldo').value    = c ? Number(c.saldo_inicial || 0) : 0;
+    qs('#conta-form-obs').value      = c?.observacoes || '';
+    qs('#conta-form-title').textContent = c ? 'Editar Conta' : 'Nova Conta';
+    Modal.open('modal-conta');
+  }
+
+  async function saveConta() {
+    const nome  = qs('#conta-form-nome').value.trim();
+    const saldo = Number(qs('#conta-form-saldo').value) || 0;
+    const obs   = qs('#conta-form-obs').value;
+    if (!nome) { Toast.warning('Informe o nome da conta'); return; }
+    Loading.show();
+    if (_editContaId) {
+      await API.db.update('contas', _editContaId, { nome, saldo_inicial: saldo, observacoes: obs });
+    } else {
+      const ordem = (allContas.reduce((m, c) => Math.max(m, Number(c.ordem)||0), 0)) + 1;
+      await API.db.create('contas', { nome, saldo_inicial: saldo, observacoes: obs, ativo: true, ordem });
+    }
+    Loading.hide();
+    Toast.success(_editContaId ? 'Conta atualizada!' : 'Conta criada!');
+    Modal.close('modal-conta');
+    await loadData();
+    await App.loadGlobals();
+    renderView();
+  }
+
+  async function toggleConta(id, atual) {
+    await API.db.update('contas', id, { ativo: !atual || atual === 'false' });
+    await loadData();
+    await App.loadGlobals();
+    renderView();
+  }
+
   async function initDB() {
     if (!LocalConfig.getUrl()) { Toast.warning('Configure a URL do Apps Script primeiro'); return; }
     Loading.show();
@@ -264,5 +341,8 @@ const Config = (() => {
     } else Toast.error('Erro: ' + res?.error);
   }
 
-  return { render, saveUrl, testarConexao, saveHoras, saveFatores, openCatForm, saveCat, toggleCat, initDB };
+  return { render, saveUrl, testarConexao, saveHoras, saveFatores,
+           openCatForm, saveCat, toggleCat,
+           openContaForm, saveConta, toggleConta,
+           initDB };
 })();

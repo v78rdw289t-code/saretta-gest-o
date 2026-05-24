@@ -15,6 +15,7 @@ const App = (() => {
   let currentParent = 'home'; // para active state no nav quando estamos numa sub-página
   let allClientes = [];
   let allCategorias = [];
+  let allContas = [];
 
   // ─── Quick Add (abre form de cliente sem sair da tela) ───
   let _qaSelectId = null;
@@ -77,16 +78,30 @@ const App = (() => {
 
   async function loadGlobals() {
     if (!LocalConfig.getUrl()) return;
-    const [cliRes, catRes] = await Promise.all([
+    const [cliRes, catRes, conRes] = await Promise.all([
       API.db.read('clientes'),
       API.db.read('categorias'),
+      API.db.read('contas'),
     ]);
     allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false');
     allCategorias = (catRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false');
+    allContas     = (conRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
+                                          .sort((a, b) => (Number(a.ordem)||0) - (Number(b.ordem)||0));
   }
 
   function getClientes()   { return allClientes; }
   function getCategorias() { return allCategorias; }
+  function getContas()     { return allContas; }
+
+  function contaNome(id) {
+    const c = allContas.find(x => x.id === id);
+    return c ? c.nome : (id ? '—' : '');
+  }
+
+  function contaOptions(selected = '', placeholder = 'Selecione conta...') {
+    return `<option value="">${placeholder}</option>` +
+      allContas.map(c => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.nome}</option>`).join('');
+  }
 
   function clienteNome(id) {
     const c = allClientes.find(c => c.id === id);
@@ -214,8 +229,9 @@ const App = (() => {
     API.db.read('fiado').catch(() => {});
   }
 
-  return { navigate, init, loadGlobals, getClientes, getCategorias,
-           clienteNome, categoriaNome, clienteOptions, categoriaOptions,
+  return { navigate, init, loadGlobals, getClientes, getCategorias, getContas,
+           clienteNome, categoriaNome, contaNome,
+           clienteOptions, categoriaOptions, contaOptions,
            quickAdd, onQuickAddDone,
            getCurrentParent, getCurrentPage, SUB_PAGES };
 })();

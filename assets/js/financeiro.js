@@ -192,6 +192,21 @@ const Financeiro = (() => {
     const recTotalCaixa= sum(recCaixa);
     const pagTotalCaixa= sum(pagCaixa);
 
+    // Saldos por conta — calculados sobre TODAS as parcelas pagas (não só do mês),
+    // pois saldo é cumulativo. saldo_inicial NÃO é receita: só ponto de partida.
+    const contas = App.getContas();
+    const todasPagas = allParcelas.filter(p => p.status === 'pago');
+    const saldosContas = contas.map(c => {
+      const ini  = Number(c.saldo_inicial || 0);
+      const ent  = todasPagas.filter(p => p.tipo === 'receber' && p.conta_id === c.id)
+                             .reduce((s, p) => s + Number(p.valor || 0), 0);
+      const sai  = todasPagas.filter(p => p.tipo === 'pagar'   && p.conta_id === c.id)
+                             .reduce((s, p) => s + Number(p.valor || 0), 0);
+      return { conta: c, inicial: ini, entradas: ent, saidas: sai, saldo: ini + ent - sai };
+    });
+    const semConta = todasPagas.filter(p => !p.conta_id).length;
+    const saldoTotal = saldosContas.reduce((s, x) => s + x.saldo, 0);
+
     const resumoByCategoria = (arr) => {
       const map = {};
       arr.forEach(p => {
@@ -202,6 +217,42 @@ const Financeiro = (() => {
     };
 
     qs('#resumo-content').innerHTML = `
+      <div class="card mt-3">
+        <div class="card-header">
+          <h3>💳 Saldos das Contas</h3>
+          <strong class="${saldoTotal >= 0 ? 'text-green' : 'text-red'}" style="font-size:1.1rem">
+            ${Fmt.currency(saldoTotal)}
+          </strong>
+        </div>
+        <div class="card-body">
+          ${saldosContas.length === 0 ? `
+            <p class="text-muted" style="text-align:center;margin:0">
+              Nenhuma conta cadastrada. <a href="#" onclick="App.navigate('config');return false">Cadastrar em Configurações</a>.
+            </p>
+          ` : `
+            <div class="stats-grid">
+              ${saldosContas.map(s => `
+                <div class="stat-card ${s.saldo >= 0 ? 'stat-green' : 'stat-red'}">
+                  <div class="stat-label">${s.conta.nome}</div>
+                  <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(s.saldo)}</div>
+                  <div class="stat-sub" style="font-size:.68rem">
+                    inicial ${Fmt.currency(s.inicial)} · +${Fmt.currency(s.entradas)} −${Fmt.currency(s.saidas)}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            ${semConta > 0 ? `
+              <p class="text-muted mt-2" style="font-size:.74rem">
+                ⚠ ${semConta} parcela(s) paga(s) sem conta vinculada — não contam aqui. Edite-as para vincular.
+              </p>
+            ` : ''}
+            <p style="font-size:.72rem;color:var(--text-muted);margin-top:8px;line-height:1.4">
+              Saldo = saldo inicial + entradas pagas − saídas pagas (acumulado). Saldo inicial <strong>não</strong> entra nos resumos abaixo.
+            </p>
+          `}
+        </div>
+      </div>
+
       <div class="grid-2col mt-3">
         <div class="card">
           <div class="card-header"><h3>Regime de Competência</h3><span class="badge badge-info">${mes}</span></div>
@@ -284,6 +335,7 @@ const Financeiro = (() => {
     qs('#manual-pagto').value  = '';
     qs('#manual-status').value = 'pendente';
     qs('#manual-quempagou').value = '';
+    qs('#manual-conta').innerHTML = App.contaOptions('', '— Selecione (quando pago) —');
     refreshManualSelects();
     qs('#manual-tipo').onchange = () => {
       refreshManualSelects();
@@ -330,9 +382,11 @@ const Financeiro = (() => {
     const pagto    = qs('#manual-pagto').value;
     const categoria= qs('#manual-categoria').value;
     const cliente  = qs('#manual-cliente').value;
+    const conta    = qs('#manual-conta')?.value || '';
     const obs      = qs('#manual-obs').value;
 
     if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
+    if (status === 'pago' && !conta) { Toast.warning('Selecione a conta quando o status for "Pago"'); return; }
 
     const compFull = (compMonth || DateUtil.today().substring(0,7)) + '-01';
 
@@ -340,26 +394,28 @@ const Financeiro = (() => {
     if (tipo === 'pagar' && quemPagou) {
       const dataPago = pagto || venc || DateUtil.today();
       Loading.show();
+      // Para fiado integrado: a despesa real e a receita-fiado entram/saem
+      // numa "conta virtual" do colaborador (não na conta da empresa).
       // 1ª parcela — A despesa real (saiu do caixa)
       const desp = await API.db.create('parcelas', {
         tipo: 'pagar', origem: 'fiado_pago', origem_id: '',
         cliente_id: cliente, descricao: desc, valor,
         data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
-        status: 'pago', categoria_id: categoria, observacoes: obs,
+        status: 'pago', categoria_id: categoria, conta_id: '', observacoes: obs,
       });
       // 2ª parcela — A receita-fiado (entrou no caixa, do bolso)
       const rec = await API.db.create('parcelas', {
         tipo: 'receber', origem: 'fiado_pago', origem_id: '',
         cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${desc}`, valor,
         data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
-        status: 'pago', categoria_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
+        status: 'pago', categoria_id: '', conta_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
       });
       // 3ª parcela — A pagar de reembolso (futuro)
       const reemb = await API.db.create('parcelas', {
         tipo: 'pagar', origem: 'fiado', origem_id: '',
         cliente_id: '', descricao: `Reembolso ${quemPagou}: ${desc}`, valor,
         data_competencia: compFull, data_vencimento: venc || dataPago, data_pagamento: '',
-        status: 'pendente', categoria_id: '', observacoes: obs,
+        status: 'pendente', categoria_id: '', conta_id: '', observacoes: obs,
       });
       // Registro fiado vinculado à parcela de reembolso
       if (reemb?.data?.id) {
@@ -393,6 +449,7 @@ const Financeiro = (() => {
       data_pagamento:  status === 'pago' ? (pagto || DateUtil.today()) : '',
       status,
       categoria_id:    categoria,
+      conta_id:        status === 'pago' ? conta : '',
       observacoes:     obs,
     };
     Loading.show();
@@ -412,15 +469,18 @@ const Financeiro = (() => {
     qs('#pag-parcela-id').value  = id;
     qs('#pag-valor').textContent = Fmt.currency(p.valor);
     qs('#pag-data').value        = DateUtil.today();
+    qs('#pag-conta').innerHTML   = App.contaOptions(p.conta_id || '', 'Selecione conta...');
     Modal.open('modal-pagamento');
   }
 
   async function confirmarPagamento() {
-    const id   = qs('#pag-parcela-id').value;
-    const data = qs('#pag-data').value;
-    if (!data) { Toast.warning('Informe a data de pagamento'); return; }
+    const id     = qs('#pag-parcela-id').value;
+    const data   = qs('#pag-data').value;
+    const conta  = qs('#pag-conta').value;
+    if (!data)  { Toast.warning('Informe a data de pagamento'); return; }
+    if (!conta) { Toast.warning('Selecione a conta'); return; }
     Loading.show();
-    const res = await API.db.pagarParcela({ parcela_id: id, data_pagamento: data });
+    const res = await API.db.pagarParcela({ parcela_id: id, data_pagamento: data, conta_id: conta });
     Loading.hide();
     if (res?.success) {
       Toast.success('Pagamento registrado!');
@@ -451,11 +511,14 @@ const Financeiro = (() => {
     qs('#manual-venc').value   = Fmt.dateInput(p.data_vencimento);
     qs('#manual-pagto').value  = Fmt.dateInput(p.data_pagamento);
     qs('#manual-status').value = p.status;
+    qs('#manual-conta').innerHTML = App.contaOptions(p.conta_id || '', '— Selecione (quando pago) —');
     refreshManualSelects(p.cliente_id, p.categoria_id);
     qs('#manual-tipo').onchange = () => refreshManualSelects();
     qs('#manual-obs').value    = p.observacoes || '';
     qs('#manual-save-btn').onclick = async () => {
       const status = qs('#manual-status').value;
+      const contaEdit = qs('#manual-conta')?.value || '';
+      if (status === 'pago' && !contaEdit) { Toast.warning('Selecione a conta quando o status for "Pago"'); return; }
       const data = {
         tipo:            qs('#manual-tipo').value,
         cliente_id:      qs('#manual-cliente').value,
@@ -463,8 +526,9 @@ const Financeiro = (() => {
         valor:           Number(qs('#manual-valor').value) || 0,
         data_competencia:qs('#manual-comp').value + '-01',
         data_vencimento: qs('#manual-venc').value,
-        // Se voltar para pendente/cancelado, zera data_pagamento para não distorcer regime de caixa
+        // Se voltar para pendente/cancelado, zera data_pagamento e conta_id pra não distorcer caixa
         data_pagamento:  status === 'pago' ? (qs('#manual-pagto').value || DateUtil.today()) : '',
+        conta_id:        status === 'pago' ? contaEdit : '',
         status,
         categoria_id:    qs('#manual-categoria').value,
         observacoes:     qs('#manual-obs').value,

@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=1.4.4">
+  <link rel="stylesheet" href="assets/css/style.css?v=1.5.1">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
   <link rel="apple-touch-icon" href="assets/img/logo-icon.svg">
@@ -188,9 +188,15 @@
       <input type="hidden" id="modal-diaria-os-id">
       <input type="hidden" id="modal-diaria-id">
 
-      <div class="form-group">
-        <label>Data do Serviço</label>
-        <input type="date" id="modal-diaria-data" class="input">
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Data do Serviço</label>
+          <input type="date" id="modal-diaria-data" class="input">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Categoria <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+          <select id="modal-diaria-categoria" class="input"></select>
+        </div>
       </div>
 
       <!-- MANHÃ -->
@@ -554,6 +560,10 @@
           <select id="manual-categoria" class="input"></select>
         </div>
       </div>
+      <div class="form-group" id="manual-conta-wrap">
+        <label>Conta <small style="color:var(--text-muted);font-weight:400">(quando pago)</small></label>
+        <select id="manual-conta" class="input"></select>
+      </div>
       <div class="form-group">
         <label>Observações</label>
         <textarea id="manual-obs" class="input" rows="2"></textarea>
@@ -598,6 +608,11 @@
         <label>Data do Pagamento</label>
         <input type="date" id="pag-data" class="input">
       </div>
+      <div class="form-group">
+        <label>Conta *</label>
+        <select id="pag-conta" class="input"></select>
+        <small style="color:var(--text-muted);font-size:.72rem">Onde o dinheiro entrou/saiu (ex: Carteira, Sicredi)</small>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-success" onclick="Financeiro.confirmarPagamento()">✓ Confirmar</button>
@@ -625,6 +640,7 @@
           <option value="saida">Saída (Despesa)</option>
           <option value="ambos">Ambos</option>
           <option value="pagar">A Pagar (Fiado/etc)</option>
+          <option value="os">🔧 Categoria de OS</option>
         </select>
       </div>
     </div>
@@ -635,18 +651,49 @@
   </div>
 </div>
 
+<!-- Conta (Carteira/Sicredi/etc) -->
+<div id="modal-conta" class="modal-center">
+  <div class="modal-center-box">
+    <div class="modal-header">
+      <h3 id="conta-form-title">Nova Conta</h3>
+      <button class="modal-close" onclick="Modal.close('modal-conta')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Nome *</label>
+        <input type="text" id="conta-form-nome" class="input" placeholder="Ex: Carteira, Sicredi, Nubank...">
+      </div>
+      <div class="form-group">
+        <label>Saldo Inicial (R$)</label>
+        <input type="number" id="conta-form-saldo" class="input" step="0.01" value="0">
+        <small style="color:var(--text-muted);font-size:.72rem;display:block;margin-top:4px;line-height:1.4">
+          Esse valor é só o ponto de partida da conta — não conta como receita nem despesa no resumo. Pagamentos e recebimentos vão somar/diminuir a partir dele.
+        </small>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <textarea id="conta-form-obs" class="input" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="Config.saveConta()">Salvar</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-conta')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=1.4.4"></script>
-<script src="assets/js/utils.js?v=1.4.4"></script>
-<script src="assets/js/home.js?v=1.4.4"></script>
-<script src="assets/js/os.js?v=1.4.4"></script>
-<script src="assets/js/financeiro.js?v=1.4.4"></script>
-<script src="assets/js/clientes.js?v=1.4.4"></script>
-<script src="assets/js/estoque.js?v=1.4.4"></script>
-<script src="assets/js/compras.js?v=1.4.4"></script>
-<script src="assets/js/fiado.js?v=1.4.4"></script>
-<script src="assets/js/insights.js?v=1.4.4"></script>
-<script src="assets/js/config.js?v=1.4.4"></script>
-<script src="assets/js/app.js?v=1.4.4"></script>
+<script src="assets/js/api.js?v=1.5.1"></script>
+<script src="assets/js/utils.js?v=1.5.1"></script>
+<script src="assets/js/home.js?v=1.5.1"></script>
+<script src="assets/js/os.js?v=1.5.1"></script>
+<script src="assets/js/financeiro.js?v=1.5.1"></script>
+<script src="assets/js/clientes.js?v=1.5.1"></script>
+<script src="assets/js/estoque.js?v=1.5.1"></script>
+<script src="assets/js/compras.js?v=1.5.1"></script>
+<script src="assets/js/fiado.js?v=1.5.1"></script>
+<script src="assets/js/insights.js?v=1.5.1"></script>
+<script src="assets/js/config.js?v=1.5.1"></script>
+<script src="assets/js/app.js?v=1.5.1"></script>
 </body>
 </html>

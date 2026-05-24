@@ -43,8 +43,11 @@ const OS = (() => {
     let items = allOS;
     if (filtroStatus) items = items.filter(o => o.status === filtroStatus);
     if (filtroTipo)   items = items.filter(o => o.tipo === filtroTipo);
-    if (q)            items = filterRecords(items, q, ['numero','observacoes']).concat(
-                               items.filter(o => App.clienteNome(o.cliente_id).toLowerCase().includes(q.toLowerCase()))
+    if (q)            items = filterRecords(items, q, ['numero','nome','observacoes']).concat(
+                               items.filter(o =>
+                                 App.clienteNome(o.cliente_id).toLowerCase().includes(q.toLowerCase()) ||
+                                 (App.categoriaNome(o.categoria_id) || '').toLowerCase().includes(q.toLowerCase())
+                               )
                              ).filter((v, i, a) => a.indexOf(v) === i);
 
     items = [...items].sort((a, b) => (a.data_criacao > b.data_criacao ? -1 : 1));
@@ -104,22 +107,25 @@ const OS = (() => {
       <div class="entity-list">
         ${items.length === 0
           ? '<div class="entity-empty">Nenhuma OS encontrada</div>'
-          : items.map(o => `
+          : items.map(o => {
+            const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
+            return `
             <div class="entity-item" onclick="OS.tapCard('${o.id}')">
               <div class="avatar ${statusAv(o.status)}">
                 <span style="font-size:.75rem;font-weight:800">${o.numero?.replace('OS-','')}</span>
               </div>
               <div class="entity-info">
-                <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
+                <div class="entity-name">${App.clienteNome(o.cliente_id)}${o.nome ? ` <span style="font-weight:500;color:var(--text-muted);font-size:.85em">· ${o.nome}</span>` : ''}</div>
                 <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
-                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
+                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}</div>
               </div>
               <div class="entity-right">
                 <span class="entity-value">${o.valor_fechamento || o.valor_calculado ? Fmt.currency(o.valor_fechamento || o.valor_calculado) : ''}</span>
                 <span class="entity-chevron">›</span>
               </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
       </div>
     `;
   }
@@ -179,8 +185,9 @@ const OS = (() => {
       <div class="page-header" style="gap:8px">
         <button class="btn btn-outline btn-sm" onclick="OS.render()">← Voltar</button>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px">${currentOS.numero}</div>
-          <div style="font-weight:800;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cliente}</div>
+          <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px">${currentOS.numero}${currentOS.categoria_id ? ` · ${App.categoriaNome(currentOS.categoria_id)}` : ''}</div>
+          <div style="font-weight:800;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${currentOS.nome || cliente}</div>
+          ${currentOS.nome ? `<div style="font-size:.78rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cliente}</div>` : ''}
         </div>
         <button class="btn btn-outline btn-sm" style="font-size:1.2rem;letter-spacing:2px;padding:6px 12px"
           onclick="OS._maisOpcoes('${id}')">⋯</button>
@@ -366,13 +373,18 @@ const OS = (() => {
     Loading.show();
     const res = await API.db.update('os', currentOS.id, {
       valor_calculado:   _calc.liquido,
+      horas_calculadas:  _calc.horas || 0,
       data_atualizacao:  new Date().toISOString(),
     });
     Loading.hide();
     if (res?.success) {
       currentOS.valor_calculado = _calc.liquido;
+      currentOS.horas_calculadas = _calc.horas || 0;
       const idx = allOS.findIndex(o => o.id === currentOS.id);
-      if (idx >= 0) allOS[idx].valor_calculado = _calc.liquido;
+      if (idx >= 0) {
+        allOS[idx].valor_calculado = _calc.liquido;
+        allOS[idx].horas_calculadas = _calc.horas || 0;
+      }
       Toast.success('Cálculo salvo!');
       // Colapsa a calculadora e mostra o resumo
       _calcExpanded = false;
@@ -597,6 +609,10 @@ const OS = (() => {
               </div>
             </div>
             <div class="form-group">
+              <label>Nome da OS <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+              <input type="text" name="nome" class="input" value="${os?.nome || ''}" placeholder="Ex: Reforma do galpão, Cerca leste...">
+            </div>
+            <div class="form-group">
               <label>Cliente *</label>
               <div class="input-row">
                 <select name="cliente_id" id="os-form-cliente" class="input" required>
@@ -605,6 +621,12 @@ const OS = (() => {
                 <button type="button" class="btn-quick-add" title="Cadastrar novo cliente"
                   onclick="App.quickAdd('os-form-cliente','cliente')">+</button>
               </div>
+            </div>
+            <div class="form-group">
+              <label>Categoria <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+              <select name="categoria_id" class="input">
+                ${App.categoriaOptions('os', os?.categoria_id)}
+              </select>
             </div>
             <div id="datas-normais" class="${os?.tipo==='diaria'?'hidden':''}">
               <div class="form-row">
@@ -686,6 +708,9 @@ const OS = (() => {
     qs('#modal-diaria-os-id').value     = currentOS.id;
     qs('#modal-diaria-id').value        = diariaId || '';
     qs('#modal-diaria-data').value      = Fmt.dateInput(d?.data) || DateUtil.today();
+    // Categoria: padrão = a categoria da OS (se houver); pode ser sobrescrita por dia
+    const catPadrao = d?.categoria_id ?? currentOS.categoria_id ?? '';
+    qs('#modal-diaria-categoria').innerHTML = App.categoriaOptions('os', catPadrao);
     qs('#modal-diaria-manha-in').value  = Fmt.timeInput(d?.manha_inicio);
     qs('#modal-diaria-manha-fim').value = Fmt.timeInput(d?.manha_fim);
     qs('#modal-diaria-tarde-in').value  = Fmt.timeInput(d?.tarde_inicio);
@@ -737,6 +762,7 @@ const OS = (() => {
     const safe = t => t ? '@' + t : '';
     const data = {
       os_id:         osId,
+      categoria_id:  qs('#modal-diaria-categoria')?.value || '',
       data:          qs('#modal-diaria-data').value,
       manha_inicio:  safe(mi), manha_fim: safe(mf),
       tarde_inicio:  safe(ti), tarde_fim: safe(tf),
@@ -1045,17 +1071,50 @@ const OS = (() => {
   }
 
   // ─── LISTA DE COMPRAS ───────────────────────────────────
+  // Estado local para o modal "Nova Lista": cliente fixo + itens acumulados
+  let _novaLista = { cliente_id: '', itens: [] };
+  // Cache da lista pra evitar refetch quando só toggleamos checkbox
+  let _listaCache = { lista: [], estoque: [] };
+
   async function openListaCompras() {
-    const [lcRes, cliRes, estRes] = await Promise.all([
+    Loading.show();
+    const [lcRes, estRes] = await Promise.all([
       API.db.read('lista_compras'),
-      API.db.read('clientes'),
       API.db.read('estoque'),
     ]);
-    const lista   = lcRes?.data  || [];
-    const clientes= cliRes?.data || [];
-    const estoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+    Loading.hide();
+    _listaCache = {
+      lista:   lcRes?.data || [],
+      estoque: (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false'),
+    };
+    renderListaCompras();
+  }
 
+  function renderListaCompras() {
+    const { lista, estoque } = _listaCache;
     const section = qs('#page-os');
+
+    // Agrupar por cliente_id (mantém pendentes E comprados juntos)
+    const grupos = {};
+    lista.forEach(l => {
+      const k = l.cliente_id || '_sem';
+      if (!grupos[k]) grupos[k] = [];
+      grupos[k].push(l);
+    });
+    // Ordena cada grupo: pendentes primeiro, depois por data
+    Object.keys(grupos).forEach(k => {
+      grupos[k].sort((a, b) => {
+        const aP = (a.status || 'pendente') === 'pendente' ? 0 : 1;
+        const bP = (b.status || 'pendente') === 'pendente' ? 0 : 1;
+        if (aP !== bP) return aP - bP;
+        return String(a.data_criacao || '').localeCompare(String(b.data_criacao || ''));
+      });
+    });
+
+    const grupoIds = Object.keys(grupos).sort((a, b) =>
+      App.clienteNome(a).localeCompare(App.clienteNome(b))
+    );
+
     section.innerHTML = `
       <div class="section-tabs">
         <button class="section-tab" onclick="OS.render()">📋 Ordens</button>
@@ -1065,98 +1124,216 @@ const OS = (() => {
 
       <div class="page-header">
         <h1>Lista de Compras</h1>
-        <button class="btn btn-primary" onclick="OS.openListaItemForm()">+ Adicionar Item</button>
+        <button class="btn btn-primary" onclick="OS.openNovaListaForm()">+ Nova Lista</button>
       </div>
-      ${clientes.filter(c => c.tipo === 'cliente' || c.tipo === 'ambos').map(c => {
-        const itens = lista.filter(l => l.cliente_id === c.id && l.status !== 'comprado');
-        if (itens.length === 0) return '';
+
+      ${grupoIds.length === 0 ? `
+        <div class="card mt-3"><div class="card-body">
+          <p class="text-muted" style="text-align:center;margin:0">Nenhum item na lista. Toque em <strong>+ Nova Lista</strong> para começar.</p>
+        </div></div>
+      ` : grupoIds.map(cid => {
+        const itens = grupos[cid];
+        const pend  = itens.filter(i => (i.status || 'pendente') === 'pendente').length;
+        const total = itens.length;
         return `
           <div class="card mt-3">
-            <div class="card-header"><h3>${c.nome}</h3></div>
-            <div class="table-responsive">
-              <table class="table">
-                <thead><tr><th>Item</th><th>Qtd</th><th>No Estoque</th><th>Status</th><th></th></tr></thead>
-                <tbody>
-                  ${itens.map(i => {
-                    const noEst = estoque.find(e => e.descricao.toLowerCase() === i.descricao.toLowerCase());
-                    return `
-                      <tr>
-                        <td>${i.descricao}</td>
-                        <td>${i.quantidade} ${i.unidade || ''}</td>
-                        <td>${noEst ? `<span class="badge badge-success">✓ ${noEst.quantidade} ${noEst.unidade||''}</span>` : '<span class="badge badge-danger">Não tem</span>'}</td>
-                        <td>${statusBadge(i.status || 'pendente')}</td>
-                        <td>
-                          <button class="btn btn-sm btn-success" onclick="OS.marcarComprado('${i.id}')">Comprado</button>
-                          <button class="btn btn-sm btn-danger"  onclick="OS.deleteListaItem('${i.id}')">✕</button>
-                        </td>
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
+            <div class="card-header">
+              <h3>${App.clienteNome(cid)}</h3>
+              <div style="display:flex;gap:6px;align-items:center">
+                <span class="badge ${pend > 0 ? 'badge-warning' : 'badge-success'}">${pend > 0 ? `${pend} pend.` : '✓ tudo comprado'}</span>
+                <button class="btn btn-sm btn-outline" onclick="OS.addItensCliente('${cid}')">+ Item</button>
+              </div>
+            </div>
+            <div class="card-body" style="padding:6px 8px">
+              ${itens.map(i => {
+                const comprado = (i.status || 'pendente') === 'comprado';
+                const noEst = estoque.find(e => (e.descricao || '').toLowerCase() === (i.descricao || '').toLowerCase());
+                return `
+                  <label class="lista-row" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-bottom:1px solid var(--border);cursor:pointer">
+                    <input type="checkbox" ${comprado ? 'checked' : ''}
+                      style="width:22px;height:22px;flex:0 0 auto;accent-color:var(--success)"
+                      onchange="OS.toggleComprado('${i.id}', this.checked)">
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:600;${comprado ? 'text-decoration:line-through;color:var(--text-muted)' : ''}">${i.descricao}</div>
+                      <div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">
+                        ${i.quantidade || 1} ${i.unidade || 'un'}
+                        ${noEst ? ` · <span class="badge badge-success" style="font-size:.65rem">estoque: ${noEst.quantidade}</span>` : ''}
+                      </div>
+                    </div>
+                    <button class="btn btn-sm btn-danger" style="flex:0 0 auto" onclick="event.preventDefault();OS.deleteListaItem('${i.id}')">✕</button>
+                  </label>
+                `;
+              }).join('')}
             </div>
           </div>
         `;
       }).join('')}
-      <div id="modal-lista-item-form" class="hidden card mt-3">
-        <div class="card-header"><h3>Adicionar Item à Lista</h3></div>
+
+      ${_renderNovaListaModal()}
+    `;
+  }
+
+  // Modal inline da Nova Lista — escolhe cliente uma vez e adiciona vários itens
+  function _renderNovaListaModal() {
+    const aberto = !!_novaLista._aberto;
+    if (!aberto) return '';
+    const cliFix = _novaLista.cliente_id;
+    return `
+      <div class="card mt-3" style="border:2px solid var(--primary)">
+        <div class="card-header">
+          <h3>Nova Lista de Compras</h3>
+          <button class="btn btn-sm btn-outline" onclick="OS.fecharNovaLista()">✕</button>
+        </div>
         <div class="card-body">
-          <form id="lista-item-form" onsubmit="OS.saveListaItem(event)">
-            <div class="form-row">
-              <div class="form-group">
-                <label>Cliente</label>
-                <select name="cliente_id" class="input" required>
-                  ${App.clienteOptions('cliente')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Item</label>
-                <input type="text" name="descricao" class="input" required>
-              </div>
-              <div class="form-group">
-                <label>Qtd</label>
-                <input type="number" name="quantidade" class="input" value="1" min="1">
-              </div>
-              <div class="form-group">
-                <label>Unidade</label>
-                <input type="text" name="unidade" class="input" placeholder="un, m, kg...">
-              </div>
+          <div class="form-group">
+            <label>Cliente *</label>
+            <select id="nl-cliente" class="input" ${cliFix ? 'disabled' : ''}
+              onchange="OS._setNovaListaCliente(this.value)">
+              ${App.clienteOptions('cliente', cliFix)}
+            </select>
+            ${cliFix ? '<small style="color:var(--text-muted);font-size:.72rem">Adicionando itens para este cliente. Para trocar, cancele e comece de novo.</small>' : ''}
+          </div>
+
+          <hr style="margin:12px 0;border:none;border-top:1px solid var(--border)">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Item</label>
+              <input type="text" id="nl-desc" class="input" placeholder="Ex: Parafuso M8"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();OS.addItemNovaLista();}">
             </div>
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary">Adicionar</button>
-              <button type="button" class="btn btn-outline" onclick="qs('#modal-lista-item-form').classList.add('hidden')">Cancelar</button>
+            <div class="form-group" style="flex:0 0 80px">
+              <label>Qtd</label>
+              <input type="number" id="nl-qtd" class="input" value="1" min="0.01" step="0.01">
             </div>
-          </form>
+            <div class="form-group" style="flex:0 0 80px">
+              <label>Un.</label>
+              <input type="text" id="nl-und" class="input" placeholder="un">
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline btn-full" onclick="OS.addItemNovaLista()">+ Adicionar à lista</button>
+
+          ${_novaLista.itens.length > 0 ? `
+            <div style="margin-top:14px">
+              <div style="font-size:.78rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">
+                ${_novaLista.itens.length} item(s) para salvar
+              </div>
+              ${_novaLista.itens.map((it, i) => `
+                <div class="info-row" style="padding:6px 4px">
+                  <span>${it.descricao} — ${it.quantidade} ${it.unidade}</span>
+                  <button class="btn btn-sm btn-danger" onclick="OS.removeItemNovaLista(${i})">✕</button>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+        <div class="card-body" style="padding-top:0;display:flex;gap:8px">
+          <button class="btn btn-outline" onclick="OS.fecharNovaLista()">Cancelar</button>
+          <button class="btn btn-primary" style="flex:1" onclick="OS.salvarNovaLista()"
+            ${_novaLista.itens.length === 0 ? 'disabled' : ''}>
+            Salvar ${_novaLista.itens.length > 0 ? `(${_novaLista.itens.length})` : ''}
+          </button>
         </div>
       </div>
     `;
   }
 
-  function openListaItemForm() {
-    qs('#modal-lista-item-form')?.classList.remove('hidden');
+  function openNovaListaForm() {
+    _novaLista = { cliente_id: '', itens: [], _aberto: true };
+    renderListaCompras();
   }
 
-  async function saveListaItem(e) {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const data = { ...Object.fromEntries(fd.entries()), status: 'pendente', data_criacao: DateUtil.today() };
-    const res = await API.db.create('lista_compras', data);
-    if (res?.success) { Toast.success('Item adicionado!'); openListaCompras(); }
-    else Toast.error('Erro: ' + res?.error);
+  function fecharNovaLista() {
+    _novaLista = { cliente_id: '', itens: [], _aberto: false };
+    renderListaCompras();
   }
 
+  // Adiciona itens a um cliente já existente — pré-seleciona e trava o cliente
+  function addItensCliente(clienteId) {
+    _novaLista = { cliente_id: clienteId, itens: [], _aberto: true };
+    renderListaCompras();
+    setTimeout(() => qs('#nl-desc')?.focus(), 50);
+  }
+
+  function _setNovaListaCliente(id) {
+    _novaLista.cliente_id = id;
+  }
+
+  function addItemNovaLista() {
+    const cli  = qs('#nl-cliente')?.value || _novaLista.cliente_id;
+    const desc = qs('#nl-desc')?.value.trim();
+    const qtd  = Number(qs('#nl-qtd')?.value) || 1;
+    const und  = qs('#nl-und')?.value.trim() || 'un';
+    if (!cli)  { Toast.warning('Selecione o cliente'); return; }
+    if (!desc) { Toast.warning('Informe o item'); return; }
+    _novaLista.cliente_id = cli;
+    _novaLista.itens.push({ descricao: desc, quantidade: qtd, unidade: und });
+    renderListaCompras();
+    setTimeout(() => {
+      qs('#nl-desc').value = '';
+      qs('#nl-qtd').value  = '1';
+      qs('#nl-und').value  = '';
+      qs('#nl-desc')?.focus();
+    }, 30);
+  }
+
+  function removeItemNovaLista(i) {
+    _novaLista.itens.splice(i, 1);
+    renderListaCompras();
+  }
+
+  async function salvarNovaLista() {
+    if (!_novaLista.cliente_id || _novaLista.itens.length === 0) return;
+    Loading.show();
+    const ops = _novaLista.itens.map(it => ({
+      action: 'create',
+      sheet:  'lista_compras',
+      data: {
+        cliente_id:   _novaLista.cliente_id,
+        descricao:    it.descricao,
+        quantidade:   it.quantidade,
+        unidade:      it.unidade,
+        status:       'pendente',
+        data_criacao: DateUtil.today(),
+      },
+    }));
+    const res = await API.db.batch(ops);
+    Loading.hide();
+    if (res?.success) {
+      Toast.success(`${ops.length} item(s) adicionado(s)!`);
+      _novaLista = { cliente_id: '', itens: [], _aberto: false };
+      await openListaCompras();
+    } else {
+      Toast.error('Erro ao salvar lista');
+    }
+  }
+
+  // Toggle in-place: o item permanece visível, só muda o status
+  async function toggleComprado(id, comprado) {
+    const novoStatus = comprado ? 'comprado' : 'pendente';
+    // Otimista: atualiza cache local e rerendeniza imediato
+    const it = _listaCache.lista.find(l => l.id === id);
+    if (it) it.status = novoStatus;
+    renderListaCompras();
+    await API.db.update('lista_compras', id, { status: novoStatus });
+  }
+
+  // Mantido para compatibilidade (Home/etc) — agora apenas marca
   async function marcarComprado(id) {
-    await API.db.update('lista_compras', id, { status: 'comprado' });
-    Toast.success('Marcado como comprado!');
-    openListaCompras();
+    await toggleComprado(id, true);
   }
 
   async function deleteListaItem(id) {
     Modal.confirm('Remover item da lista?', async () => {
+      _listaCache.lista = _listaCache.lista.filter(l => l.id !== id);
+      renderListaCompras();
       await API.db.delete('lista_compras', id);
-      openListaCompras();
     });
   }
+
+  // Stub: o form antigo foi substituído pela Nova Lista
+  function openListaItemForm() { openNovaListaForm(); }
+  async function saveListaItem(e) { e.preventDefault(); }
 
   async function confirmDelete(id) {
     Modal.confirm('Excluir esta OS? Os itens serão devolvidos ao estoque.', async () => {
@@ -1179,6 +1356,8 @@ const OS = (() => {
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
+    openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
+    addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado,
     confirmDelete,
   };
 })();

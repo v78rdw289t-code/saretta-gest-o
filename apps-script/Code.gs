@@ -10,12 +10,13 @@ const SHEET_HEADERS = {
   config:         ['id','chave','valor','descricao'],
   clientes:       ['id','nome','tipo','telefone','endereco','observacoes','data_cadastro','ativo'],
   categorias:     ['id','nome','tipo','ativo'],
-  os:             ['id','numero','tipo','cliente_id','status','data_inicio','data_fim','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao'],
+  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao'],
   os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total'],
-  diarias:        ['id','os_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes'],
+  diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
   fechamento_dias:['id','fechamento_id','diaria_id'],
-  parcelas:       ['id','tipo','origem','origem_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','observacoes'],
+  parcelas:       ['id','tipo','origem','origem_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
+  contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
   estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo'],
   compras:        ['id','fornecedor_id','data','valor_total','parcela_id','observacoes'],
@@ -311,11 +312,13 @@ function registrarFiado(data) {
 }
 
 function pagarParcela(data) {
-  // data: { parcela_id, data_pagamento, valor_pago }
-  update('parcelas', data.parcela_id, {
+  // data: { parcela_id, data_pagamento, conta_id }
+  const patch = {
     data_pagamento: data.data_pagamento,
     status:         'pago',
-  });
+  };
+  if (data.conta_id !== undefined) patch.conta_id = data.conta_id;
+  update('parcelas', data.parcela_id, patch);
   // Se a parcela é de fiado, sincronizar o registro fiado
   const parc = read('parcelas', data.parcela_id).data[0];
   if (parc && parc.origem === 'fiado' && parc.origem_id) {
@@ -400,7 +403,18 @@ function initializeSheets() {
       sh.setFrozenRows(1);
       results.push('Criada: ' + name);
     } else {
-      results.push('Já existe: ' + name);
+      // Migra colunas: adiciona ao final qualquer header novo que falte
+      const lastCol = sh.getLastColumn() || 1;
+      const current = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+      const missing = headers.filter(h => current.indexOf(h) === -1);
+      if (missing.length > 0) {
+        const startCol = lastCol + 1;
+        sh.getRange(1, startCol, 1, missing.length).setValues([missing]);
+        sh.getRange(1, startCol, 1, missing.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+        results.push('Migrada: ' + name + ' (+' + missing.join(',') + ')');
+      } else {
+        results.push('Já existe: ' + name);
+      }
     }
   });
 
@@ -444,9 +458,28 @@ function initializeSheets() {
     { nome: 'Fiado Rodrigo',     tipo: 'pagar',   ativo: true },
     { nome: 'Fiado Odinei',      tipo: 'pagar',   ativo: true },
     { nome: 'Outros',            tipo: 'ambos',   ativo: true },
+    // Categorias de OS (tipo='os')
+    { nome: 'Elétrica',                  tipo: 'os', ativo: true },
+    { nome: 'Adequação de propriedade',  tipo: 'os', ativo: true },
+    { nome: 'Cerca',                     tipo: 'os', ativo: true },
+    { nome: 'Construção',                tipo: 'os', ativo: true },
+    { nome: 'Reforma',                   tipo: 'os', ativo: true },
+    { nome: 'Consertos',                 tipo: 'os', ativo: true },
+    { nome: 'Hidráulica',                tipo: 'os', ativo: true },
   ];
   cats.forEach(c => {
     if (!existingCat.find(ec => ec.nome === c.nome)) create('categorias', c);
+  });
+
+  // Contas iniciais (saldo_inicial fica zerado — usuário configura na UI)
+  const contasSh = ss.getSheetByName('contas');
+  const existingContas = sheetToRecords(contasSh);
+  const contas = [
+    { nome: 'Carteira', saldo_inicial: 0, ativo: true, ordem: 1 },
+    { nome: 'Sicredi',  saldo_inicial: 0, ativo: true, ordem: 2 },
+  ];
+  contas.forEach(c => {
+    if (!existingContas.find(ec => ec.nome === c.nome)) create('contas', c);
   });
 
   return { success: true, results };
