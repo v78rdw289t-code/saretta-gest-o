@@ -155,9 +155,15 @@ const OS = (() => {
   async function openDetail(id) {
     const novoOS = allOS.find(o => o.id === id) || (await API.db.read('os', id))?.data?.[0];
     if (!novoOS) return;
-    // Reseta o estado da calculadora ao trocar de OS
+    // Ao trocar de OS, hidrata o resumo da calculadora a partir do valor salvo
     if (!currentOS || currentOS.id !== novoOS.id) {
-      _calc = { bruto: 0, liquido: 0, horas: 0, detalhe: '' };
+      const valorSalvo = Number(novoOS.valor_calculado || 0);
+      _calc = {
+        bruto:   valorSalvo,
+        liquido: valorSalvo,
+        horas:   0,
+        detalhe: valorSalvo > 0 ? 'valor salvo' : '',
+      };
       _calcExpanded = false;
     }
     currentOS = novoOS;
@@ -321,8 +327,9 @@ const OS = (() => {
         <strong id="os-calc-total" class="text-green" style="font-size:1.15rem">—</strong>
       </div>
       <div class="card-body" id="os-calc-body"></div>
-      <div class="card-body" style="padding-top:0">
-        <button class="btn btn-primary btn-full" onclick="OS.toggleCalc()">✓ Pronto</button>
+      <div class="card-body" style="padding-top:0;display:flex;gap:8px">
+        <button class="btn btn-outline" style="flex:0 0 auto" onclick="OS.toggleCalc()">Cancelar</button>
+        <button class="btn btn-primary" style="flex:1" onclick="OS.salvarCalculo()">💾 Salvar Cálculo</button>
       </div>
     `;
 
@@ -346,6 +353,35 @@ const OS = (() => {
                               .sort((a, b) => a.data > b.data ? 1 : -1);
     const itens   = allItens.filter(i => i.os_id === currentOS.id);
     await renderCalculadora(diarias, itens);
+  }
+
+  // Salva o valor calculado na OS para persistir entre sessões.
+  // O resumo passa a aparecer mesmo quando você reabre o app depois.
+  async function salvarCalculo() {
+    if (!currentOS) return;
+    if (_calc.liquido <= 0) {
+      Toast.warning('Ajuste a calculadora antes de salvar');
+      return;
+    }
+    Loading.show();
+    const res = await API.db.update('os', currentOS.id, {
+      valor_calculado:   _calc.liquido,
+      data_atualizacao:  new Date().toISOString(),
+    });
+    Loading.hide();
+    if (res?.success) {
+      currentOS.valor_calculado = _calc.liquido;
+      const idx = allOS.findIndex(o => o.id === currentOS.id);
+      if (idx >= 0) allOS[idx].valor_calculado = _calc.liquido;
+      Toast.success('Cálculo salvo!');
+      // Colapsa a calculadora e mostra o resumo
+      _calcExpanded = false;
+      const diarias = allDiarias.filter(d => d.os_id === currentOS.id);
+      const itens   = allItens.filter(i => i.os_id === currentOS.id);
+      await renderCalculadora(diarias, itens);
+    } else {
+      Toast.error('Erro ao salvar: ' + (res?.error || ''));
+    }
   }
 
   function _renderCalcDiaria(diarias, itens, totalItens) {
@@ -1140,7 +1176,7 @@ const OS = (() => {
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     openItemForm, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
-    renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc,
+    renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
     confirmDelete,

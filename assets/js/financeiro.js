@@ -33,15 +33,15 @@ const Financeiro = (() => {
 
     section.innerHTML = `
       <div class="section-tabs">
-        <button class="section-tab ${currentTab==='receber' ? 'active' : ''}" onclick="Financeiro.switchTab('receber')">↓ A Receber</button>
-        <button class="section-tab ${currentTab==='pagar' ? 'active' : ''}"   onclick="Financeiro.switchTab('pagar')">↑ A Pagar</button>
-        <button class="section-tab" onclick="App.navigate('fiado')">💸 Fiado</button>
-        <button class="section-tab" onclick="App.navigate('compras')">🛍️ Compras</button>
-        <button class="section-tab ${currentTab==='resumo' ? 'active' : ''}"  onclick="Financeiro.switchTab('resumo')">📊 Resumo</button>
+        <button class="section-tab ${currentTab==='receber' ? 'active' : ''}" onclick="Financeiro.switchTab('receber')">↓ Receber</button>
+        <button class="section-tab ${currentTab==='pagar' ? 'active' : ''}"   onclick="Financeiro.switchTab('pagar')">↑ Pagar</button>
+        <button class="section-tab" onclick="App.navigate('fiado')">Fiado</button>
+        <button class="section-tab" onclick="App.navigate('compras')">Compras</button>
+        <button class="section-tab ${currentTab==='resumo' ? 'active' : ''}"  onclick="Financeiro.switchTab('resumo')">Resumo</button>
       </div>
       <div class="page-header">
         <h1>Financeiro</h1>
-        <button class="btn btn-primary" onclick="Financeiro.openManual()">+ Lançamento Manual</button>
+        <button class="btn btn-primary btn-sm" onclick="Financeiro.openManual()">+ Lançamento</button>
       </div>
 
       <div id="fin-content"></div>

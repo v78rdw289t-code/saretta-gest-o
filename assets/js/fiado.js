@@ -44,11 +44,11 @@ const Fiado = (() => {
     const section = qs('#page-fiado');
     section.innerHTML = `
       <div class="section-tabs">
-        <button class="section-tab" onclick="App.navigate('financeiro')">↓ A Receber</button>
-        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('pagar'),50)">↑ A Pagar</button>
-        <button class="section-tab active" onclick="App.navigate('fiado')">💸 Fiado</button>
-        <button class="section-tab" onclick="App.navigate('compras')">🛍️ Compras</button>
-        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('resumo'),50)">📊 Resumo</button>
+        <button class="section-tab" onclick="App.navigate('financeiro')">↓ Receber</button>
+        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('pagar'),50)">↑ Pagar</button>
+        <button class="section-tab active" onclick="App.navigate('fiado')">Fiado</button>
+        <button class="section-tab" onclick="App.navigate('compras')">Compras</button>
+        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('resumo'),50)">Resumo</button>
       </div>
       <div class="page-header">
         <h1>Fiado</h1>

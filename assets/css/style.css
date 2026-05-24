@@ -490,16 +490,22 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 .section-tabs::-webkit-scrollbar { display: none; }
 .section-tab {
-  flex: 0 0 auto; padding: 10px 14px;
-  font-size: .82rem; font-weight: 600; color: var(--text-muted);
+  flex: 1 1 auto; padding: 10px 8px;
+  font-size: .78rem; font-weight: 600; color: var(--text-muted);
   border: none; background: transparent;
   border-bottom: 2px solid transparent;
   transition: all .15s;
   white-space: nowrap;
+  text-align: center;
+  min-width: 0;
 }
 .section-tab.active {
   color: var(--navy); border-bottom-color: var(--gold);
   font-weight: 700;
+}
+/* Em telas estreitas, ainda pode rolar se necessário, mas tabs encolhem antes */
+@media (max-width: 360px) {
+  .section-tab { font-size: .72rem; padding: 10px 6px; }
 }
 
 /* ─── FILTROS ─────────────────────────────────────────────── */
