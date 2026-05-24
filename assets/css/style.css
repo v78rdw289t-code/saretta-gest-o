@@ -107,6 +107,50 @@ img { max-width: 100%; }
   padding-bottom: var(--nav-h);
 }
 
+/* SPLASH inicial — mostrado só na primeira sessão (sem cache localStorage) */
+#boot-splash {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(160deg, var(--navy-lt) 0%, var(--navy) 100%);
+  display: flex; align-items: center; justify-content: center;
+  animation: boot-fade-in .2s ease;
+}
+#boot-splash.hidden { display: none; }
+#boot-splash.fade-out { animation: boot-fade-out .3s ease forwards; }
+.boot-splash-inner {
+  text-align: center; color: #fff;
+  padding: 20px; max-width: 320px;
+}
+.boot-splash-logo {
+  font-size: 4rem; margin-bottom: 16px;
+  animation: boot-spin 2.5s ease-in-out infinite;
+  display: inline-block;
+}
+.boot-splash-title {
+  font-size: 1.5rem; font-weight: 800;
+  letter-spacing: -.4px; margin-bottom: 4px;
+}
+.boot-splash-sub {
+  font-size: .82rem; opacity: .7;
+  margin-bottom: 22px;
+  min-height: 18px;
+}
+.boot-splash-bar {
+  height: 4px; background: rgba(255,255,255,.12);
+  border-radius: 50px; overflow: hidden;
+}
+.boot-splash-bar-fill {
+  height: 100%; width: 0;
+  background: var(--gold);
+  border-radius: 50px;
+  transition: width .3s ease;
+}
+@keyframes boot-fade-in  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes boot-fade-out { to { opacity: 0; visibility: hidden } }
+@keyframes boot-spin {
+  0%, 100% { transform: rotate(0deg) }
+  50%      { transform: rotate(180deg) }
+}
+
 /* HEADER */
 #top-header {
   position: sticky; top: 0; z-index: 100;

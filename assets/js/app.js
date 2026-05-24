@@ -124,16 +124,78 @@ const App = (() => {
       btn.addEventListener('click', () => navigate(btn.dataset.page));
     });
 
-    // Carregar dados globais
-    await loadGlobals();
+    // Boot decide se mostra splash ou entra direto
+    await bootApp();
+  }
 
-    // Sempre abre na home
+  // Decide entre dois caminhos:
+  //   A) Tem cache (não-primeira sessão): entra direto na home; prefetch silencioso
+  //   B) Sem cache (primeira sessão ou cache expirado): mostra splash e pré-carrega
+  //      tudo em paralelo (com timeout de 5s pra não travar se Sheets demorar)
+  async function bootApp() {
+    const semUrl = !LocalConfig.getUrl();
+    const semCache = typeof API !== 'undefined' && !API.hasCache();
+
+    // Sem URL configurada → não vale a pena splash, vai direto pra home
+    // (vai mostrar o aviso "Configure a URL").
+    if (semUrl) {
+      navigate('home');
+      return;
+    }
+
+    if (semCache) {
+      // Caminho B: splash com pré-carga total
+      await bootComSplash();
+    } else {
+      // Caminho A: cache disponível, entra rápido
+      await loadGlobals();
+      navigate('home');
+      setTimeout(() => prefetchMainData(), 600);
+    }
+  }
+
+  async function bootComSplash() {
+    const splash = document.getElementById('boot-splash');
+    const status = document.getElementById('boot-splash-status');
+    const bar    = document.getElementById('boot-splash-bar');
+    if (splash) splash.classList.remove('hidden');
+    const setBar = (pct, msg) => {
+      if (bar) bar.style.width = pct + '%';
+      if (status && msg) status.textContent = msg;
+    };
+    setBar(8, 'Conectando…');
+
+    // Lista de carregamentos em paralelo
+    const tasks = [
+      loadGlobals(),                                      // clientes + categorias
+      API.db.read('os').catch(() => null),
+      API.db.read('parcelas').catch(() => null),
+      API.db.read('estoque').catch(() => null),
+      API.db.read('diarias').catch(() => null),
+      API.db.read('os_itens').catch(() => null),
+      API.db.read('compras').catch(() => null),
+      API.db.read('fiado').catch(() => null),
+    ];
+
+    // Avança a barra conforme as tasks terminam
+    let done = 0;
+    tasks.forEach(p => p.then(() => {
+      done++;
+      setBar(8 + Math.round((done / tasks.length) * 88), `Carregando dados (${done}/${tasks.length})…`);
+    }));
+
+    // Aguarda todas OU timeout de 5s — o que vier primeiro
+    const timeout = new Promise(resolve => setTimeout(resolve, 5000));
+    await Promise.race([Promise.all(tasks), timeout]);
+
+    setBar(100, 'Pronto!');
     navigate('home');
 
-    // Pré-carrega em background os sheets mais usados — quando o usuário
-    // navegar para OS, Financeiro ou Estoque, os dados já estarão no cache
-    // (TTL 5min). Não bloqueia a Home.
-    setTimeout(() => prefetchMainData(), 800);
+    // Fade-out e remove splash
+    if (splash) {
+      splash.classList.add('fade-out');
+      setTimeout(() => splash.classList.add('hidden'), 350);
+    }
   }
 
   // Dispara reads silenciosos pra popular o cache.
@@ -141,10 +203,11 @@ const App = (() => {
   function prefetchMainData() {
     if (!LocalConfig.getUrl()) return;
     if (typeof API === 'undefined') return;
-    // Em paralelo, sem await — popula o cache em background.
     API.db.read('os').catch(() => {});
     API.db.read('parcelas').catch(() => {});
     API.db.read('estoque').catch(() => {});
+    API.db.read('compras').catch(() => {});
+    API.db.read('fiado').catch(() => {});
   }
 
   return { navigate, init, loadGlobals, getClientes, getCategorias,
