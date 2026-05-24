@@ -87,7 +87,7 @@ const Estoque = (() => {
     qs('#est-form-unit').value      = e?.valor_unit || '0';
     qs('#est-form-und').value       = e?.unidade || 'un';
     qs('#est-form-forn').innerHTML  = App.clienteOptions('fornecedor', e?.fornecedor_id);
-    qs('#est-form-data').value      = e?.data_entrada || DateUtil.today();
+    qs('#est-form-data').value      = Fmt.dateInput(e?.data_entrada) || DateUtil.today();
     qs('#est-form-obs').value       = e?.observacoes || '';
     qs('#modal-est-title').textContent = id ? 'Editar Item' : 'Novo Item no Estoque';
     Modal.open('modal-estoque');

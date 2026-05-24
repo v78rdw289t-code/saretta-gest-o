@@ -62,6 +62,29 @@ const Fmt = {
   },
   time(v)      { return this._parseTime(v) ?? '—'; },
   timeInput(v) { return this._parseTime(v) ?? '';  },
+
+  // Normaliza qualquer data (ISO completo, Date, "YYYY-MM-DD", "YYYY-MM-DD HH:MM:SS")
+  // para "YYYY-MM-DD" — formato exigido por <input type="date">.
+  // Sem isso, datas vindas do Sheets como ISO ("2025-05-24T03:00:00.000Z")
+  // não preenchem o input ao editar e o campo fica vazio.
+  dateInput(v) {
+    if (!v) return '';
+    const s = String(v);
+    // Já está no formato esperado
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // ISO ou outro formato: usa Date e extrai partes locais (não UTC)
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2, '0');
+    const dd   = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  },
+  // Para <input type="month"> — espera "YYYY-MM".
+  monthInput(v) {
+    const s = this.dateInput(v);
+    return s ? s.substring(0, 7) : '';
+  },
 };
 
 // ─── Datas ───────────────────────────────────────────────────

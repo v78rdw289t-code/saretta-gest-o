@@ -610,11 +610,11 @@ const OS = (() => {
               <div class="form-row">
                 <div class="form-group">
                   <label>Data Início</label>
-                  <input type="date" name="data_inicio" class="input" value="${os?.data_inicio || DateUtil.today()}">
+                  <input type="date" name="data_inicio" class="input" value="${Fmt.dateInput(os?.data_inicio) || DateUtil.today()}">
                 </div>
                 <div class="form-group">
                   <label>Data Fim</label>
-                  <input type="date" name="data_fim" class="input" value="${os?.data_fim || ''}">
+                  <input type="date" name="data_fim" class="input" value="${Fmt.dateInput(os?.data_fim)}">
                 </div>
               </div>
             </div>
@@ -685,7 +685,7 @@ const OS = (() => {
 
     qs('#modal-diaria-os-id').value     = currentOS.id;
     qs('#modal-diaria-id').value        = diariaId || '';
-    qs('#modal-diaria-data').value      = d?.data || DateUtil.today();
+    qs('#modal-diaria-data').value      = Fmt.dateInput(d?.data) || DateUtil.today();
     qs('#modal-diaria-manha-in').value  = Fmt.timeInput(d?.manha_inicio);
     qs('#modal-diaria-manha-fim').value = Fmt.timeInput(d?.manha_fim);
     qs('#modal-diaria-tarde-in').value  = Fmt.timeInput(d?.tarde_inicio);

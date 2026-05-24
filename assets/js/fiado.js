@@ -101,8 +101,8 @@ const Fiado = (() => {
     qs('#fiado-form-pessoa').value = f?.pessoa || 'rodrigo';
     qs('#fiado-form-desc').value   = f?.descricao || '';
     qs('#fiado-form-valor').value  = p?.valor ?? f?.valor ?? '';
-    qs('#fiado-form-data').value   = f?.data || DateUtil.today();
-    qs('#fiado-form-venc').value   = p?.data_vencimento || f?.data || DateUtil.today();
+    qs('#fiado-form-data').value   = Fmt.dateInput(f?.data) || DateUtil.today();
+    qs('#fiado-form-venc').value   = Fmt.dateInput(p?.data_vencimento) || Fmt.dateInput(f?.data) || DateUtil.today();
     qs('#fiado-form-obs').value    = f?.observacoes || '';
     if (qs('#modal-fiado-title')) qs('#modal-fiado-title').textContent = id ? 'Editar Fiado' : 'Novo Fiado';
     if (qs('#fiado-alert-new'))   qs('#fiado-alert-new').style.display = id ? 'none' : '';

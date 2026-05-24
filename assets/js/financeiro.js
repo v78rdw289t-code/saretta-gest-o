@@ -359,9 +359,9 @@ const Financeiro = (() => {
     qs('#manual-tipo').value   = p.tipo;
     qs('#manual-desc').value   = p.descricao;
     qs('#manual-valor').value  = p.valor;
-    qs('#manual-comp').value   = String(p.data_competencia || '').substring(0, 7);
-    qs('#manual-venc').value   = p.data_vencimento;
-    qs('#manual-pagto').value  = p.data_pagamento || '';
+    qs('#manual-comp').value   = Fmt.monthInput(p.data_competencia);
+    qs('#manual-venc').value   = Fmt.dateInput(p.data_vencimento);
+    qs('#manual-pagto').value  = Fmt.dateInput(p.data_pagamento);
     qs('#manual-status').value = p.status;
     refreshManualSelects(p.cliente_id, p.categoria_id);
     qs('#manual-tipo').onchange = () => refreshManualSelects();
