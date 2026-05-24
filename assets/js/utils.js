@@ -35,13 +35,16 @@ const Fmt = {
   _parseTime(v) {
     if (v === null || v === undefined || v === '' || v === false) return null;
     if (typeof v === 'string') {
-      // ISO datetime do Sheets — Apps Script serializa hora local como UTC
-      // Ex: usuário entrou "09:12" (Brasil UTC-3) → Sheets salva como
-      // "1899-12-30T12:12:00.000Z". getHours() em UTC-3 devolve 9 ✓
+      // ISO datetime do Sheets — Apps Script serializa hora LOCAL como UTC
+      // Ex: usuário entrou "09:12" (Brasil UTC-3) → vira "1899-12-30T12:12:00.000Z"
+      // Converte de volta usando o offset atual do dispositivo (não depende de getHours)
       if (v.includes('T')) {
         const d = new Date(v);
         if (!isNaN(d.getTime())) {
-          return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+          const tzOffset = new Date().getTimezoneOffset(); // min; UTC-3 → 180
+          const utcMin   = d.getUTCHours() * 60 + d.getUTCMinutes();
+          const localMin = ((utcMin - tzOffset) % 1440 + 1440) % 1440;
+          return String(Math.floor(localMin / 60)).padStart(2,'0') + ':' + String(localMin % 60).padStart(2,'0');
         }
       }
       // "HH:MM", "H:MM", "HH:MM:SS", "H:MM:SS"
