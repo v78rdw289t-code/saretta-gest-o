@@ -332,10 +332,11 @@ const Financeiro = (() => {
     qs('#manual-valor').value  = '';
     qs('#manual-comp').value   = DateUtil.today().substring(0, 7);
     qs('#manual-venc').value   = DateUtil.today();
-    qs('#manual-pagto').value  = '';
-    qs('#manual-status').value = 'pendente';
+    // Padrão: já pago hoje. Usuário muda pra "Pendente" se ainda não foi pago.
+    qs('#manual-pagto').value  = DateUtil.today();
+    qs('#manual-status').value = 'pago';
     qs('#manual-quempagou').value = '';
-    qs('#manual-conta').innerHTML = App.contaOptions('', '— Selecione (quando pago) —');
+    qs('#manual-conta').innerHTML = App.contaOptions('', '— Selecione conta —');
     refreshManualSelects();
     qs('#manual-tipo').onchange = () => {
       refreshManualSelects();
