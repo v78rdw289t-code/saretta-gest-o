@@ -7,6 +7,15 @@ const OS = (() => {
   let currentOS = null;
   let currentView = 'list'; // list | detail | form | diaria | fechamento
 
+  // Resultado mais recente da calculadora do detalhe — usado pelo modal
+  // de fechamento. Atualizado a cada interação na calculadora.
+  let _calc = {
+    bruto:    0,   // soma sem desconto (calc normal: subtotal; diária: dias+itens)
+    liquido:  0,   // valor sugerido (calc normal: já com desconto/simples; diária: igual ao bruto)
+    horas:    0,   // só p/ exibir no fechamento
+    detalhe:  '',  // texto curto descrevendo o cálculo
+  };
+
   // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render(params = {}) {
     await Promise.all([loadData(), App.loadGlobals()]);
@@ -192,6 +201,19 @@ const OS = (() => {
         </div>
       </div>
 
+      <!-- Calculadora de valor — sempre visível enquanto a OS não está fechada -->
+      ${currentOS.status !== 'fechado' ? `
+        <div class="card mb-3" id="os-calc-card">
+          <div class="card-header">
+            <h3>💰 Calculadora de Valor</h3>
+            <strong id="os-calc-total" class="text-green" style="font-size:1.15rem">—</strong>
+          </div>
+          <div class="card-body" id="os-calc-body">
+            <!-- preenchido por renderCalculadora() -->
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Itens -->
       <div class="card mb-3">
         <div class="card-header">
@@ -246,6 +268,190 @@ const OS = (() => {
         </div>
       ` : ''}
     `;
+
+    // Renderiza a calculadora de valor (se a OS ainda não foi fechada)
+    if (currentOS.status !== 'fechado') {
+      await renderCalculadora(diarias, itens);
+    }
+  }
+
+  // ─── CALCULADORA DE VALOR (no detalhe) ──────────────────
+  async function renderCalculadora(diarias, itens) {
+    const body = qs('#os-calc-body');
+    if (!body) return;
+
+    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+
+    if (currentOS.tipo === 'diaria') {
+      body.innerHTML = _renderCalcDiaria(diarias, itens, totalItens);
+      calcDiariaUpdate();
+    } else {
+      const cfg = await Calculator.getConfig();
+      const fatores = Calculator.getFatores(cfg);
+      body.innerHTML = _renderCalcNormal(cfg, fatores, totalItens);
+      calcNormalUpdate();
+    }
+  }
+
+  function _renderCalcDiaria(diarias, itens, totalItens) {
+    if (diarias.length === 0 && itens.length === 0) {
+      return '<p class="text-muted" style="margin:8px 0 0">Adicione dias ou itens para ver o cálculo.</p>';
+    }
+    return `
+      ${diarias.length > 0 ? `
+        <div style="font-size:.75rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Dias a faturar</div>
+        <div id="calc-dias">
+          ${diarias.map(d => `
+            <label class="checkbox-item">
+              <input type="checkbox" class="dia-check" value="${d.id}"
+                data-valor="${d.valor_manual || d.valor_calculado || 0}"
+                onchange="OS.calcDiariaUpdate()" checked>
+              <span>${Fmt.date(d.data)} — ${Fmt.currency(d.valor_manual || d.valor_calculado || 0)}</span>
+            </label>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${totalItens > 0 ? `
+        <div class="info-row mt-2"><span>Total itens:</span><strong>${Fmt.currency(totalItens)}</strong></div>
+        <input type="hidden" id="calc-itens-total" value="${totalItens.toFixed(2)}">
+      ` : '<input type="hidden" id="calc-itens-total" value="0">'}
+    `;
+  }
+
+  function _renderCalcNormal(cfg, fatores, totalItens) {
+    const hManut = Fmt.currency(Number(cfg.valor_hora_manutencao) || 155);
+    const hProj  = Fmt.currency(Number(cfg.valor_hora_projeto)    || 200);
+    const vPrx   = Fmt.currency(Number(cfg.valor_chamada_proximo) || 200);
+    const vDst   = Fmt.currency(Number(cfg.valor_chamada_distante)|| 250);
+    return `
+      <div class="form-group">
+        <label>Tipo de Serviço</label>
+        <select id="calc-tipo" class="input" onchange="OS.calcNormalUpdate()">
+          <option value="manutencao">🔧 Manutenção (${hManut}/h)</option>
+          <option value="projeto">🏗️ Projeto Novo (${hProj}/h)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Horas Trabalhadas</label>
+        <input type="number" id="calc-horas" class="input" step="0.5" value="1" min="0" oninput="OS.calcNormalUpdate()">
+      </div>
+      <p style="font-size:.75rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px">Fatores de Ajuste</p>
+      <div id="calc-fatores">
+        ${fatores.map(f => `
+          <label class="checkbox-item">
+            <input type="checkbox" class="fator-check" data-perc="${f.percentual}" onchange="OS.calcNormalUpdate()">
+            <span>${f.label} <small style="color:var(--text-muted)">(+${f.percentual}%)</small></span>
+          </label>
+        `).join('')}
+      </div>
+      <p style="font-size:.75rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px">Material e Chamada</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Material extra (R$)</label>
+          <input type="number" id="calc-material" class="input" step="0.01" value="0" min="0" oninput="OS.calcNormalUpdate()">
+        </div>
+        <div class="form-group">
+          <label>Admin. Material (%)</label>
+          <input type="number" id="calc-taxa-admin" class="input" step="0.5" min="0" value="${cfg.taxa_admin_material || 15}" oninput="OS.calcNormalUpdate()">
+        </div>
+      </div>
+      <label class="checkbox-item">
+        <input type="checkbox" id="calc-chamada" onchange="OS.calcNormalUpdate()">
+        <span>Chamada Técnica</span>
+      </label>
+      <div id="calc-chamada-tipo-wrap" class="hidden mt-2">
+        <select id="calc-chamada-tipo" class="input" onchange="OS.calcNormalUpdate()">
+          <option value="proximo">Próximo (${vPrx})</option>
+          <option value="distante">Distante (${vDst})</option>
+        </select>
+      </div>
+      <div class="form-row mt-3">
+        <div class="form-group">
+          <label>Simples Nacional (%)</label>
+          <input type="number" id="calc-simples" class="input" step="0.1" min="0" max="20" value="${cfg.simples_aliquota || 0}" oninput="OS.calcNormalUpdate()">
+        </div>
+        <div class="form-group">
+          <label>Itens do OS</label>
+          <input type="text" class="input" value="${Fmt.currency(totalItens)}" readonly style="background:var(--bg)">
+          <input type="hidden" id="calc-itens-total" value="${totalItens.toFixed(2)}">
+        </div>
+      </div>
+      <div id="calc-breakdown" class="mt-3"></div>
+    `;
+  }
+
+  // Recalcula valor para OS diária e atualiza _calc + display
+  function calcDiariaUpdate() {
+    const checks = qsa('.dia-check:checked');
+    const valorDias  = checks.reduce((s, c) => s + Number(c.dataset.valor || 0), 0);
+    const totalItens = Number(qs('#calc-itens-total')?.value) || 0;
+    const total = valorDias + totalItens;
+    _calc = {
+      bruto: total,
+      liquido: total,
+      horas: 0,
+      detalhe: `${checks.length} dia(s) + itens`,
+    };
+    _updateCalcTotal();
+  }
+
+  // Recalcula valor para OS normal usando Calculator
+  async function calcNormalUpdate() {
+    const chamadaOn = qs('#calc-chamada')?.checked || false;
+    qs('#calc-chamada-tipo-wrap')?.classList.toggle('hidden', !chamadaOn);
+
+    const cfg = await Calculator.getConfig();
+    const tipo = qs('#calc-tipo')?.value;
+    const horaBase = tipo === 'projeto'
+      ? Calculator.cfgNum(cfg, 'valor_hora_projeto', 200)
+      : Calculator.cfgNum(cfg, 'valor_hora_manutencao', 155);
+
+    const fatoresAtivos = qsa('.fator-check:checked').map(c => ({ percentual: Number(c.dataset.perc) }));
+    const totalItens = Number(qs('#calc-itens-total')?.value) || 0;
+    const params = {
+      horaBase,
+      horas:             Number(qs('#calc-horas')?.value         || 0),
+      material:          Number(qs('#calc-material')?.value      || 0),
+      taxaAdminMaterial: Number(qs('#calc-taxa-admin')?.value    || 0),
+      fatoresAtivos,
+      chamadaTecnica:    chamadaOn,
+      tipoChamada:       qs('#calc-chamada-tipo')?.value          || 'proximo',
+      desconto:          0,   // desconto agora vive no modal de fechamento
+      simples:           Number(qs('#calc-simples')?.value        || 0),
+    };
+
+    const r = await Calculator.calcularServico(params);
+    const totalComItens = r.total + totalItens;
+
+    _calc = {
+      bruto:   r.subtotalBruto + totalItens,
+      liquido: totalComItens,
+      horas:   params.horas,
+      detalhe: `${params.horas}h · ${tipo}`,
+    };
+
+    const bd = qs('#calc-breakdown');
+    if (bd) {
+      const row = (label, val, style = '') =>
+        `<div class="info-row" ${style ? `style="${style}"` : ''}><span>${label}</span><span>${val}</span></div>`;
+      bd.innerHTML = `<div style="border-top:1px solid var(--border);padding-top:10px">
+        ${row('Hora base:', `${Fmt.currency(horaBase)}/h`)}
+        ${r.totalPerc > 0 ? row(`Fatores (+${r.totalPerc}%):`, `<strong>${Fmt.currency(r.horaFinal)}/h</strong>`) : ''}
+        ${row(`Mão de obra (${Fmt.hours(params.horas)}):`, Fmt.currency(r.subtotalMao))}
+        ${params.material > 0 ? row(`Material + admin (${params.taxaAdminMaterial}%):`, Fmt.currency(r.subtotalMat)) : ''}
+        ${r.valorChamada > 0 ? row('Chamada técnica:', Fmt.currency(r.valorChamada)) : ''}
+        ${totalItens > 0 ? row('Itens do OS:', Fmt.currency(totalItens)) : ''}
+        ${row('Subtotal:', Fmt.currency(r.subtotalBruto + totalItens), 'border-top:1px solid var(--border);margin-top:6px;padding-top:6px')}
+        ${r.valorSimples > 0 ? row(`Simples (${params.simples}%):`, `+${Fmt.currency(r.valorSimples)}`, 'color:var(--text-muted)') : ''}
+      </div>`;
+    }
+
+    _updateCalcTotal();
+  }
+
+  function _updateCalcTotal() {
+    const el = qs('#os-calc-total');
+    if (el) el.textContent = Fmt.currency(_calc.liquido);
   }
 
   function renderItens(itens) {
@@ -580,262 +786,158 @@ const OS = (() => {
     });
   }
 
-  // ─── FECHAMENTO ─────────────────────────────────────────
-  async function openFechamento() {
+  // ─── FECHAMENTO (versão simplificada — apenas valor + competência + venc) ─
+  // Pré-requisito: a calculadora no detalhe já preencheu _calc.liquido.
+  function openFechamento() {
     if (!currentOS) return;
-    const diarias  = allDiarias.filter(d => d.os_id === currentOS.id)
-                                .sort((a, b) => a.data > b.data ? 1 : -1);
-    const itens    = allItens.filter(i => i.os_id === currentOS.id);
-    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
 
-    let cfg = {}, fatores = Calculator.FATORES_DEFAULT;
-    if (currentOS.tipo !== 'diaria') {
-      cfg    = await Calculator.getConfig();
-      fatores = Calculator.getFatores(cfg);
+    // Se a calculadora ainda não foi tocada (raro), usa o valor calculado da OS
+    if (_calc.liquido <= 0) {
+      _calc.liquido = Number(currentOS.valor_calculado || 0);
+      _calc.bruto   = _calc.liquido;
     }
 
+    const calc = _calc.liquido;
+
+    // Renderiza modal de fechamento (página dedicada, simples)
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
         <button class="btn btn-outline" onclick="OS.openDetail('${currentOS.id}')">← Voltar</button>
         <h1>Fechar OS — ${currentOS.numero}</h1>
       </div>
-      <div class="grid-2col">
-        ${currentOS.tipo === 'diaria'
-          ? _renderFechamentoDiaria(diarias, itens, totalItens)
-          : _renderFechamentoNormal(cfg, fatores)}
 
-        <div class="card">
-          <div class="card-header"><h3>Fechamento</h3></div>
-          <div class="card-body">
-            <form id="fechamento-form" onsubmit="OS.saveFechamento(event)">
-              <input type="hidden" id="fech-os-id" value="${currentOS.id}">
-              ${currentOS.tipo === 'diaria' ? `
-                <input type="hidden" id="fech-itens-total" value="${totalItens.toFixed(2)}">
-                <div class="form-group">
-                  <label>Valor Bruto (R$)</label>
-                  <input type="number" id="fech-bruto" class="input" step="0.01" value="0"
-                    onchange="OS.calcFechamento()" required>
-                </div>
-                <div class="form-group">
-                  <label>Desconto (R$)</label>
-                  <input type="number" id="fech-desconto" class="input" step="0.01" value="0"
-                    onchange="OS.calcFechamento()">
-                </div>
-              ` : `
-                <input type="hidden" id="fech-bruto" value="0">
-                <input type="hidden" id="fech-desconto" value="0">
-              `}
-              <div class="info-row total-row ${currentOS.tipo !== 'diaria' ? 'mb-3' : ''}">
-                <span><strong>${currentOS.tipo === 'diaria' ? 'Valor Líquido' : 'Total'}:</strong></span>
-                <strong id="fech-liquido-display" style="font-size:1.2rem;color:var(--success)">—</strong>
-              </div>
-              <input type="hidden" id="fech-liquido" value="0">
-              <hr>
-              <div class="form-group">
-                <label>Data de Competência</label>
-                <input type="month" id="fech-competencia" class="input" value="${DateUtil.today().substring(0,7)}" required>
-              </div>
-              <div class="form-group">
-                <label>Data de Vencimento</label>
-                <input type="date" id="fech-vencimento" class="input" value="${DateUtil.today()}" required>
-              </div>
-              <div class="form-group">
-                <label>Categoria</label>
-                <select id="fech-categoria" class="input">${App.categoriaOptions('entrada')}</select>
-              </div>
-              <div class="form-group">
-                <label>Observações</label>
-                <textarea id="fech-obs" class="input" rows="2"></textarea>
-              </div>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary btn-lg">Fechar OS e Gerar Parcela</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    `;
-
-    if (currentOS.tipo === 'diaria') calcFechamento();
-    else calcFechamentoNormal();
-  }
-
-  function _renderFechamentoDiaria(diarias, itens, totalItens) {
-    return `
-      <div class="card">
-        <div class="card-header"><h3>Dias a Faturar</h3></div>
+      <div class="card" style="max-width:560px;margin:0 auto">
         <div class="card-body">
-          ${diarias.length === 0 ? '<p class="text-muted">Nenhum dia registrado</p>' : `
-            <div id="fechamento-dias">
-              ${diarias.map(d => `
-                <label class="checkbox-item">
-                  <input type="checkbox" class="dia-check" value="${d.id}"
-                    data-valor="${d.valor_manual || d.valor_calculado}"
-                    onchange="OS.calcFechamento()" checked>
-                  <span>${Fmt.date(d.data)} — ${Fmt.currency(d.valor_manual || d.valor_calculado)}</span>
-                </label>
-              `).join('')}
+          <form id="fechamento-form" onsubmit="OS.saveFechamento(event)">
+            <input type="hidden" id="fech-os-id" value="${currentOS.id}">
+
+            <!-- Valor calculado (readonly) -->
+            <div class="form-group">
+              <label>Valor calculado</label>
+              <input type="text" id="fech-calculado" class="input" value="${Fmt.currency(calc)}"
+                readonly style="background:var(--bg);font-weight:700;color:var(--text-muted)">
+              <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
+              <small style="color:var(--text-muted);font-size:.72rem">Vem da calculadora — se quiser sobrescrever, preencha "valor manual" abaixo.</small>
             </div>
-          `}
-          ${itens.length > 0 ? `
-            <div class="info-row mt-3">
-              <span>Total itens:</span>
-              <strong>${Fmt.currency(totalItens)}</strong>
+
+            <!-- Valor manual opcional -->
+            <div class="form-group">
+              <label>Valor manual <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+              <input type="number" id="fech-manual" class="input" step="0.01" min="0" placeholder="Em branco = usar calculado"
+                oninput="OS.atualizarFechamento()">
             </div>
-          ` : ''}
+
+            <!-- Desconto com toggle R$ / % -->
+            <div class="form-group">
+              <label>Desconto</label>
+              <div class="input-row">
+                <input type="number" id="fech-desconto" class="input" step="0.01" min="0" value="0"
+                  oninput="OS.atualizarFechamento()">
+                <select id="fech-desconto-tipo" class="input" style="flex:0 0 80px;text-align:center"
+                  onchange="OS.toggleDescontoTipo()">
+                  <option value="valor">R$</option>
+                  <option value="perc">%</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Valor final destacado -->
+            <div class="info-row total-row" style="background:var(--success-lt);border-radius:14px;padding:14px 16px;border:none;margin-bottom:16px">
+              <span><strong>Valor final:</strong></span>
+              <strong id="fech-final-display" style="font-size:1.4rem;color:var(--success)">${Fmt.currency(calc)}</strong>
+            </div>
+            <input type="hidden" id="fech-final" value="${calc.toFixed(2)}">
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Competência</label>
+                <input type="month" id="fech-competencia" class="input"
+                  value="${DateUtil.today().substring(0,7)}" required>
+              </div>
+              <div class="form-group">
+                <label>Vencimento</label>
+                <input type="date" id="fech-vencimento" class="input"
+                  value="${DateUtil.today()}" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Categoria <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+              <select id="fech-categoria" class="input">${App.categoriaOptions('entrada')}</select>
+            </div>
+
+            <div class="form-group">
+              <label>Observações</label>
+              <textarea id="fech-obs" class="input" rows="2"></textarea>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary btn-lg">Fechar OS e Gerar Parcela</button>
+            </div>
+          </form>
         </div>
       </div>
     `;
+    // Garante que o display do total inicial está correto
+    atualizarFechamento();
   }
 
-  function _renderFechamentoNormal(cfg, fatores) {
-    const hManut = Fmt.currency(Number(cfg.valor_hora_manutencao) || 155);
-    const hProj  = Fmt.currency(Number(cfg.valor_hora_projeto)    || 200);
-    const vPrx   = Fmt.currency(Number(cfg.valor_chamada_proximo) || 200);
-    const vDst   = Fmt.currency(Number(cfg.valor_chamada_distante)|| 250);
-    return `
-      <div class="card">
-        <div class="card-header"><h3>Calculadora de Serviço</h3></div>
-        <div class="card-body">
-          <div class="form-group">
-            <label>Tipo de Serviço</label>
-            <select id="calc-tipo" class="input" onchange="OS.calcFechamentoNormal()">
-              <option value="manutencao">🔧 Manutenção (${hManut}/h)</option>
-              <option value="projeto">🏗️ Projeto Novo (${hProj}/h)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Horas Trabalhadas</label>
-            <input type="number" id="calc-horas" class="input" step="0.5" value="1" min="0"
-              oninput="OS.calcFechamentoNormal()">
-          </div>
-          <p style="font-size:.78rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px">Fatores de Ajuste</p>
-          <div id="calc-fatores">
-            ${fatores.map(f => `
-              <label class="checkbox-item">
-                <input type="checkbox" class="fator-check" data-perc="${f.percentual}"
-                  onchange="OS.calcFechamentoNormal()">
-                <span>${f.label} <small style="color:var(--text-muted)">(+${f.percentual}%)</small></span>
-              </label>
-            `).join('')}
-          </div>
-          <p style="font-size:.78rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px">Material e Chamada</p>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Material (R$)</label>
-              <input type="number" id="calc-material" class="input" step="0.01" value="0" min="0"
-                oninput="OS.calcFechamentoNormal()">
-            </div>
-            <div class="form-group">
-              <label>Admin. Material (%)</label>
-              <input type="number" id="calc-taxa-admin" class="input" step="0.5" min="0"
-                value="${cfg.taxa_admin_material || 15}" oninput="OS.calcFechamentoNormal()">
-            </div>
-          </div>
-          <label class="checkbox-item">
-            <input type="checkbox" id="calc-chamada" onchange="OS.calcFechamentoNormal()">
-            <span>Chamada Técnica</span>
-          </label>
-          <div id="calc-chamada-tipo-wrap" class="hidden mt-2">
-            <select id="calc-chamada-tipo" class="input" onchange="OS.calcFechamentoNormal()">
-              <option value="proximo">Próximo (${vPrx})</option>
-              <option value="distante">Distante (${vDst})</option>
-            </select>
-          </div>
-          <div class="form-row mt-3">
-            <div class="form-group">
-              <label>Desconto (%)</label>
-              <input type="number" id="calc-desconto-perc" class="input" step="1" value="0" min="0" max="30"
-                oninput="OS.calcFechamentoNormal()">
-            </div>
-            <div class="form-group">
-              <label>Simples Nacional (%)</label>
-              <input type="number" id="calc-simples" class="input" step="0.1" min="0" max="20"
-                value="${cfg.simples_aliquota || 0}" oninput="OS.calcFechamentoNormal()">
-            </div>
-          </div>
-          <div id="calc-breakdown" class="mt-3"></div>
-        </div>
-      </div>
-    `;
+  function toggleDescontoTipo() {
+    // Resetar campo ao mudar de unidade evita confusão (10% != R$ 10)
+    const inp = qs('#fech-desconto');
+    if (inp) inp.value = 0;
+    atualizarFechamento();
   }
 
-  function calcFechamento() {
-    const checks = qsa('.dia-check:checked');
-    const totalItens = Number(qs('#fech-itens-total')?.value) || 0;
-    const valorDias = checks.reduce((s, c) => s + Number(c.dataset.valor || 0), 0);
-    if (qs('#fech-bruto')) qs('#fech-bruto').value = (valorDias + totalItens).toFixed(2);
-    const bruto   = Number(qs('#fech-bruto')?.value) || 0;
-    const desconto = Number(qs('#fech-desconto')?.value) || 0;
-    const liquido  = Math.max(0, bruto - desconto);
-    if (qs('#fech-liquido')) qs('#fech-liquido').value = liquido.toFixed(2);
-    if (qs('#fech-liquido-display')) qs('#fech-liquido-display').textContent = Fmt.currency(liquido);
-  }
+  // Recalcula valor final a partir de: (manual || calculado) - desconto
+  function atualizarFechamento() {
+    const calc   = Number(qs('#fech-calculado-num')?.value) || 0;
+    const manual = Number(qs('#fech-manual')?.value)        || 0;
+    const base   = manual > 0 ? manual : calc;
 
-  async function calcFechamentoNormal() {
-    const chamadaOn = qs('#calc-chamada')?.checked || false;
-    qs('#calc-chamada-tipo-wrap')?.classList.toggle('hidden', !chamadaOn);
+    const descVal  = Number(qs('#fech-desconto')?.value) || 0;
+    const descTipo = qs('#fech-desconto-tipo')?.value || 'valor';
+    const descontoAbs = descTipo === 'perc' ? (base * descVal / 100) : descVal;
+    const final = Math.max(0, base - descontoAbs);
 
-    const cfg = await Calculator.getConfig();
-    const tipo = qs('#calc-tipo')?.value;
-    const horaBase = tipo === 'projeto'
-      ? Calculator.cfgNum(cfg, 'valor_hora_projeto', 200)
-      : Calculator.cfgNum(cfg, 'valor_hora_manutencao', 155);
-
-    const fatoresAtivos = qsa('.fator-check:checked').map(c => ({ percentual: Number(c.dataset.perc) }));
-    const params = {
-      horaBase,
-      horas:             Number(qs('#calc-horas')?.value         || 0),
-      material:          Number(qs('#calc-material')?.value      || 0),
-      taxaAdminMaterial: Number(qs('#calc-taxa-admin')?.value    || 0),
-      fatoresAtivos,
-      chamadaTecnica:    chamadaOn,
-      tipoChamada:       qs('#calc-chamada-tipo')?.value          || 'proximo',
-      desconto:          Number(qs('#calc-desconto-perc')?.value || 0),
-      simples:           Number(qs('#calc-simples')?.value        || 0),
-    };
-
-    const r = await Calculator.calcularServico(params);
-
-    const bd = qs('#calc-breakdown');
-    if (bd) {
-      const row = (label, val, style = '') =>
-        `<div class="info-row" ${style ? `style="${style}"` : ''}><span>${label}</span><span>${val}</span></div>`;
-      bd.innerHTML = `<div style="border-top:1px solid var(--border);padding-top:10px">
-        ${row('Hora base:', `${Fmt.currency(horaBase)}/h`)}
-        ${r.totalPerc > 0 ? row(`Fatores (+${r.totalPerc}%):`, `<strong>${Fmt.currency(r.horaFinal)}/h</strong>`) : ''}
-        ${row(`Mão de obra (${Fmt.hours(params.horas)}):`, Fmt.currency(r.subtotalMao))}
-        ${params.material > 0 ? row(`Material + admin (${params.taxaAdminMaterial}%):`, Fmt.currency(r.subtotalMat)) : ''}
-        ${r.valorChamada > 0 ? row('Chamada técnica:', Fmt.currency(r.valorChamada)) : ''}
-        ${row('Subtotal:', Fmt.currency(r.subtotalBruto), 'border-top:1px solid var(--border);margin-top:6px;padding-top:6px')}
-        ${r.valorDesconto > 0 ? row(`Desconto (${params.desconto}%):`, `-${Fmt.currency(r.valorDesconto)}`, 'color:var(--danger)') : ''}
-        ${r.valorSimples > 0 ? row(`Simples (${params.simples}%):`, `+${Fmt.currency(r.valorSimples)}`, 'color:var(--text-muted)') : ''}
-        <div class="info-row total-row"><span><strong>Total:</strong></span><strong style="color:var(--success)">${Fmt.currency(r.total)}</strong></div>
-      </div>`;
-    }
-
-    if (qs('#fech-bruto'))           qs('#fech-bruto').value           = r.subtotalBruto.toFixed(2);
-    if (qs('#fech-desconto'))        qs('#fech-desconto').value        = r.valorDesconto.toFixed(2);
-    if (qs('#fech-liquido'))         qs('#fech-liquido').value         = r.total.toFixed(2);
-    if (qs('#fech-liquido-display')) qs('#fech-liquido-display').textContent = Fmt.currency(r.total);
+    if (qs('#fech-final'))         qs('#fech-final').value = final.toFixed(2);
+    if (qs('#fech-final-display')) qs('#fech-final-display').textContent = Fmt.currency(final);
   }
 
   async function saveFechamento(e) {
     e.preventDefault();
-    const osId    = qs('#fech-os-id').value;
-    const bruto   = Number(qs('#fech-bruto').value) || 0;
-    const desconto= Number(qs('#fech-desconto').value) || 0;
-    const liquido = Number(qs('#fech-liquido').value) || 0;
+    const osId   = qs('#fech-os-id').value;
+
+    // base = manual se preenchido, senão calculado
+    const calc   = Number(qs('#fech-calculado-num').value) || 0;
+    const manual = Number(qs('#fech-manual').value)        || 0;
+    const base   = manual > 0 ? manual : calc;
+
+    // Resolve desconto absoluto (em R$) considerando o toggle valor/%
+    const descVal  = Number(qs('#fech-desconto').value) || 0;
+    const descTipo = qs('#fech-desconto-tipo').value || 'valor';
+    const descontoAbs = descTipo === 'perc' ? (base * descVal / 100) : descVal;
+
+    const liquido = Math.max(0, base - descontoAbs);
     const comp    = qs('#fech-competencia').value + '-01';
     const venc    = qs('#fech-vencimento').value;
     const catId   = qs('#fech-categoria').value;
     const obs     = qs('#fech-obs').value;
-    const diariaIds = qsa('.dia-check:checked').map(c => c.value);
+
+    // Para diárias: pega os dias que estão marcados na CALCULADORA do detalhe
+    // (não mais aqui no fechamento — ela já passou)
+    const diariaIds = currentOS.tipo === 'diaria'
+      ? allDiarias.filter(d => d.os_id === osId).map(d => d.id)
+      : [];
+
+    if (liquido <= 0) { Toast.warning('Valor final precisa ser maior que zero'); return; }
 
     Loading.show();
     const res = await API.db.fecharOS({
-      os_id: osId, valor_bruto: bruto, desconto, valor_liquido: liquido,
+      os_id: osId, valor_bruto: base, desconto: descontoAbs, valor_liquido: liquido,
       data_competencia: comp, data_vencimento: venc, categoria_id: catId,
       diaria_ids: diariaIds, observacoes: obs,
     });
@@ -982,7 +1084,9 @@ const OS = (() => {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     openItemForm, saveItem, deleteItem,
-    openFechamento, calcFechamento, calcFechamentoNormal, saveFechamento,
+    // Calculadora no detalhe + Fechamento simplificado
+    renderCalculadora, calcDiariaUpdate, calcNormalUpdate,
+    openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
     confirmDelete,
   };
