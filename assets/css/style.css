@@ -628,13 +628,21 @@ textarea.input { resize: vertical; min-height: 80px; }
 /* ─── BAR CHART ───────────────────────────────────────────── */
 .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .bar-label { width: 36px; font-size: .7rem; color: var(--text-muted); flex-shrink: 0; font-weight: 700; }
-.bar-track { flex: 1; height: 20px; background: var(--bg); border-radius: 50px; overflow: hidden; }
+.bar-track { flex: 1; height: 20px; background: var(--bg); border-radius: 50px; overflow: hidden; min-width: 0; }
 .bar        { height: 100%; border-radius: 50px; min-width: 6px; transition: width .6s cubic-bezier(.34,1.56,.64,1); }
 .bar-green  { background: var(--success); }
 .bar-red    { background: var(--danger); }
 .bar-navy   { background: var(--navy); }
 .bar-gold   { background: var(--gold); }
 .bar-value  { width: 90px; font-size: .75rem; font-weight: 700; text-align: right; flex-shrink: 0; color: var(--text); }
+
+/* Layout vertical pra labels longos (categorias, clientes, etc) */
+.bar-row-v { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.bar-row-v .bar-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bar-row-v .bar-name { font-size: .82rem; font-weight: 600; color: var(--text); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row-v .bar-val  { font-size: .8rem; font-weight: 700; color: var(--text); flex-shrink: 0; }
+.bar-row-v .bar-track { height: 8px; }
 
 /* ─── ALERT ───────────────────────────────────────────────── */
 .alert { padding: 12px 16px; border-radius: var(--radius-sm); font-size: .85rem; display: flex; gap: 8px; align-items: flex-start; }

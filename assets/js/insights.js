@@ -327,21 +327,26 @@ const Insights = (() => {
   function _renderCategorias(porRec, porDesp) {
     const maxRec  = Math.max(...porRec.map(c  => c[1]), 1);
     const maxDesp = Math.max(...porDesp.map(c => c[1]), 1);
+    // Layout vertical (bar-row-v): label em cima, barra fina embaixo
+    // Resolve o problema de label longo (ex: "Material/Estoque") cortando ou sobrepondo barra
+    const linha = (nome, val, max, cor) => `
+      <div class="bar-row-v">
+        <div class="bar-head">
+          <span class="bar-name">${nome}</span>
+          <span class="bar-val">${Fmt.currency(val)}</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar ${cor}" style="width:${(val/max*100).toFixed(0)}%"></div>
+        </div>
+      </div>
+    `;
     return `
       <div class="grid-2col mb-4">
         <div class="card">
           <div class="card-header"><h3>🟢 Receitas por Categoria</h3></div>
           <div class="card-body">
             ${porRec.length === 0 ? '<p class="text-muted">Sem receitas no período</p>' :
-              porRec.map(([nome, val]) => `
-                <div class="bar-row">
-                  <div class="bar-label">${nome}</div>
-                  <div class="bar-track">
-                    <div class="bar bar-green" style="width:${(val/maxRec*100).toFixed(0)}%"></div>
-                  </div>
-                  <div class="bar-value">${Fmt.currency(val)}</div>
-                </div>
-              `).join('')}
+              porRec.map(([nome, val]) => linha(nome, val, maxRec, 'bar-green')).join('')}
           </div>
         </div>
 
@@ -349,15 +354,7 @@ const Insights = (() => {
           <div class="card-header"><h3>🔴 Despesas por Categoria</h3></div>
           <div class="card-body">
             ${porDesp.length === 0 ? '<p class="text-muted">Sem despesas no período</p>' :
-              porDesp.map(([nome, val]) => `
-                <div class="bar-row">
-                  <div class="bar-label">${nome}</div>
-                  <div class="bar-track">
-                    <div class="bar bar-red" style="width:${(val/maxDesp*100).toFixed(0)}%"></div>
-                  </div>
-                  <div class="bar-value">${Fmt.currency(val)}</div>
-                </div>
-              `).join('')}
+              porDesp.map(([nome, val]) => linha(nome, val, maxDesp, 'bar-red')).join('')}
           </div>
         </div>
       </div>
@@ -460,19 +457,25 @@ const Insights = (() => {
         <div class="card-header"><h3>💸 Fluxo de Caixa (semanas do mês)</h3></div>
         <div class="card-body">
           ${semanas.map(s => `
-            <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div style="margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                 <strong style="font-size:.85rem">${s.label}</strong>
                 <strong class="${s.saldo >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(s.saldo)}</strong>
               </div>
-              <div class="bar-row" style="margin-bottom:3px">
-                <div class="bar-label" style="font-size:.7rem">↓ ${Fmt.currency(s.entradas)}</div>
+              <div class="bar-row-v" style="margin-bottom:4px">
+                <div class="bar-head">
+                  <span class="bar-name" style="font-size:.72rem;color:var(--text-muted)">↓ Entradas</span>
+                  <span class="bar-val" style="font-size:.72rem">${Fmt.currency(s.entradas)}</span>
+                </div>
                 <div class="bar-track">
                   <div class="bar bar-green" style="width:${(s.entradas/max*100).toFixed(0)}%"></div>
                 </div>
               </div>
-              <div class="bar-row">
-                <div class="bar-label" style="font-size:.7rem">↑ ${Fmt.currency(s.saidas)}</div>
+              <div class="bar-row-v">
+                <div class="bar-head">
+                  <span class="bar-name" style="font-size:.72rem;color:var(--text-muted)">↑ Saídas</span>
+                  <span class="bar-val" style="font-size:.72rem">${Fmt.currency(s.saidas)}</span>
+                </div>
                 <div class="bar-track">
                   <div class="bar bar-red" style="width:${(s.saidas/max*100).toFixed(0)}%"></div>
                 </div>
