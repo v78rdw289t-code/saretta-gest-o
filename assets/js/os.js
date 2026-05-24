@@ -437,11 +437,14 @@ const OS = (() => {
     if (ti && tf) horas += DateUtil.diffHours(ti, tf);
     const valorCalc = await Calculator.calcularDia(mi, mf, ti, tf, null);
 
+    // Prefixo '@' impede o Google Sheets de converter "HH:MM" para tipo Time
+    // (que causaria deslocamento de fuso horário ao ler de volta)
+    const safe = t => t ? '@' + t : '';
     const data = {
       os_id:         osId,
       data:          qs('#modal-diaria-data').value,
-      manha_inicio:  mi, manha_fim: mf,
-      tarde_inicio:  ti, tarde_fim: tf,
+      manha_inicio:  safe(mi), manha_fim: safe(mf),
+      tarde_inicio:  safe(ti), tarde_fim: safe(tf),
       horas_totais:  horas,
       valor_calculado: valorCalc,
       valor_manual:  manual || '',

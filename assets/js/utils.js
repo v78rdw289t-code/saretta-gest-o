@@ -35,29 +35,30 @@ const Fmt = {
   _parseTime(v) {
     if (v === null || v === undefined || v === '' || v === false) return null;
     if (typeof v === 'string') {
-      // ISO datetime do Sheets — Apps Script serializa hora LOCAL como UTC
-      // Ex: usuário entrou "09:12" (Brasil UTC-3) → vira "1899-12-30T12:12:00.000Z"
-      // Converte de volta usando o offset atual do dispositivo (não depende de getHours)
+      // ── Formato seguro "@HH:MM" (salvo assim pelo app para evitar Sheets converter)
+      if (v.startsWith('@')) {
+        const t = v.substring(1);
+        const m = t.match(/^(\d{1,2}):(\d{2})/);
+        return m ? m[1].padStart(2,'0') + ':' + m[2] : null;
+      }
+      // ── ISO datetime do Sheets (dados antigos) — usa hora local do dispositivo
+      // Sheets salva "09:12" (Brasil UTC-3) como "2026-05-23T12:12:00.000Z"
+      // getHours() no dispositivo UTC-3 devolve 9 ✓
       if (v.includes('T')) {
         const d = new Date(v);
         if (!isNaN(d.getTime())) {
-          const tzOffset = new Date().getTimezoneOffset(); // min; UTC-3 → 180
-          const utcMin   = d.getUTCHours() * 60 + d.getUTCMinutes();
-          const localMin = ((utcMin - tzOffset) % 1440 + 1440) % 1440;
-          return String(Math.floor(localMin / 60)).padStart(2,'0') + ':' + String(localMin % 60).padStart(2,'0');
+          return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
         }
       }
-      // "HH:MM", "H:MM", "HH:MM:SS", "H:MM:SS"
+      // ── String "HH:MM", "H:MM", "HH:MM:SS"
       const m = v.match(/^(\d{1,2}):(\d{2})/);
       if (m) return m[1].padStart(2,'0') + ':' + m[2];
     }
-    // Número decimal: 0.333... = 08:00
+    // ── Decimal do Sheets (0.333… = 08:00) — dados muito antigos
     const num = Number(v);
     if (!Number.isFinite(num) || num < 0) return null;
     const totalMin = Math.round(num * 24 * 60);
-    const h = Math.floor(totalMin / 60);
-    const mn = totalMin % 60;
-    return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0');
+    return String(Math.floor(totalMin / 60)).padStart(2,'0') + ':' + String(totalMin % 60).padStart(2,'0');
   },
   time(v)      { return this._parseTime(v) ?? '—'; },
   timeInput(v) { return this._parseTime(v) ?? '';  },
