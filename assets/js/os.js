@@ -15,6 +15,7 @@ const OS = (() => {
     horas:    0,   // só p/ exibir no fechamento
     detalhe:  '',  // texto curto descrevendo o cálculo
   };
+  let _calcExpanded = false;  // true = calculadora aberta; false = resumo/botão
 
   // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render(params = {}) {
@@ -152,8 +153,14 @@ const OS = (() => {
 
   // ─── DETALHE ────────────────────────────────────────────
   async function openDetail(id) {
-    currentOS = allOS.find(o => o.id === id) || (await API.db.read('os', id))?.data?.[0];
-    if (!currentOS) return;
+    const novoOS = allOS.find(o => o.id === id) || (await API.db.read('os', id))?.data?.[0];
+    if (!novoOS) return;
+    // Reseta o estado da calculadora ao trocar de OS
+    if (!currentOS || currentOS.id !== novoOS.id) {
+      _calc = { bruto: 0, liquido: 0, horas: 0, detalhe: '' };
+      _calcExpanded = false;
+    }
+    currentOS = novoOS;
     currentView = 'detail';
     const diarias = allDiarias.filter(d => d.os_id === id)
                                .sort((a, b) => a.data > b.data ? 1 : -1);
@@ -201,16 +208,10 @@ const OS = (() => {
         </div>
       </div>
 
-      <!-- Calculadora de valor — sempre visível enquanto a OS não está fechada -->
+      <!-- Calculadora de valor — colapsada por padrão; expande sob demanda -->
       ${currentOS.status !== 'fechado' ? `
         <div class="card mb-3" id="os-calc-card">
-          <div class="card-header">
-            <h3>💰 Calculadora de Valor</h3>
-            <strong id="os-calc-total" class="text-green" style="font-size:1.15rem">—</strong>
-          </div>
-          <div class="card-body" id="os-calc-body">
-            <!-- preenchido por renderCalculadora() -->
-          </div>
+          <!-- preenchido por renderCalculadora() — 3 estados: botão, aberta, ou resumo -->
         </div>
       ` : ''}
 
@@ -276,12 +277,56 @@ const OS = (() => {
   }
 
   // ─── CALCULADORA DE VALOR (no detalhe) ──────────────────
+  // Card com 3 estados:
+  //   1. Sem cálculo + colapsado → botão grande "🧮 Calcular Valor"
+  //   2. Com cálculo + colapsado → card-resumo (valor, detalhe, "Editar")
+  //   3. Expandido (sempre) → calculadora completa + botão "✓ Pronto"
   async function renderCalculadora(diarias, itens) {
-    const body = qs('#os-calc-body');
-    if (!body) return;
+    const card = qs('#os-calc-card');
+    if (!card) return;
 
     const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
 
+    if (!_calcExpanded) {
+      // Estados 1 ou 2: card colapsado
+      if (_calc.liquido > 0) {
+        // Estado 2: já calculado — mostra resumo
+        card.innerHTML = `
+          <div class="card-body" style="display:flex;align-items:center;gap:14px;padding:14px 16px">
+            <div style="flex:1;min-width:0">
+              <div class="info-label" style="margin-bottom:2px">Valor calculado</div>
+              <div style="font-size:1.35rem;font-weight:800;color:var(--success);line-height:1.1">${Fmt.currency(_calc.liquido)}</div>
+              <div style="font-size:.75rem;color:var(--text-muted);margin-top:2px">${_calc.detalhe || ''}</div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="OS.toggleCalc()">✏️ Editar</button>
+          </div>
+        `;
+      } else {
+        // Estado 1: ainda sem cálculo — só o botão
+        card.innerHTML = `
+          <div class="card-body" style="padding:14px 16px">
+            <button class="btn btn-gold btn-full" style="padding:14px;font-size:.95rem" onclick="OS.toggleCalc()">
+              🧮 Calcular Valor da OS
+            </button>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // Estado 3: expandido — calculadora completa
+    card.innerHTML = `
+      <div class="card-header">
+        <h3>💰 Calculadora de Valor</h3>
+        <strong id="os-calc-total" class="text-green" style="font-size:1.15rem">—</strong>
+      </div>
+      <div class="card-body" id="os-calc-body"></div>
+      <div class="card-body" style="padding-top:0">
+        <button class="btn btn-primary btn-full" onclick="OS.toggleCalc()">✓ Pronto</button>
+      </div>
+    `;
+
+    const body = qs('#os-calc-body');
     if (currentOS.tipo === 'diaria') {
       body.innerHTML = _renderCalcDiaria(diarias, itens, totalItens);
       calcDiariaUpdate();
@@ -291,6 +336,16 @@ const OS = (() => {
       body.innerHTML = _renderCalcNormal(cfg, fatores, totalItens);
       calcNormalUpdate();
     }
+  }
+
+  // Alterna entre calculadora aberta e fechada (re-renderizando só o card)
+  async function toggleCalc() {
+    _calcExpanded = !_calcExpanded;
+    if (!currentOS) return;
+    const diarias = allDiarias.filter(d => d.os_id === currentOS.id)
+                              .sort((a, b) => a.data > b.data ? 1 : -1);
+    const itens   = allItens.filter(i => i.os_id === currentOS.id);
+    await renderCalculadora(diarias, itens);
   }
 
   function _renderCalcDiaria(diarias, itens, totalItens) {
@@ -1085,7 +1140,7 @@ const OS = (() => {
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     openItemForm, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
-    renderCalculadora, calcDiariaUpdate, calcNormalUpdate,
+    renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc,
     openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
     confirmDelete,
