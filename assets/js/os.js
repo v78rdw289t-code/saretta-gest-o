@@ -132,16 +132,7 @@ const OS = (() => {
   }
 
   function tapCard(id) {
-    const o = allOS.find(x => x.id === id);
-    if (!o) return;
-    const actions = [
-      { icon: '👁', label: 'Abrir OS', fn: () => openDetail(id) },
-    ];
-    if (o.status !== 'fechado') {
-      actions.push({ icon: '✏️', label: 'Editar', fn: () => openForm(id) });
-    }
-    actions.push({ icon: '🗑', label: 'Excluir', fn: () => confirmDelete(id), danger: true });
-    ActionSheet.open(o.numero + ' — ' + App.clienteNome(o.cliente_id), actions);
+    openDetail(id);
   }
 
   // ─── DETALHE ────────────────────────────────────────────
@@ -175,7 +166,7 @@ const OS = (() => {
               ＋ Registrar Dia
             </button>
           ` : ''}
-          <button class="btn btn-secondary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openFechamento()">
+          <button class="btn btn-gold" style="flex:1;font-size:1rem;padding:13px 8px" onclick="OS.openFechamento()">
             ✓ Fechar OS
           </button>
         </div>
@@ -397,7 +388,8 @@ const OS = (() => {
     qs('#modal-diaria-tarde-in').value  = Fmt.timeInput(d?.tarde_inicio);
     qs('#modal-diaria-tarde-fim').value = Fmt.timeInput(d?.tarde_fim);
     qs('#modal-diaria-manual').value    = d?.valor_manual || '';
-    qs('#modal-diaria-info').textContent = `Valor hora: ${Fmt.currency(cfg.valor_hora || 0)} | Fator normal: ${cfg.fator_manha || 1} | Extra: ${cfg.fator_extra || 1.5}`;
+    const vHora = cfg.valor_hora_manutencao || cfg.valor_hora || 0;
+    qs('#modal-diaria-info').textContent = `Valor hora: ${Fmt.currency(vHora)} | Total calculado com base nas horas`;
 
     await calcDiariaPreview();
     Modal.open('modal-diaria');
@@ -613,9 +605,10 @@ const OS = (() => {
             <form id="fechamento-form" onsubmit="OS.saveFechamento(event)">
               <input type="hidden" id="fech-os-id" value="${currentOS.id}">
               ${currentOS.tipo === 'diaria' ? `
+                <input type="hidden" id="fech-itens-total" value="${totalItens.toFixed(2)}">
                 <div class="form-group">
                   <label>Valor Bruto (R$)</label>
-                  <input type="number" id="fech-bruto" class="input" step="0.01" value="${totalItens.toFixed(2)}"
+                  <input type="number" id="fech-bruto" class="input" step="0.01" value="0"
                     onchange="OS.calcFechamento()" required>
                 </div>
                 <div class="form-group">
@@ -764,10 +757,9 @@ const OS = (() => {
 
   function calcFechamento() {
     const checks = qsa('.dia-check:checked');
-    if (checks.length > 0) {
-      const valorDias = checks.reduce((s, c) => s + Number(c.dataset.valor || 0), 0);
-      if (qs('#fech-bruto')) qs('#fech-bruto').value = valorDias.toFixed(2);
-    }
+    const totalItens = Number(qs('#fech-itens-total')?.value) || 0;
+    const valorDias = checks.reduce((s, c) => s + Number(c.dataset.valor || 0), 0);
+    if (qs('#fech-bruto')) qs('#fech-bruto').value = (valorDias + totalItens).toFixed(2);
     const bruto   = Number(qs('#fech-bruto')?.value) || 0;
     const desconto = Number(qs('#fech-desconto')?.value) || 0;
     const liquido  = Math.max(0, bruto - desconto);

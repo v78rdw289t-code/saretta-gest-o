@@ -3,20 +3,24 @@
 // ============================================================
 
 const Home = (() => {
+  let _searching = false;
+
   async function render() {
     const section = qs('#page-home');
     const hoje = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' });
 
     section.innerHTML = `
-      <div style="background:var(--navy);margin:-16px -16px 20px;padding:20px 16px 24px">
-        <div style="font-size:.75rem;color:rgba(255,255,255,.5);text-transform:capitalize;margin-bottom:4px">${hoje}</div>
-        <div style="font-size:1.3rem;font-weight:800;color:#fff">Saretta Serviços</div>
-        <div class="mt-3">
-          <input id="home-search" type="text" placeholder="🔍  Buscar cliente ou OS..." class="input-search"
-            style="background:rgba(255,255,255,.12);border-color:transparent;color:#fff"
-            onkeydown="if(event.key==='Enter') Home.search()">
+      <div class="home-hero" style="background:linear-gradient(160deg,var(--navy-lt) 0%,var(--navy) 100%);margin:-16px -16px 18px;padding:24px 18px 28px">
+        <div style="font-size:.72rem;color:rgba(255,255,255,.5);text-transform:capitalize;margin-bottom:6px;letter-spacing:.3px">${hoje}</div>
+        <div style="font-size:1.4rem;font-weight:800;color:#fff;margin-bottom:20px;letter-spacing:-.3px">Saretta Gestão</div>
+        <div class="home-search-wrap">
+          <input id="home-search" type="text" placeholder="Buscar cliente ou OS..." class="input-search-hero"
+            oninput="Home.onSearchInput()" onkeydown="if(event.key==='Enter') Home.search()">
+          <button id="home-search-clear" class="home-search-clear-btn hidden" onclick="Home.clearSearch()" title="Limpar busca">✕</button>
         </div>
       </div>
+
+      <div id="home-search-results" class="hidden"></div>
 
       <div id="home-stats" class="stats-grid mb-4">
         <div class="stat-card loading-pulse" style="grid-column:1/-1"><span>Carregando...</span></div>
@@ -48,14 +52,6 @@ const Home = (() => {
         <div id="home-os-andamento">
           <p class="text-muted p-3">Carregando...</p>
         </div>
-      </div>
-
-      <div id="home-search-results" class="card mt-4 hidden">
-        <div class="card-header">
-          <h3>Resultados da Busca</h3>
-          <button class="btn btn-sm btn-outline" onclick="qs('#home-search-results').classList.add('hidden')">✕</button>
-        </div>
-        <div id="home-search-content"></div>
       </div>
     `;
 
@@ -127,9 +123,27 @@ const Home = (() => {
     `;
   }
 
+  function onSearchInput() {
+    const val = qs('#home-search')?.value || '';
+    const clearBtn = qs('#home-search-clear');
+    if (clearBtn) clearBtn.classList.toggle('hidden', !val.trim());
+    if (!val.trim() && _searching) clearSearch();
+  }
+
+  function clearSearch() {
+    const inp = qs('#home-search');
+    if (inp) inp.value = '';
+    const clearBtn = qs('#home-search-clear');
+    if (clearBtn) clearBtn.classList.add('hidden');
+    const results = qs('#home-search-results');
+    if (results) { results.classList.add('hidden'); results.innerHTML = ''; }
+    _searching = false;
+  }
+
   async function search() {
     const q = qs('#home-search')?.value.trim();
     if (!q) return;
+    _searching = true;
 
     Loading.show();
     const [cliRes, osRes] = await Promise.all([
@@ -142,39 +156,63 @@ const Home = (() => {
     const osList   = filterRecords(osRes?.data  || [], q, ['numero','observacoes']);
 
     const resultsEl = qs('#home-search-results');
-    const contentEl = qs('#home-search-content');
     resultsEl.classList.remove('hidden');
 
-    let html = '';
+    const total = clientes.length + osList.length;
+    let html = `
+      <div class="search-results-card">
+        <div class="search-results-header">
+          <h3>${total} resultado${total !== 1 ? 's' : ''} para "${q}"</h3>
+          <button class="btn btn-sm btn-outline" onclick="Home.clearSearch()">✕ Limpar</button>
+        </div>
+    `;
+
     if (clientes.length > 0) {
-      html += `<p class="p-3 pb-1 text-muted" style="font-size:.78rem;font-weight:700;text-transform:uppercase">Clientes (${clientes.length})</p>`;
-      html += `<div class="entity-list" style="border-radius:0;border:none;box-shadow:none">` +
-        clientes.map(c => `
-          <div class="entity-item" onclick="App.navigate('clientes'); Clientes.openDetail('${c.id}')">
-            <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
-            <div class="entity-info">
-              <div class="entity-name">${c.nome}</div>
-              <div class="entity-sub">${c.endereco || c.telefone || ''}</div>
-            </div>
-            <span class="entity-chevron">›</span>
-          </div>`).join('') + `</div>`;
+      html += `
+        <div style="padding:10px 18px 4px;font-size:.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">
+          Clientes (${clientes.length})
+        </div>
+        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+          ${clientes.map(c => `
+            <div class="entity-item" onclick="App.navigate('clientes'); Clientes.openDetail('${c.id}')">
+              <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
+              <div class="entity-info">
+                <div class="entity-name">${c.nome}</div>
+                <div class="entity-sub">${c.endereco || c.telefone || ''}</div>
+              </div>
+              <span class="entity-chevron">›</span>
+            </div>`).join('')}
+        </div>
+      `;
     }
+
     if (osList.length > 0) {
-      html += `<p class="p-3 pb-1 text-muted" style="font-size:.78rem;font-weight:700;text-transform:uppercase">OS (${osList.length})</p>`;
-      html += `<div class="entity-list" style="border-radius:0;border:none;box-shadow:none">` +
-        osList.map(o => `
-          <div class="entity-item" onclick="App.navigate('os'); OS.openDetail('${o.id}')">
-            <div class="avatar av-navy"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
-            <div class="entity-info">
-              <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
-              <div class="entity-sub">${o.numero} · ${Fmt.date(o.data_inicio)}</div>
-            </div>
-            ${statusBadge(o.status)}
-          </div>`).join('') + `</div>`;
+      html += `
+        <div style="padding:10px 18px 4px;font-size:.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">
+          OS (${osList.length})
+        </div>
+        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+          ${osList.map(o => `
+            <div class="entity-item" onclick="App.navigate('os'); OS.openDetail('${o.id}')">
+              <div class="avatar av-navy"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
+              <div class="entity-info">
+                <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
+                <div class="entity-sub">${o.numero} · ${Fmt.date(o.data_inicio)}</div>
+              </div>
+              ${statusBadge(o.status)}
+            </div>`).join('')}
+        </div>
+      `;
     }
-    if (!html) html = '<p class="p-3 text-muted">Nenhum resultado encontrado.</p>';
-    contentEl.innerHTML = html;
+
+    if (total === 0) {
+      html += `<div class="entity-empty">Nenhum resultado para "${q}"</div>`;
+    }
+
+    html += '</div>';
+    resultsEl.innerHTML = html;
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  return { render, search };
+  return { render, search, clearSearch, onSearchInput };
 })();

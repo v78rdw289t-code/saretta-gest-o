@@ -99,7 +99,7 @@ const Fiado = (() => {
     if (id) {
       const fiado = allFiado.find(f => f.id === id);
       const ops = [
-        { action: 'update', sheet: 'fiado', id, data: { pessoa, descricao: desc, valor, data, observacoes: obs } },
+        { action: 'update', sheet: 'fiado', id, data: { pessoa, descricao: desc, valor, data, data_vencimento: venc, observacoes: obs } },
       ];
       if (fiado?.parcela_pagar_id) {
         ops.push({ action: 'update', sheet: 'parcelas', id: fiado.parcela_pagar_id,

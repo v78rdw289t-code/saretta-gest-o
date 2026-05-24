@@ -219,12 +219,7 @@ const Compras = (() => {
   }
 
   function tapCard(id) {
-    const c = allCompras.find(x => x.id === id);
-    if (!c) return;
-    ActionSheet.open('Compra — ' + Fmt.date(c.data), [
-      { icon: '👁', label: 'Ver Detalhes', fn: () => openDetail(id) },
-      { icon: '🗑', label: 'Excluir',      fn: () => confirmDelete(id), danger: true },
-    ]);
+    openDetail(id);
   }
 
   return { render, renderList, tapCard, openDetail, confirmDelete, openForm, addItem, removeItem, saveForm };

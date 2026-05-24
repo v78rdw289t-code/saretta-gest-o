@@ -132,9 +132,8 @@ const App = (() => {
     // Carregar dados globais
     await loadGlobals();
 
-    // Rota inicial
-    const hash = window.location.hash.replace('#', '');
-    navigate(pages.includes(hash) ? hash : 'home');
+    // Sempre abre na home
+    navigate('home');
   }
 
   return { navigate, init, loadGlobals, getClientes, getCategorias,

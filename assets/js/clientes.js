@@ -4,6 +4,7 @@
 
 const Clientes = (() => {
   let allClientes = [];
+  let _filtroTipo = '';
 
   async function render() {
     await loadData();
@@ -17,15 +18,18 @@ const Clientes = (() => {
     allClientes = res?.data || [];
   }
 
-  function renderList(q = '', filtroTipo = '') {
+  function renderList(q = '', filtroTipo = _filtroTipo) {
+    _filtroTipo = filtroTipo;
     let items = allClientes.filter(c => c.ativo !== false && c.ativo !== 'false');
-    if (filtroTipo) items = items.filter(c => c.tipo === filtroTipo || (filtroTipo === 'ambos' && c.tipo === 'ambos'));
+    if (filtroTipo) items = items.filter(c => c.tipo === filtroTipo);
     if (q) items = filterRecords(items, q, ['nome','telefone','endereco']);
 
     const tipoBadgeCli = t => {
       if (t === 'cliente')    return '<span class="badge badge-info">Cliente</span>';
       if (t === 'fornecedor') return '<span class="badge badge-secondary">Fornecedor</span>';
-      return '<span class="badge badge-success">Equipe</span>';
+      if (t === 'equipe')     return '<span class="badge badge-success">Equipe</span>';
+      if (t === 'ambos')      return '<span class="badge badge-gold">Ambos</span>';
+      return '<span class="badge badge-secondary">' + (t || 'Outro') + '</span>';
     };
 
     const section = qs('#page-clientes');
@@ -35,20 +39,20 @@ const Clientes = (() => {
         <button class="btn btn-primary" onclick="Clientes.openForm()">+ Novo</button>
       </div>
       <div class="mb-3">
-        <input type="text" id="cli-search" placeholder="Buscar nome ou endereço..." class="input-search" value="${q}"
+        <input type="text" id="cli-search" placeholder="Buscar nome, telefone..." class="input-search" value="${q}"
           oninput="Clientes.applyFilters()">
       </div>
       <div class="tab-bar mb-3">
         <button class="tab-btn ${filtroTipo===''?'active':''}"           onclick="Clientes.renderList(qs('#cli-search')?.value||'','')">Todos</button>
         <button class="tab-btn ${filtroTipo==='cliente'?'active':''}"    onclick="Clientes.renderList(qs('#cli-search')?.value||'','cliente')">Clientes</button>
-        <button class="tab-btn ${filtroTipo==='fornecedor'?'active':''}" onclick="Clientes.renderList(qs('#cli-search')?.value||'','fornecedor')">Fornecedores</button>
-        <button class="tab-btn ${filtroTipo==='ambos'?'active':''}"      onclick="Clientes.renderList(qs('#cli-search')?.value||'','ambos')">Equipe</button>
+        <button class="tab-btn ${filtroTipo==='fornecedor'?'active':''}" onclick="Clientes.renderList(qs('#cli-search')?.value||'','fornecedor')">Fornec.</button>
+        <button class="tab-btn ${filtroTipo==='equipe'?'active':''}"     onclick="Clientes.renderList(qs('#cli-search')?.value||'','equipe')">Equipe</button>
       </div>
       <div class="entity-list">
         ${items.length === 0
           ? '<div class="entity-empty">Nenhum cadastro encontrado</div>'
           : items.map(c => `
-            <div class="entity-item" onclick="Clientes.tapCard('${c.id}')">
+            <div class="entity-item" onclick="Clientes.openDetail('${c.id}')">
               <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
               <div class="entity-info">
                 <div class="entity-name">${c.nome}</div>
@@ -65,51 +69,48 @@ const Clientes = (() => {
   }
 
   function applyFilters() {
-    const q  = qs('#cli-search')?.value || '';
-    const tp = qs('#cli-tipo')?.value   || '';
-    renderList(q, tp);
-  }
-
-  function tapCard(id) {
-    const c = allClientes.find(x => x.id === id);
-    if (!c) return;
-    ActionSheet.open(c.nome, [
-      { icon: '👁', label: 'Ver Detalhes',  fn: () => openDetail(id) },
-      { icon: '✏️', label: 'Editar',        fn: () => openForm(id) },
-      { icon: '🗑', label: 'Inativar',      fn: () => confirmDelete(id), danger: true },
-    ]);
+    const q = qs('#cli-search')?.value || '';
+    renderList(q, _filtroTipo);
   }
 
   async function openDetail(id) {
     const c = allClientes.find(x => x.id === id);
     if (!c) return;
 
+    const tipoBadgeFull = t => {
+      if (t === 'cliente')    return '<span class="badge badge-info">Cliente</span>';
+      if (t === 'fornecedor') return '<span class="badge badge-secondary">Fornecedor</span>';
+      if (t === 'equipe')     return '<span class="badge badge-success">Equipe</span>';
+      if (t === 'ambos')      return '<span class="badge badge-gold">Ambos</span>';
+      return '<span class="badge badge-secondary">' + (t || '—') + '</span>';
+    };
+
     const [osRes, parRes] = await Promise.all([
       API.db.read('os', null, { cliente_id: id }),
       API.db.read('parcelas', null, { cliente_id: id }),
     ]);
-    const osList  = (osRes?.data  || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
-    const parcelas= (parRes?.data || []).sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
-    const totalRec= parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
-    const totalPag= parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
-    const totalRecebido= parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
+    const osList   = (osRes?.data  || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
+    const parcelas = (parRes?.data || []).sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
+    const totalRec       = parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalPag       = parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalRecebido  = parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
 
     const section = qs('#page-clientes');
     section.innerHTML = `
       <div class="page-header">
-        <button class="btn btn-outline" onclick="Clientes.render()">← Voltar</button>
+        <button class="btn btn-outline btn-sm" onclick="Clientes.render()">← Voltar</button>
         <h1>${c.nome}</h1>
-        <button class="btn btn-outline" onclick="Clientes.openForm('${c.id}')">Editar</button>
+        <button class="btn btn-outline btn-sm" onclick="Clientes.openForm('${c.id}')">Editar</button>
       </div>
 
       <div class="grid-2col">
         <div class="card">
           <div class="card-header"><h3>Dados</h3></div>
           <div class="card-body info-grid">
-            <div><label>Tipo</label><span class="badge badge-info">${c.tipo}</span></div>
-            <div><label>Telefone</label>${c.telefone || '—'}</div>
-            <div class="full-width"><label>Endereço</label>${c.endereco || '—'}</div>
-            ${c.observacoes ? `<div class="full-width"><label>Observações</label>${c.observacoes}</div>` : ''}
+            <div><label>Tipo</label>${tipoBadgeFull(c.tipo)}</div>
+            <div><label>Telefone</label><span>${c.telefone || '—'}</span></div>
+            <div class="full-width"><label>Endereço</label><span>${c.endereco || '—'}</span></div>
+            ${c.observacoes ? `<div class="full-width"><label>Observações</label><span>${c.observacoes}</span></div>` : ''}
           </div>
         </div>
         <div class="card">
@@ -165,6 +166,10 @@ const Clientes = (() => {
             `).join('')}
         </div>
       </div>
+
+      <div class="mt-4 mb-4">
+        <button class="btn btn-danger btn-full" onclick="Clientes.confirmDelete('${c.id}')">🗑 Inativar Cadastro</button>
+      </div>
     `;
   }
 
@@ -176,19 +181,19 @@ const Clientes = (() => {
     qs('#cli-form-tel').value      = c?.telefone || '';
     qs('#cli-form-end').value      = c?.endereco || '';
     qs('#cli-form-obs').value      = c?.observacoes || '';
-    qs('#modal-cli-title').textContent = id ? 'Editar Cliente/Fornecedor' : 'Novo Cliente/Fornecedor';
+    qs('#modal-cli-title').textContent = id ? 'Editar Cadastro' : 'Novo Cadastro';
     Modal.open('modal-cliente');
   }
 
   async function saveForm() {
     const id   = qs('#cli-form-id').value;
     const data = {
-      nome:       qs('#cli-form-nome').value.trim(),
-      tipo:       qs('#cli-form-tipo').value,
-      telefone:   qs('#cli-form-tel').value.trim(),
-      endereco:   qs('#cli-form-end').value.trim(),
-      observacoes:qs('#cli-form-obs').value.trim(),
-      ativo:      true,
+      nome:        qs('#cli-form-nome').value.trim(),
+      tipo:        qs('#cli-form-tipo').value,
+      telefone:    qs('#cli-form-tel').value.trim(),
+      endereco:    qs('#cli-form-end').value.trim(),
+      observacoes: qs('#cli-form-obs').value.trim(),
+      ativo:       true,
     };
     if (!data.nome) { Toast.warning('Nome é obrigatório'); return; }
     if (!id) data.data_cadastro = DateUtil.today();
@@ -217,5 +222,5 @@ const Clientes = (() => {
     });
   }
 
-  return { render, renderList, applyFilters, tapCard, openDetail, openForm, saveForm, confirmDelete };
+  return { render, renderList, applyFilters, openDetail, openForm, saveForm, confirmDelete };
 })();
