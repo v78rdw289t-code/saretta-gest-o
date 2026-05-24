@@ -115,7 +115,7 @@ const Compras = (() => {
                     <td>${Fmt.currency(p.valor)}</td>
                     <td>${statusBadge(p.status)}</td>
                     <td>
-                      ${p.status === 'pendente' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('financeiro'); Financeiro.openPagamento('${p.id}')">Pagar</button>` : ''}
+                      ${p.status === 'pendente' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('financeiro').then(() => Financeiro.openPagamento('${p.id}'))">Pagar</button>` : ''}
                     </td>
                   </tr>
                 `).join('')}

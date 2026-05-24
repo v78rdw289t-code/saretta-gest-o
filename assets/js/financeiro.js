@@ -283,30 +283,118 @@ const Financeiro = (() => {
     qs('#manual-venc').value   = DateUtil.today();
     qs('#manual-pagto').value  = '';
     qs('#manual-status').value = 'pendente';
+    qs('#manual-quempagou').value = '';
     refreshManualSelects();
-    qs('#manual-tipo').onchange = () => refreshManualSelects();
+    qs('#manual-tipo').onchange = () => {
+      refreshManualSelects();
+      refreshQuemPagouVisibility();
+    };
+    qs('#manual-quempagou').onchange = () => refreshQuemPagouHint();
+    refreshQuemPagouVisibility();
+    refreshQuemPagouHint();
     qs('#manual-obs').value = '';
     Modal.open('modal-manual-lancamento');
   }
 
+  // Mostra "Quem pagou?" apenas quando tipo='pagar' (despesa)
+  function refreshQuemPagouVisibility() {
+    const wrap = qs('#manual-quempagou-wrap');
+    if (!wrap) return;
+    const isPagar = qs('#manual-tipo').value === 'pagar';
+    wrap.style.display = isPagar ? '' : 'none';
+    if (!isPagar) qs('#manual-quempagou').value = '';
+  }
+
+  function refreshQuemPagouHint() {
+    const hint = qs('#manual-quempagou-hint');
+    if (!hint) return;
+    const has = !!qs('#manual-quempagou').value;
+    hint.classList.toggle('hidden', !has);
+  }
+
+  // Caso normal: cria 1 parcela como sempre.
+  // Caso "Rodrigo/Odinei pagou": cria 3 parcelas + 1 fiado via batch:
+  //   1) Despesa real (status=pago)         — sai do caixa do colaborador
+  //   2) Receita-fiado (status=pago)        — entra no caixa equivalente
+  //   3) Reembolso A-Pagar (status=pendente)— empresa deve a Rodrigo/Odinei
+  //   + Registro 'fiado' vinculado à parcela #3
   async function saveManual() {
-    const status = qs('#manual-status').value;
+    const status   = qs('#manual-status').value;
+    const tipo     = qs('#manual-tipo').value;
+    const quemPagou = qs('#manual-quempagou')?.value || '';
+
+    const desc     = qs('#manual-desc').value.trim();
+    const valor    = Number(qs('#manual-valor').value) || 0;
+    const compMonth= qs('#manual-comp').value;
+    const venc     = qs('#manual-venc').value;
+    const pagto    = qs('#manual-pagto').value;
+    const categoria= qs('#manual-categoria').value;
+    const cliente  = qs('#manual-cliente').value;
+    const obs      = qs('#manual-obs').value;
+
+    if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
+
+    const compFull = (compMonth || DateUtil.today().substring(0,7)) + '-01';
+
+    // Caminho especial: fiado integrado
+    if (tipo === 'pagar' && quemPagou) {
+      const dataPago = pagto || venc || DateUtil.today();
+      Loading.show();
+      // 1ª parcela — A despesa real (saiu do caixa)
+      const desp = await API.db.create('parcelas', {
+        tipo: 'pagar', origem: 'fiado_pago', origem_id: '',
+        cliente_id: cliente, descricao: desc, valor,
+        data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
+        status: 'pago', categoria_id: categoria, observacoes: obs,
+      });
+      // 2ª parcela — A receita-fiado (entrou no caixa, do bolso)
+      const rec = await API.db.create('parcelas', {
+        tipo: 'receber', origem: 'fiado_pago', origem_id: '',
+        cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${desc}`, valor,
+        data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
+        status: 'pago', categoria_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
+      });
+      // 3ª parcela — A pagar de reembolso (futuro)
+      const reemb = await API.db.create('parcelas', {
+        tipo: 'pagar', origem: 'fiado', origem_id: '',
+        cliente_id: '', descricao: `Reembolso ${quemPagou}: ${desc}`, valor,
+        data_competencia: compFull, data_vencimento: venc || dataPago, data_pagamento: '',
+        status: 'pendente', categoria_id: '', observacoes: obs,
+      });
+      // Registro fiado vinculado à parcela de reembolso
+      if (reemb?.data?.id) {
+        const fia = await API.db.create('fiado', {
+          pessoa: quemPagou, descricao: desc, valor, data: dataPago,
+          parcela_pagar_id: reemb.data.id, status: 'pendente', observacoes: obs,
+        });
+        // Sincroniza origem_id na parcela #3 pra apontar pro fiado
+        if (fia?.data?.id) {
+          await API.db.update('parcelas', reemb.data.id, { origem_id: fia.data.id });
+        }
+      }
+      Loading.hide();
+      Toast.success(`Lançado! 3 entradas + fiado de ${quemPagou} criados.`);
+      Modal.close('modal-manual-lancamento');
+      await loadData();
+      renderView();
+      return;
+    }
+
+    // Caminho normal: 1 parcela só
     const data = {
-      tipo:            qs('#manual-tipo').value,
+      tipo,
       origem:          'manual',
       origem_id:       '',
-      cliente_id:      qs('#manual-cliente').value,
-      descricao:       qs('#manual-desc').value,
-      valor:           Number(qs('#manual-valor').value) || 0,
-      data_competencia:qs('#manual-comp').value + '-01',
-      data_vencimento: qs('#manual-venc').value,
-      data_pagamento:  status === 'pago' ? (qs('#manual-pagto').value || DateUtil.today()) : '',
+      cliente_id:      cliente,
+      descricao:       desc,
+      valor,
+      data_competencia:compFull,
+      data_vencimento: venc,
+      data_pagamento:  status === 'pago' ? (pagto || DateUtil.today()) : '',
       status,
-      categoria_id:    qs('#manual-categoria').value,
-      observacoes:     qs('#manual-obs').value,
+      categoria_id:    categoria,
+      observacoes:     obs,
     };
-    if (!data.descricao || !data.valor) { Toast.warning('Preencha descrição e valor'); return; }
-
     Loading.show();
     const res = await API.db.create('parcelas', data);
     Loading.hide();

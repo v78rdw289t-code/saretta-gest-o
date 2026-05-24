@@ -40,7 +40,11 @@ const App = (() => {
     _qaTipo = null;
   }
 
-  function navigate(page, params = {}) {
+  // Async para que callers possam encadear ações via .then() — evita
+  // race condition tipo `App.navigate('os'); OS.openListaCompras()`,
+  // que antes sobrescrevia o conteúdo quando o render do OS terminava
+  // por último.
+  async function navigate(page, params = {}) {
     if (!pages.includes(page)) return;
 
     // v1.3: se é uma sub-página, ativa o nav do pai mas mostra o conteúdo da sub-página.
@@ -55,17 +59,17 @@ const App = (() => {
     // Mostrar página (a sub-página específica, não o pai)
     qsa('.page').forEach(el => el.classList.toggle('hidden', el.id !== 'page-' + page));
 
-    // Chamar renderizador do módulo da sub-página
+    // Atualizar hash + evento ANTES do render — quem encadeia espera o await abaixo
+    window.location.hash = page;
+    document.dispatchEvent(new CustomEvent('pageChange', { detail: page }));
+
+    // Chamar renderizador do módulo e ESPERAR ele terminar
     const modules = { home: Home, os: OS, financeiro: Financeiro, clientes: Clientes,
                       estoque: Estoque, compras: Compras, fiado: Fiado, insights: Insights, config: Config };
     const mod = modules[page];
-    if (mod && typeof mod.render === 'function') mod.render(params);
-
-    // Atualizar hash
-    window.location.hash = page;
-
-    // Disparar evento para drawer/etc atualizarem estado ativo
-    document.dispatchEvent(new CustomEvent('pageChange', { detail: page }));
+    if (mod && typeof mod.render === 'function') {
+      await mod.render(params);
+    }
   }
 
   function getCurrentParent() { return currentParent; }

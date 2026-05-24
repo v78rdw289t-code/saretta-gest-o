@@ -29,16 +29,16 @@ const Home = (() => {
       <div class="card mb-4">
         <div class="card-header"><h3>Ações Rápidas</h3></div>
         <div class="quick-actions">
-          <button class="quick-btn" onclick="App.navigate('clientes'); Clientes.openForm()">
+          <button class="quick-btn" onclick="App.navigate('clientes').then(() => Clientes.openForm())">
             <span class="qb-icon">👥</span>Novo Cliente
           </button>
-          <button class="quick-btn" onclick="App.navigate('os'); OS.openForm()">
+          <button class="quick-btn" onclick="App.navigate('os').then(() => OS.openForm())">
             <span class="qb-icon">📋</span>Nova OS
           </button>
-          <button class="quick-btn" onclick="App.navigate('financeiro'); Financeiro.openManual()">
+          <button class="quick-btn" onclick="App.navigate('financeiro').then(() => Financeiro.openManual())">
             <span class="qb-icon">💰</span>Lançamento
           </button>
-          <button class="quick-btn gold" onclick="App.navigate('os'); OS.openListaCompras()">
+          <button class="quick-btn gold" onclick="App.navigate('os').then(() => OS.openListaCompras())">
             <span class="qb-icon">🛒</span>Lista Compras
           </button>
         </div>
@@ -75,12 +75,12 @@ const Home = (() => {
     if (!res?.success) return;
     const d = res.data;
     qs('#home-stats').innerHTML = `
-      <div class="stat-card stat-blue" onclick="App.navigate('os'); OS.setStatus('andamento')" style="cursor:pointer">
+      <div class="stat-card stat-blue" onclick="App.navigate('os').then(() => OS.setStatus('andamento'))" style="cursor:pointer">
         <div class="stat-label">Em Andamento</div>
         <div class="stat-value">${d.os_andamento}</div>
         <div class="stat-sub">OS ativas</div>
       </div>
-      <div class="stat-card stat-orange" onclick="App.navigate('os'); OS.setStatus('acerto')" style="cursor:pointer">
+      <div class="stat-card stat-orange" onclick="App.navigate('os').then(() => OS.setStatus('acerto'))" style="cursor:pointer">
         <div class="stat-label">Em Acerto</div>
         <div class="stat-value">${d.os_acerto}</div>
         <div class="stat-sub">aguardando pagamento</div>
@@ -108,7 +108,7 @@ const Home = (() => {
     qs('#home-os-andamento').innerHTML = `
       <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
         ${items.slice(0, 8).map(o => `
-          <div class="entity-item" onclick="App.navigate('os'); OS.openDetail('${o.id}')">
+          <div class="entity-item" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
             <div class="avatar av-blue"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
             <div class="entity-info">
               <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
@@ -174,7 +174,7 @@ const Home = (() => {
         </div>
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
           ${clientes.map(c => `
-            <div class="entity-item" onclick="App.navigate('clientes'); Clientes.openDetail('${c.id}')">
+            <div class="entity-item" onclick="App.navigate('clientes').then(() => Clientes.openDetail('${c.id}'))">
               <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
               <div class="entity-info">
                 <div class="entity-name">${c.nome}</div>
@@ -193,7 +193,7 @@ const Home = (() => {
         </div>
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
           ${osList.map(o => `
-            <div class="entity-item" onclick="App.navigate('os'); OS.openDetail('${o.id}')">
+            <div class="entity-item" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
               <div class="avatar av-navy"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
               <div class="entity-info">
                 <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
