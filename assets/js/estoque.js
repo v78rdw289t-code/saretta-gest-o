@@ -25,6 +25,11 @@ const Estoque = (() => {
     const baixoEstoque = items.filter(e => Number(e.quantidade || 0) <= 2);
 
     section.innerHTML = `
+      <div class="section-tabs">
+        <button class="section-tab" onclick="App.navigate('os')">📋 Ordens</button>
+        <button class="section-tab active" onclick="App.navigate('estoque')">📦 Estoque</button>
+        <button class="section-tab" onclick="OS.openListaCompras()">🛒 Lista Compras</button>
+      </div>
       <div class="page-header">
         <h1>Estoque</h1>
         <button class="btn btn-primary" onclick="Estoque.openForm()">+ Novo Item</button>

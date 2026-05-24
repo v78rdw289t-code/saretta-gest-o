@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="goldG" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD060"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Chave amarela ATRÁS, posição diagonal — cabeça visível canto superior direito -->
+  <g transform="translate(256, 256) rotate(-40)">
+    <!-- Cabo da chave (longo retângulo) -->
+    <rect x="-200" y="-22" width="430" height="44" rx="10" fill="url(#goldG)"/>
+    <!-- Cabeça da chave (círculo direito) -->
+    <circle cx="230" cy="0" r="62" fill="url(#goldG)"/>
+    <!-- Entalhe da boca -->
+    <path d="M 218 -28 L 270 -28 L 270 28 L 218 28 Z" fill="#1A2B4A"/>
+    <!-- Pegada do cabo (canto esquerdo, oposto da cabeça) -->
+    <circle cx="-200" cy="0" r="22" fill="url(#goldG)"/>
+  </g>
+
+  <!-- Engrenagem azul navy POR CIMA — 8 dentes simples -->
+  <g transform="translate(256, 256)">
+    <g fill="#1A2B4A">
+      <rect x="-26" y="-170" width="52" height="55" rx="8"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(45)"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(90)"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(135)"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(180)"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(225)"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(270)"/>
+      <rect x="-26" y="-170" width="52" height="55" rx="8" transform="rotate(315)"/>
+    </g>
+    <!-- Disco principal -->
+    <circle r="135" fill="#1A2B4A"/>
+    <!-- Furo central branco -->
+    <circle r="48" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Raio amarelo bem visível (canto inferior direito, fora da engrenagem) -->
+  <g transform="translate(380, 380)">
+    <path d="M 0 -40 L -35 30 L -5 30 L -35 90 L 40 0 L 5 0 Z"
+          fill="url(#goldG)" stroke="#1A2B4A" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+</svg>

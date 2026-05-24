@@ -51,6 +51,12 @@ const OS = (() => {
 
     const section = qs('#page-os');
     section.innerHTML = `
+      <div class="section-tabs">
+        <button class="section-tab active" onclick="App.navigate('os')">📋 Ordens</button>
+        <button class="section-tab" onclick="App.navigate('estoque')">📦 Estoque</button>
+        <button class="section-tab" onclick="OS.openListaCompras()">🛒 Lista Compras</button>
+      </div>
+
       <div class="page-header">
         <h1>Ordens de Serviço</h1>
         <button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>
@@ -858,8 +864,13 @@ const OS = (() => {
 
     const section = qs('#page-os');
     section.innerHTML = `
+      <div class="section-tabs">
+        <button class="section-tab" onclick="OS.render()">📋 Ordens</button>
+        <button class="section-tab" onclick="App.navigate('estoque')">📦 Estoque</button>
+        <button class="section-tab active" onclick="OS.openListaCompras()">🛒 Lista Compras</button>
+      </div>
+
       <div class="page-header">
-        <button class="btn btn-outline" onclick="OS.render()">← Voltar</button>
         <h1>Lista de Compras</h1>
         <button class="btn btn-primary" onclick="OS.openListaItemForm()">+ Adicionar Item</button>
       </div>

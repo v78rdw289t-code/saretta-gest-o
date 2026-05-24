@@ -4,7 +4,15 @@
 
 const App = (() => {
   const pages = ['home','os','financeiro','clientes','estoque','compras','fiado','insights','config'];
+  // v1.3: sub-páginas que vivem dentro de uma página pai no nav.
+  // App.navigate('fiado') automaticamente roteia pra dentro de Financeiro.
+  const SUB_PAGES = {
+    estoque:  'os',
+    compras:  'financeiro',
+    fiado:    'financeiro',
+  };
   let currentPage = 'home';
+  let currentParent = 'home'; // para active state no nav quando estamos numa sub-página
   let allClientes = [];
   let allCategorias = [];
 
@@ -34,20 +42,24 @@ const App = (() => {
 
   function navigate(page, params = {}) {
     if (!pages.includes(page)) return;
+
+    // v1.3: se é uma sub-página, ativa o nav do pai mas mostra o conteúdo da sub-página.
+    const parent = SUB_PAGES[page] || page;
     currentPage = page;
+    currentParent = parent;
 
-    // Atualizar nav (sidebar + bottom)
+    // Atualizar nav (sidebar + bottom) — sempre destacando o PAI
     const bnavPages = ['home','os','financeiro','clientes'];
-    qsa('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-    qsa('.bnav-item[data-page]').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-    // Marcar "Mais" ativo se for página do drawer
+    qsa('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === parent));
+    qsa('.bnav-item[data-page]').forEach(el => el.classList.toggle('active', el.dataset.page === parent));
+    // Marcar "Mais" ativo se o PAI não está no bottom-nav direto e não é home
     const moreBtn = qs('#btn-more');
-    if (moreBtn) moreBtn.classList.toggle('active', !bnavPages.includes(page) && page !== 'home');
+    if (moreBtn) moreBtn.classList.toggle('active', !bnavPages.includes(parent) && parent !== 'home');
 
-    // Mostrar página
+    // Mostrar página (a sub-página específica, não o pai)
     qsa('.page').forEach(el => el.classList.toggle('hidden', el.id !== 'page-' + page));
 
-    // Chamar renderizador do módulo
+    // Chamar renderizador do módulo da sub-página
     const modules = { home: Home, os: OS, financeiro: Financeiro, clientes: Clientes,
                       estoque: Estoque, compras: Compras, fiado: Fiado, insights: Insights, config: Config };
     const mod = modules[page];
@@ -55,7 +67,13 @@ const App = (() => {
 
     // Atualizar hash
     window.location.hash = page;
+
+    // Disparar evento para drawer/etc atualizarem estado ativo
+    document.dispatchEvent(new CustomEvent('pageChange', { detail: page }));
   }
+
+  function getCurrentParent() { return currentParent; }
+  function getCurrentPage()   { return currentPage; }
 
   async function loadGlobals() {
     if (!LocalConfig.getUrl()) return;
@@ -138,7 +156,8 @@ const App = (() => {
 
   return { navigate, init, loadGlobals, getClientes, getCategorias,
            clienteNome, categoriaNome, clienteOptions, categoriaOptions,
-           quickAdd, onQuickAddDone };
+           quickAdd, onQuickAddDone,
+           getCurrentParent, getCurrentPage, SUB_PAGES };
 })();
 
 document.addEventListener('DOMContentLoaded', () => App.init());

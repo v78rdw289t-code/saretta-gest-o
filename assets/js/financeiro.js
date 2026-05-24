@@ -32,15 +32,16 @@ const Financeiro = (() => {
     const mes = new Date().toISOString().substring(0, 7);
 
     section.innerHTML = `
+      <div class="section-tabs">
+        <button class="section-tab ${currentTab==='receber' ? 'active' : ''}" onclick="Financeiro.switchTab('receber')">↓ A Receber</button>
+        <button class="section-tab ${currentTab==='pagar' ? 'active' : ''}"   onclick="Financeiro.switchTab('pagar')">↑ A Pagar</button>
+        <button class="section-tab" onclick="App.navigate('fiado')">💸 Fiado</button>
+        <button class="section-tab" onclick="App.navigate('compras')">🛍️ Compras</button>
+        <button class="section-tab ${currentTab==='resumo' ? 'active' : ''}"  onclick="Financeiro.switchTab('resumo')">📊 Resumo</button>
+      </div>
       <div class="page-header">
         <h1>Financeiro</h1>
         <button class="btn btn-primary" onclick="Financeiro.openManual()">+ Lançamento Manual</button>
-      </div>
-
-      <div class="tab-bar">
-        <button class="tab-btn ${currentTab==='receber'?'active':''}" onclick="Financeiro.switchTab('receber')">A Receber</button>
-        <button class="tab-btn ${currentTab==='pagar'  ?'active':''}" onclick="Financeiro.switchTab('pagar')">A Pagar</button>
-        <button class="tab-btn ${currentTab==='resumo' ?'active':''}" onclick="Financeiro.switchTab('resumo')">Resumo do Mês</button>
       </div>
 
       <div id="fin-content"></div>
@@ -51,9 +52,8 @@ const Financeiro = (() => {
 
   function switchTab(tab) {
     currentTab = tab;
-    qsa('.tab-btn').forEach(b => b.classList.remove('active'));
-    qsa('.tab-btn').forEach(b => { if (b.textContent.toLowerCase().includes(tab === 'receber' ? 'receber' : tab === 'pagar' ? 'pagar' : 'resumo')) b.classList.add('active'); });
-    renderTab();
+    // Re-renderiza tudo para que as section-tabs reflitam o estado ativo
+    renderView();
   }
 
   function renderTab() {

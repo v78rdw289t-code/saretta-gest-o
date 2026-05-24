@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 320" width="1180" height="320">
+  <defs>
+    <linearGradient id="goldG2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD060"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Chave amarela ATRÁS da engrenagem -->
+  <g transform="translate(160, 160) rotate(-40)">
+    <rect x="-140" y="-15" width="290" height="30" rx="7" fill="url(#goldG2)"/>
+    <circle cx="150" cy="0" r="42" fill="url(#goldG2)"/>
+    <path d="M 140 -20 L 175 -20 L 175 20 L 140 20 Z" fill="#1A2B4A"/>
+    <circle cx="-140" cy="0" r="15" fill="url(#goldG2)"/>
+  </g>
+
+  <!-- Engrenagem branca POR CIMA — 8 dentes -->
+  <g transform="translate(160, 160)">
+    <g fill="#FFFFFF">
+      <rect x="-16" y="-108" width="32" height="34" rx="5"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(45)"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(90)"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(135)"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(180)"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(225)"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(270)"/>
+      <rect x="-16" y="-108" width="32" height="34" rx="5" transform="rotate(315)"/>
+    </g>
+    <circle r="86" fill="#FFFFFF"/>
+    <circle r="30" fill="#1A2B4A"/>
+  </g>
+
+  <!-- Raio amarelo visível embaixo/direita -->
+  <g transform="translate(240, 235)">
+    <path d="M 0 -22 L -20 20 L -2 20 L -18 55 L 25 0 L 5 0 Z"
+          fill="url(#goldG2)"/>
+  </g>
+
+  <!-- Texto SARETTA branco -->
+  <text x="320" y="180" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+        font-size="130" font-weight="900" fill="#FFFFFF" letter-spacing="-2">SARETTA</text>
+
+  <!-- Slogan -->
+  <text x="325" y="230" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+        font-size="25" font-weight="500" fill="#FFFFFF" opacity=".82" letter-spacing=".4">
+    Do campo à indústria, tudo funcionando.
+  </text>
+</svg>

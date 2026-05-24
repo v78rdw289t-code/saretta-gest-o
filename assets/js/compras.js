@@ -21,6 +21,13 @@ const Compras = (() => {
   function renderList() {
     const section = qs('#page-compras');
     section.innerHTML = `
+      <div class="section-tabs">
+        <button class="section-tab" onclick="App.navigate('financeiro')">↓ A Receber</button>
+        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('pagar'),50)">↑ A Pagar</button>
+        <button class="section-tab" onclick="App.navigate('fiado')">💸 Fiado</button>
+        <button class="section-tab active" onclick="App.navigate('compras')">🛍️ Compras</button>
+        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('resumo'),50)">📊 Resumo</button>
+      </div>
       <div class="page-header">
         <h1>Compras</h1>
         <button class="btn btn-primary" onclick="Compras.openForm()">+ Nova Compra</button>

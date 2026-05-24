@@ -7,9 +7,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
-  <title>Saretta Serviços</title>
-  <link rel="stylesheet" href="assets/css/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+  <title>Saretta Gestão</title>
+  <link rel="stylesheet" href="assets/css/style.css?v=1.3">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
+  <link rel="apple-touch-icon" href="assets/img/logo-icon.svg">
 </head>
 <body>
 
@@ -40,15 +42,6 @@
       <button class="nav-item" data-page="clientes">
         <span class="nav-icon">👥</span> Clientes / Forn.
       </button>
-      <button class="nav-item" data-page="estoque">
-        <span class="nav-icon">📦</span> Estoque
-      </button>
-      <button class="nav-item" data-page="compras">
-        <span class="nav-icon">🛍️</span> Compras
-      </button>
-      <button class="nav-item" data-page="fiado">
-        <span class="nav-icon">💸</span> Fiado
-      </button>
       <button class="nav-item" data-page="insights">
         <span class="nav-icon">📊</span> Insights
       </button>
@@ -62,11 +55,12 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <button id="btn-menu" aria-label="Menu">☰</button>
+      <img src="assets/img/logo-icon.svg" alt="Saretta" class="header-icon">
       <div style="flex:1">
-        <div class="header-logo">⚙️ Saretta</div>
+        <div class="header-logo">Saretta</div>
         <span class="header-sub">Gestão de Serviços</span>
       </div>
+      <button id="btn-settings" aria-label="Configurações" onclick="App.navigate('config')">⚙️</button>
     </header>
 
     <!-- PAGES -->
@@ -647,17 +641,17 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js"></script>
-<script src="assets/js/utils.js"></script>
-<script src="assets/js/home.js"></script>
-<script src="assets/js/os.js"></script>
-<script src="assets/js/financeiro.js"></script>
-<script src="assets/js/clientes.js"></script>
-<script src="assets/js/estoque.js"></script>
-<script src="assets/js/compras.js"></script>
-<script src="assets/js/fiado.js"></script>
-<script src="assets/js/insights.js"></script>
-<script src="assets/js/config.js"></script>
-<script src="assets/js/app.js"></script>
+<script src="assets/js/api.js?v=1.3"></script>
+<script src="assets/js/utils.js?v=1.3"></script>
+<script src="assets/js/home.js?v=1.3"></script>
+<script src="assets/js/os.js?v=1.3"></script>
+<script src="assets/js/financeiro.js?v=1.3"></script>
+<script src="assets/js/clientes.js?v=1.3"></script>
+<script src="assets/js/estoque.js?v=1.3"></script>
+<script src="assets/js/compras.js?v=1.3"></script>
+<script src="assets/js/fiado.js?v=1.3"></script>
+<script src="assets/js/insights.js?v=1.3"></script>
+<script src="assets/js/config.js?v=1.3"></script>
+<script src="assets/js/app.js?v=1.3"></script>
 </body>
 </html>

@@ -11,8 +11,9 @@ const Home = (() => {
 
     section.innerHTML = `
       <div class="home-hero" style="background:linear-gradient(160deg,var(--navy-lt) 0%,var(--navy) 100%);margin:-16px -16px 18px;padding:24px 18px 28px">
-        <div style="font-size:.72rem;color:rgba(255,255,255,.5);text-transform:capitalize;margin-bottom:10px;letter-spacing:.3px">${hoje}</div>
-        <img src="assets/img/logo.svg" alt="Saretta Gestão" style="height:44px;margin-bottom:20px;display:block">
+        <div style="font-size:.72rem;color:rgba(255,255,255,.5);text-transform:capitalize;margin-bottom:14px;letter-spacing:.3px">${hoje}</div>
+        <img src="assets/img/logo-full-white.svg" alt="Saretta — Gestão de Serviços"
+             style="height:78px;width:auto;max-width:100%;margin-bottom:22px;display:block">
         <div class="home-search-wrap">
           <input id="home-search" type="text" placeholder="Buscar cliente ou OS..." class="input-search-hero"
             oninput="Home.onSearchInput()" onkeydown="if(event.key==='Enter') Home.search()">
