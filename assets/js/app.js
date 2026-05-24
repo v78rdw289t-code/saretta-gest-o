@@ -49,12 +49,8 @@ const App = (() => {
     currentParent = parent;
 
     // Atualizar nav (sidebar + bottom) — sempre destacando o PAI
-    const bnavPages = ['home','os','financeiro','clientes'];
     qsa('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === parent));
     qsa('.bnav-item[data-page]').forEach(el => el.classList.toggle('active', el.dataset.page === parent));
-    // Marcar "Mais" ativo se o PAI não está no bottom-nav direto e não é home
-    const moreBtn = qs('#btn-more');
-    if (moreBtn) moreBtn.classList.toggle('active', !bnavPages.includes(parent) && parent !== 'home');
 
     // Mostrar página (a sub-página específica, não o pai)
     qsa('.page').forEach(el => el.classList.toggle('hidden', el.id !== 'page-' + page));
@@ -112,13 +108,6 @@ const App = (() => {
       list.map(c => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.nome}</option>`).join('');
   }
 
-  function openDrawer() {
-    qs('#more-drawer').classList.add('open');
-  }
-  function closeDrawer() {
-    qs('#more-drawer').classList.remove('open');
-  }
-
   async function init() {
     // Fechar modais ao clicar no fundo
     document.addEventListener('click', e => {
@@ -133,18 +122,6 @@ const App = (() => {
     // Bottom nav (mobile)
     qsa('.bnav-item[data-page]').forEach(btn => {
       btn.addEventListener('click', () => navigate(btn.dataset.page));
-    });
-
-    // Botão "Mais" — drawer
-    qs('#btn-more')?.addEventListener('click', openDrawer);
-    qs('#more-drawer-bg')?.addEventListener('click', closeDrawer);
-    qsa('.drawer-item').forEach(btn => {
-      btn.addEventListener('click', () => { navigate(btn.dataset.page); closeDrawer(); });
-    });
-
-    // Marcar ativo no drawer
-    document.addEventListener('pageChange', e => {
-      qsa('.drawer-item').forEach(b => b.classList.toggle('active', b.dataset.page === e.detail));
     });
 
     // Carregar dados globais
