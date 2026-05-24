@@ -309,22 +309,42 @@ const Config = (() => {
     const obs   = qs('#conta-form-obs').value;
     if (!nome) { Toast.warning('Informe o nome da conta'); return; }
     Loading.show();
-    if (_editContaId) {
-      await API.db.update('contas', _editContaId, { nome, saldo_inicial: saldo, observacoes: obs });
-    } else {
-      const ordem = (allContas.reduce((m, c) => Math.max(m, Number(c.ordem)||0), 0)) + 1;
-      await API.db.create('contas', { nome, saldo_inicial: saldo, observacoes: obs, ativo: true, ordem });
+    let res;
+    try {
+      if (_editContaId) {
+        res = await API.db.update('contas', _editContaId, { nome, saldo_inicial: saldo, observacoes: obs });
+      } else {
+        const ordem = (allContas.reduce((m, c) => Math.max(m, Number(c.ordem)||0), 0)) + 1;
+        res = await API.db.create('contas', { nome, saldo_inicial: saldo, observacoes: obs, ativo: true, ordem });
+      }
+    } catch (e) {
+      Loading.hide();
+      console.error('[Config.saveConta] erro', e);
+      Toast.error('Erro ao salvar: ' + (e?.message || e));
+      return;
     }
     Loading.hide();
+    if (!res?.success) {
+      console.error('[Config.saveConta] backend retornou erro', res);
+      Toast.error('Falhou: ' + (res?.error || 'verifique se a planilha "contas" existe (Inicializar Planilhas)'));
+      return;
+    }
     Toast.success(_editContaId ? 'Conta atualizada!' : 'Conta criada!');
     Modal.close('modal-conta');
+    _editContaId = '';
+    // Limpa o cache local pra garantir refetch fresco do backend
+    try { API.clearCache(); } catch {}
     await loadData();
     await App.loadGlobals();
     renderView();
   }
 
   async function toggleConta(id, atual) {
-    await API.db.update('contas', id, { ativo: !atual || atual === 'false' });
+    Loading.show();
+    const res = await API.db.update('contas', id, { ativo: !atual || atual === 'false' });
+    Loading.hide();
+    if (!res?.success) { Toast.error('Erro: ' + (res?.error || 'falhou')); return; }
+    try { API.clearCache(); } catch {}
     await loadData();
     await App.loadGlobals();
     renderView();
