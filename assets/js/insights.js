@@ -30,6 +30,7 @@ const Insights = (() => {
 
   // Período selecionado (default: mês atual)
   let _periodo = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
+  let _regime  = 'competencia'; // competencia | caixa — controla faturamento/lucro/margem
   let _cache   = null;          // { parcelas, osList, diarias }
 
   // ─── Helpers de período ─────────────────────────────────
@@ -80,9 +81,17 @@ const Insights = (() => {
     return calcPeriodo('mes_atual');
   }
 
-  // Parcela cai no período se data_competencia OR data_pagamento estiver no range
-  function noPeriodo(p, periodo, campo = 'data_competencia') {
-    const d = String(p[campo] || '').substring(0, 10);
+  // Parcela cai no período conforme o REGIME:
+  //   - competência: usa data_competencia (mostra tudo lançado, independente de pago)
+  //   - caixa:       usa data_pagamento + exige status='pago' (só o que entrou/saiu de fato)
+  function noPeriodo(p, periodo, regime = _regime) {
+    if (regime === 'caixa') {
+      if (p.status !== 'pago') return false;
+      const d = String(p.data_pagamento || '').substring(0, 10);
+      return d && d >= periodo.start && d <= periodo.end;
+    }
+    // competência (default)
+    const d = String(p.data_competencia || '').substring(0, 10);
     return d && d >= periodo.start && d <= periodo.end;
   }
 
@@ -93,13 +102,27 @@ const Insights = (() => {
       <div class="page-header"><h1>📊 Insights</h1></div>
 
       <!-- Seletor de período -->
-      <div class="card mb-3" style="padding:6px">
+      <div class="card mb-2" style="padding:6px">
         <div class="tab-bar" style="margin:0">
           <button class="tab-btn ${_periodo==='mes_atual'?'active':''}"    onclick="Insights.setPeriodo('mes_atual')">Mês atual</button>
           <button class="tab-btn ${_periodo==='mes_anterior'?'active':''}" onclick="Insights.setPeriodo('mes_anterior')">Mês ant.</button>
           <button class="tab-btn ${_periodo==='ultimos_3m'?'active':''}"   onclick="Insights.setPeriodo('ultimos_3m')">3 meses</button>
           <button class="tab-btn ${_periodo==='ultimos_6m'?'active':''}"   onclick="Insights.setPeriodo('ultimos_6m')">6 meses</button>
           <button class="tab-btn ${_periodo==='ano'?'active':''}"          onclick="Insights.setPeriodo('ano')">Ano</button>
+        </div>
+      </div>
+
+      <!-- Toggle Competência / Caixa -->
+      <div class="card mb-3" style="padding:6px">
+        <div class="tab-bar" style="margin:0">
+          <button class="tab-btn ${_regime==='competencia'?'active':''}" onclick="Insights.setRegime('competencia')"
+            title="Conta tudo que foi lançado no período, independente de pago">
+            📑 Competência
+          </button>
+          <button class="tab-btn ${_regime==='caixa'?'active':''}" onclick="Insights.setRegime('caixa')"
+            title="Conta só o que foi pago/recebido de fato">
+            💵 Caixa
+          </button>
         </div>
       </div>
 
@@ -110,10 +133,8 @@ const Insights = (() => {
     await loadInsights();
   }
 
-  function setPeriodo(p) {
-    _periodo = p;
-    render();
-  }
+  function setPeriodo(p) { _periodo = p; render(); }
+  function setRegime(r)  { _regime  = r; render(); }
 
   async function loadInsights() {
     const shown = Loading.maybeShow('parcelas', 'os', 'diarias');
@@ -197,8 +218,11 @@ const Insights = (() => {
       concentracao, atrasados, horasPeriodo, custoHora,
     });
 
+    const regimeLabel = _regime === 'caixa' ? 'regime de Caixa' : 'regime de Competência';
     qs('#insights-content').innerHTML = `
-      <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">Período: <strong>${periodo.label}</strong></p>
+      <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
+        ${periodo.label} · <strong>${regimeLabel}</strong>
+      </p>
 
       ${_renderDicas(tips)}
       ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora })}
@@ -530,5 +554,5 @@ const Insights = (() => {
     return tips;
   }
 
-  return { render, setPeriodo };
+  return { render, setPeriodo, setRegime };
 })();
