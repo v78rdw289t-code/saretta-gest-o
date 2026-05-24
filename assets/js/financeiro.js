@@ -162,7 +162,7 @@ const Financeiro = (() => {
       actions.push({ icon: '💰', label: 'Registrar Pagamento', fn: () => openPagamento(id) });
     }
     actions.push({ icon: '✏️', label: 'Editar', fn: () => editarParcela(id) });
-    actions.push({ icon: '✕', label: 'Cancelar lançamento', fn: () => cancelarParcela(id), danger: true });
+    actions.push({ icon: '🗑', label: 'Excluir lançamento', fn: () => excluirParcela(id), danger: true });
     ActionSheet.open(p.descricao, actions);
   }
 
@@ -543,21 +543,27 @@ const Financeiro = (() => {
     Modal.open('modal-manual-lancamento');
   }
 
-  async function cancelarParcela(id) {
+  async function excluirParcela(id) {
     const p = allParcelas.find(x => x.id === id);
-    Modal.confirm('Cancelar este lançamento?', async () => {
-      const ops = [{ action: 'update', sheet: 'parcelas', id, data: { status: 'cancelado' } }];
-      // Se for parcela de fiado, cancelar o fiado também para manter sincronia
+    const aviso = p?.origem === 'os' || p?.origem === 'compra'
+      ? `Esta parcela foi gerada por uma ${p.origem === 'os' ? 'OS' : 'compra'}. Excluir aqui remove só o lançamento financeiro — a ${p.origem === 'os' ? 'OS' : 'compra'} continua. Continuar?`
+      : 'Excluir este lançamento? Esta ação não pode ser desfeita.';
+    Modal.confirm(aviso, async () => {
+      const ops = [{ action: 'delete', sheet: 'parcelas', id }];
+      // Se for parcela de fiado, remove o registro fiado também pra manter sincronia
       if (p && p.origem === 'fiado' && p.origem_id) {
-        ops.push({ action: 'update', sheet: 'fiado', id: p.origem_id, data: { status: 'cancelado' } });
+        ops.push({ action: 'delete', sheet: 'fiado', id: p.origem_id });
       }
-      await API.db.batch(ops);
-      Toast.success('Cancelado');
+      Loading.show();
+      const res = await API.db.batch(ops);
+      Loading.hide();
+      if (!res?.success) { Toast.error('Erro ao excluir'); return; }
+      Toast.success('Excluído');
       await loadData(); filtrar();
     });
   }
 
   return { render, switchTab, filtrar, renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
-           editarParcela, cancelarParcela, tapParcela };
+           editarParcela, excluirParcela, tapParcela };
 })();
