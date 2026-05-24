@@ -35,17 +35,12 @@ const Fmt = {
   _parseTime(v) {
     if (v === null || v === undefined || v === '' || v === false) return null;
     if (typeof v === 'string') {
-      // ISO datetime do Sheets — usa Date local para resolver timezone
+      // ISO datetime do Sheets — Apps Script serializa hora local como UTC
+      // Ex: usuário entrou "09:12" (Brasil UTC-3) → Sheets salva como
+      // "1899-12-30T12:12:00.000Z". getHours() em UTC-3 devolve 9 ✓
       if (v.includes('T')) {
         const d = new Date(v);
         if (!isNaN(d.getTime())) {
-          // Tenta via UTC primeiro (formato mais comum do Apps Script)
-          const hUtc = d.getUTCHours(), mUtc = d.getUTCMinutes();
-          // Verifica se é data "1899" (época do Sheets) — usa UTC diretamente
-          if (d.getUTCFullYear() <= 1900) {
-            return String(hUtc).padStart(2,'0') + ':' + String(mUtc).padStart(2,'0');
-          }
-          // Datas normais: usa hora local
           return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
         }
       }
