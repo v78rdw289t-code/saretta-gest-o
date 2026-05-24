@@ -9,7 +9,7 @@ const OS = (() => {
 
   // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render(params = {}) {
-    await loadData();
+    await Promise.all([loadData(), App.loadGlobals()]);
     if (params.id) { openDetail(params.id); return; }
     renderList();
   }

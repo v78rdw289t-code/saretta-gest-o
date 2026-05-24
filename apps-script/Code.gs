@@ -274,9 +274,6 @@ function registrarCompra(data) {
     });
   }
 
-  // Atualizar referência da parcela na compra (apenas primeira)
-  update('compras', compraId, { parcela_id: compraId });
-
   return { success: true, compra_id: compraId };
 }
 
@@ -319,6 +316,11 @@ function pagarParcela(data) {
     data_pagamento: data.data_pagamento,
     status:         'pago',
   });
+  // Se a parcela é de fiado, sincronizar o registro fiado
+  const parc = read('parcelas', data.parcela_id).data[0];
+  if (parc && parc.origem === 'fiado' && parc.origem_id) {
+    update('fiado', parc.origem_id, { status: 'quitado' });
+  }
   return { success: true };
 }
 

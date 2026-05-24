@@ -3,7 +3,8 @@
 // ============================================================
 
 const Fiado = (() => {
-  let allFiado = [];
+  let allFiado    = [];
+  let allParcelas = [];
 
   async function render() {
     await loadData();
@@ -12,17 +13,33 @@ const Fiado = (() => {
 
   async function loadData() {
     Loading.show();
-    const res = await API.db.read('fiado');
+    const [fRes, pRes] = await Promise.all([
+      API.db.read('fiado'),
+      API.db.read('parcelas'),
+    ]);
     Loading.hide();
-    allFiado = (res?.data || []).sort((a, b) => a.data > b.data ? -1 : 1);
+    allFiado    = (fRes?.data || []).sort((a, b) => a.data > b.data ? -1 : 1);
+    allParcelas = pRes?.data || [];
+  }
+
+  // Acessa a parcela vinculada a um fiado (fonte da verdade para valor/vencimento/categoria/competência)
+  function getParcela(fiado) {
+    if (!fiado?.parcela_pagar_id) return null;
+    return allParcelas.find(p => p.id === fiado.parcela_pagar_id) || null;
+  }
+
+  // Valor "ao vivo" do fiado — prefere o da parcela (caso tenha sido editado em outro lugar)
+  function valorVivo(fiado) {
+    const p = getParcela(fiado);
+    return Number((p?.valor ?? fiado.valor) || 0);
   }
 
   function renderList(filtro = '') {
     let items = allFiado;
     if (filtro) items = items.filter(f => f.pessoa === filtro);
 
-    const totalRodrigo = allFiado.filter(f => f.pessoa === 'rodrigo' && f.status === 'pendente').reduce((s, f) => s + Number(f.valor || 0), 0);
-    const totalOdinei  = allFiado.filter(f => f.pessoa === 'odinei'  && f.status === 'pendente').reduce((s, f) => s + Number(f.valor || 0), 0);
+    const totalRodrigo = allFiado.filter(f => f.pessoa === 'rodrigo' && f.status === 'pendente').reduce((s, f) => s + valorVivo(f), 0);
+    const totalOdinei  = allFiado.filter(f => f.pessoa === 'odinei'  && f.status === 'pendente').reduce((s, f) => s + valorVivo(f), 0);
 
     const section = qs('#page-fiado');
     section.innerHTML = `
@@ -60,7 +77,7 @@ const Fiado = (() => {
                 <div class="entity-sub">${Fmt.date(f.data)} · <strong>${f.pessoa}</strong></div>
               </div>
               <div class="entity-right">
-                <span class="entity-value text-red">${Fmt.currency(f.valor)}</span>
+                <span class="entity-value text-red">${Fmt.currency(valorVivo(f))}</span>
                 ${statusBadge(f.status)}
               </div>
             </div>
@@ -71,12 +88,14 @@ const Fiado = (() => {
 
   function openForm(id = null) {
     const f = id ? allFiado.find(x => x.id === id) : null;
+    const p = f ? getParcela(f) : null;
+
     qs('#fiado-form-id').value     = id || '';
     qs('#fiado-form-pessoa').value = f?.pessoa || 'rodrigo';
     qs('#fiado-form-desc').value   = f?.descricao || '';
-    qs('#fiado-form-valor').value  = f?.valor || '';
+    qs('#fiado-form-valor').value  = p?.valor ?? f?.valor ?? '';
     qs('#fiado-form-data').value   = f?.data || DateUtil.today();
-    qs('#fiado-form-venc').value   = f?.data_vencimento || DateUtil.today();
+    qs('#fiado-form-venc').value   = p?.data_vencimento || f?.data || DateUtil.today();
     qs('#fiado-form-obs').value    = f?.observacoes || '';
     if (qs('#modal-fiado-title')) qs('#modal-fiado-title').textContent = id ? 'Editar Fiado' : 'Novo Fiado';
     if (qs('#fiado-alert-new'))   qs('#fiado-alert-new').style.display = id ? 'none' : '';
@@ -99,13 +118,23 @@ const Fiado = (() => {
     if (id) {
       const fiado = allFiado.find(f => f.id === id);
       const ops = [
-        { action: 'update', sheet: 'fiado', id, data: { pessoa, descricao: desc, valor, data, data_vencimento: venc, observacoes: obs } },
+        { action: 'update', sheet: 'fiado', id,
+          data: { pessoa, descricao: desc, valor, data, observacoes: obs } },
       ];
       if (fiado?.parcela_pagar_id) {
-        ops.push({ action: 'update', sheet: 'parcelas', id: fiado.parcela_pagar_id,
-          data: { descricao: `Fiado ${pessoa} — ${desc}`, valor, data_vencimento: venc } });
+        ops.push({
+          action: 'update', sheet: 'parcelas', id: fiado.parcela_pagar_id,
+          data: {
+            descricao:        'Fiado - ' + pessoa + ' - ' + desc,
+            valor,
+            data_competencia: data,
+            data_vencimento:  venc,
+            observacoes:      obs,
+          },
+        });
       }
       res = await API.db.batch(ops);
+      if (res?.success) res.success = res.results?.every(r => r?.success);
     } else {
       res = await API.db.registrarFiado({ pessoa, descricao: desc, valor, data, data_vencimento: venc, observacoes: obs });
     }
@@ -115,7 +144,7 @@ const Fiado = (() => {
       Toast.success(id ? 'Fiado atualizado!' : 'Fiado registrado! Conta a pagar gerada.');
       Modal.close('modal-fiado');
       await loadData(); renderList();
-    } else Toast.error('Erro: ' + res?.error);
+    } else Toast.error('Erro: ' + (res?.error || 'falha ao salvar'));
   }
 
   async function quitar(fiadoId, parcelaId) {
@@ -133,8 +162,17 @@ const Fiado = (() => {
   }
 
   async function confirmDelete(id) {
-    Modal.confirm('Excluir este registro de fiado?', async () => {
-      await API.db.delete('fiado', id);
+    const fiado = allFiado.find(x => x.id === id);
+    const msg = fiado?.status === 'quitado'
+      ? 'Excluir este fiado já quitado? O lançamento pago no financeiro será mantido (histórico).'
+      : 'Excluir este registro de fiado? A conta a pagar gerada também será removida.';
+    Modal.confirm(msg, async () => {
+      const ops = [{ action: 'delete', sheet: 'fiado', id }];
+      // Só remove a parcela se ainda estiver pendente — se já foi paga, mantém o histórico no caixa
+      if (fiado?.parcela_pagar_id && fiado.status !== 'quitado') {
+        ops.push({ action: 'delete', sheet: 'parcelas', id: fiado.parcela_pagar_id });
+      }
+      await API.db.batch(ops);
       Toast.success('Excluído');
       await loadData(); renderList();
     });

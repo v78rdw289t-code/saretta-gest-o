@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 52" width="240" height="52">
+  <defs>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD060"/>
+      <stop offset="100%" stop-color="#FF9500"/>
+    </linearGradient>
+  </defs>
+  <!-- Icon badge -->
+  <rect x="0" y="2" width="48" height="48" rx="13" fill="url(#iconGrad)"/>
+  <!-- S letter -->
+  <text x="24" y="35" text-anchor="middle" fill="white"
+    font-size="26" font-weight="900"
+    font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif">S</text>
+  <!-- Saretta wordmark -->
+  <text x="62" y="27" fill="white"
+    font-size="20" font-weight="800" letter-spacing="-0.5"
+    font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif">Saretta</text>
+  <!-- Subtitle -->
+  <text x="63" y="43" fill="rgba(255,255,255,0.6)"
+    font-size="11" font-weight="500" letter-spacing="2"
+    font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif">GESTÃO</text>
+</svg>

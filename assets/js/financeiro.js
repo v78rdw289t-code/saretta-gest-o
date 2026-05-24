@@ -264,6 +264,16 @@ const Financeiro = (() => {
     `;
   }
 
+  // Atualiza os selects de cliente/categoria conforme o tipo (receber/pagar)
+  // Mantém o valor selecionado se já estava válido.
+  function refreshManualSelects(curCliente = '', curCategoria = '') {
+    const tipo = qs('#manual-tipo')?.value || 'pagar';
+    const tipoCliente   = tipo === 'receber' ? 'cliente'  : 'fornecedor';
+    const tipoCategoria = tipo === 'receber' ? 'entrada'  : 'saida';
+    qs('#manual-cliente').innerHTML   = App.clienteOptions(tipoCliente, curCliente);
+    qs('#manual-categoria').innerHTML = App.categoriaOptions(tipoCategoria, curCategoria);
+  }
+
   function openManual() {
     qs('#manual-save-btn').onclick = () => saveManual();
     qs('#manual-tipo').value   = 'pagar';
@@ -273,13 +283,14 @@ const Financeiro = (() => {
     qs('#manual-venc').value   = DateUtil.today();
     qs('#manual-pagto').value  = '';
     qs('#manual-status').value = 'pendente';
-    qs('#manual-cliente').innerHTML = App.clienteOptions();
-    qs('#manual-categoria').innerHTML = App.categoriaOptions();
+    refreshManualSelects();
+    qs('#manual-tipo').onchange = () => refreshManualSelects();
     qs('#manual-obs').value = '';
     Modal.open('modal-manual-lancamento');
   }
 
   async function saveManual() {
+    const status = qs('#manual-status').value;
     const data = {
       tipo:            qs('#manual-tipo').value,
       origem:          'manual',
@@ -289,8 +300,8 @@ const Financeiro = (() => {
       valor:           Number(qs('#manual-valor').value) || 0,
       data_competencia:qs('#manual-comp').value + '-01',
       data_vencimento: qs('#manual-venc').value,
-      data_pagamento:  qs('#manual-pagto').value,
-      status:          qs('#manual-status').value,
+      data_pagamento:  status === 'pago' ? (qs('#manual-pagto').value || DateUtil.today()) : '',
+      status,
       categoria_id:    qs('#manual-categoria').value,
       observacoes:     qs('#manual-obs').value,
     };
@@ -334,6 +345,17 @@ const Financeiro = (() => {
   async function editarParcela(id) {
     const p = allParcelas.find(x => x.id === id);
     if (!p) return;
+
+    // Parcelas geradas por fiado devem ser editadas pelo módulo Fiado
+    // para manter o registro fiado sincronizado.
+    if (p.origem === 'fiado' && p.origem_id) {
+      Modal.confirm(
+        'Esta parcela é de um fiado. Para manter os registros sincronizados, edite pelo módulo Fiado. Deseja abrir agora?',
+        () => { App.navigate('fiado'); setTimeout(() => Fiado.openForm(p.origem_id), 200); }
+      );
+      return;
+    }
+
     qs('#manual-tipo').value   = p.tipo;
     qs('#manual-desc').value   = p.descricao;
     qs('#manual-valor').value  = p.valor;
@@ -341,10 +363,11 @@ const Financeiro = (() => {
     qs('#manual-venc').value   = p.data_vencimento;
     qs('#manual-pagto').value  = p.data_pagamento || '';
     qs('#manual-status').value = p.status;
-    qs('#manual-cliente').innerHTML  = App.clienteOptions(null, p.cliente_id);
-    qs('#manual-categoria').innerHTML= App.categoriaOptions(null, p.categoria_id);
+    refreshManualSelects(p.cliente_id, p.categoria_id);
+    qs('#manual-tipo').onchange = () => refreshManualSelects();
     qs('#manual-obs').value    = p.observacoes || '';
     qs('#manual-save-btn').onclick = async () => {
+      const status = qs('#manual-status').value;
       const data = {
         tipo:            qs('#manual-tipo').value,
         cliente_id:      qs('#manual-cliente').value,
@@ -352,8 +375,9 @@ const Financeiro = (() => {
         valor:           Number(qs('#manual-valor').value) || 0,
         data_competencia:qs('#manual-comp').value + '-01',
         data_vencimento: qs('#manual-venc').value,
-        data_pagamento:  qs('#manual-pagto').value,
-        status:          qs('#manual-status').value,
+        // Se voltar para pendente/cancelado, zera data_pagamento para não distorcer regime de caixa
+        data_pagamento:  status === 'pago' ? (qs('#manual-pagto').value || DateUtil.today()) : '',
+        status,
         categoria_id:    qs('#manual-categoria').value,
         observacoes:     qs('#manual-obs').value,
       };
@@ -368,8 +392,14 @@ const Financeiro = (() => {
   }
 
   async function cancelarParcela(id) {
+    const p = allParcelas.find(x => x.id === id);
     Modal.confirm('Cancelar este lançamento?', async () => {
-      await API.db.update('parcelas', id, { status: 'cancelado' });
+      const ops = [{ action: 'update', sheet: 'parcelas', id, data: { status: 'cancelado' } }];
+      // Se for parcela de fiado, cancelar o fiado também para manter sincronia
+      if (p && p.origem === 'fiado' && p.origem_id) {
+        ops.push({ action: 'update', sheet: 'fiado', id: p.origem_id, data: { status: 'cancelado' } });
+      }
+      await API.db.batch(ops);
       Toast.success('Cancelado');
       await loadData(); filtrar();
     });
