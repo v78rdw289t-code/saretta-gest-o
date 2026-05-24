@@ -30,6 +30,8 @@ const API = (() => {
   function invalidateSheets(sheets) {
     if (!sheets || sheets.length === 0) return;
     for (const key of Array.from(cache.keys())) {
+      // stats agregada também é invalidada — depende de TODOS os sheets
+      if (key.includes('action=stats')) { cache.delete(key); continue; }
       for (const sheet of sheets) {
         if (new RegExp('[?&]sheet=' + sheet + '(&|$)').test(key)) {
           cache.delete(key);
@@ -201,7 +203,8 @@ const API = (() => {
     update(sheet, id, data) { return post('update', { sheet, id, data }); },
     delete(sheet, id) { return post('delete', { sheet, id }); },
     batch(operations) { return post('batch', { operations }); },
-    stats() { return get('stats', {}, false); },
+    // Cacheado agora — é invalidado pela invalidateSheets() em todo POST
+    stats() { return get('stats', {}, true); },
     initDB() { return get('initDB', {}, false); },
     fecharOS(data) { return post('fecharOS', data); },
     registrarCompra(data) { return post('registrarCompra', data); },

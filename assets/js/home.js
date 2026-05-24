@@ -55,12 +55,45 @@ const Home = (() => {
       </div>
     `;
 
-    await loadStats();
+    // Dispara em paralelo, SEM await — Home aparece imediato com skeleton
+    // e cada bloco se preenche sozinho assim que os dados chegam.
+    loadStats();
     if (!LocalConfig.getUrl()) {
       qs('#home-os-andamento').innerHTML = '<p class="text-muted p-3">Configure a conexão em Configurações</p>';
       return;
     }
-    await loadOSAndamento();
+    loadOSAndamento();
+  }
+
+  // Calcula stats no FRONTEND a partir das sheets já em cache.
+  // Replica a lógica do backend getDashboardStats() — quando OS e parcelas
+  // estão em cache, é instantâneo (zero requests).
+  function computeStatsLocal(osList, parcelas) {
+    const today = new Date();
+    const mes   = today.toISOString().substring(0, 7);
+    const osAndamento = osList.filter(o => o.status === 'andamento').length;
+    const osAcerto    = osList.filter(o => o.status === 'acerto').length;
+    const recMes = parcelas.filter(p => p.tipo === 'receber' && String(p.data_competencia || '').startsWith(mes));
+    const pagMes = parcelas.filter(p => p.tipo === 'pagar'   && String(p.data_competencia || '').startsWith(mes));
+    const sum = (arr) => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const recPago  = sum(recMes.filter(p => p.status === 'pago'));
+    const recTotal = sum(recMes);
+    const pagPago  = sum(pagMes.filter(p => p.status === 'pago'));
+    const pagTotal = sum(pagMes);
+    const venc7 = parcelas.filter(p => {
+      if (p.status !== 'pendente') return false;
+      const d = new Date(p.data_vencimento);
+      if (isNaN(d.getTime())) return false;
+      const diff = (d - today) / 86400000;
+      return diff >= 0 && diff <= 7;
+    });
+    return {
+      os_andamento: osAndamento, os_acerto: osAcerto,
+      rec_total: recTotal, rec_pago: recPago,
+      pag_total: pagTotal, pag_pago: pagPago,
+      saldo_mes: recPago - pagPago,
+      vencendo_7d: venc7.length,
+    };
   }
 
   async function loadStats() {
@@ -71,9 +104,26 @@ const Home = (() => {
         </div>`;
       return;
     }
+
+    // Caminho rápido: stats calculadas LOCAL se OS e parcelas estão em cache
+    if (API.db.isCached('os') && API.db.isCached('parcelas')) {
+      const [osRes, parRes] = await Promise.all([
+        API.db.read('os'),
+        API.db.read('parcelas'),
+      ]);
+      if (osRes?.success && parRes?.success) {
+        renderStatsCard(computeStatsLocal(osRes.data || [], parRes.data || []));
+        return;
+      }
+    }
+
+    // Fallback: chama o backend stats() — usado na primeira vez
     const res = await API.db.stats();
     if (!res?.success) return;
-    const d = res.data;
+    renderStatsCard(res.data);
+  }
+
+  function renderStatsCard(d) {
     qs('#home-stats').innerHTML = `
       <div class="stat-card stat-blue" onclick="App.navigate('os').then(() => OS.setStatus('andamento'))" style="cursor:pointer">
         <div class="stat-label">Em Andamento</div>
@@ -99,8 +149,18 @@ const Home = (() => {
   }
 
   async function loadOSAndamento() {
+    // Caminho rápido: se 'os' inteira está em cache, filtra local sem novo request
+    if (API.db.isCached('os')) {
+      const res = await API.db.read('os');
+      const items = (res?.data || []).filter(o => o.status === 'andamento');
+      return renderOSAndamento(items);
+    }
     const res = await API.db.read('os', null, { status: 'andamento' });
-    const items = (res?.data || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
+    renderOSAndamento(res?.data || []);
+  }
+
+  function renderOSAndamento(items) {
+    items = items.sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
     if (items.length === 0) {
       qs('#home-os-andamento').innerHTML = '<div class="entity-empty">Nenhuma OS em andamento 🎉</div>';
       return;

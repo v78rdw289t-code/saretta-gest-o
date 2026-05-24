@@ -188,8 +188,8 @@ const App = (() => {
       setBar(8 + Math.round((done / tasks.length) * 88), `Carregando dados (${done}/${tasks.length})…`);
     }));
 
-    // Aguarda todas OU timeout de 5s — o que vier primeiro
-    const timeout = new Promise(resolve => setTimeout(resolve, 5000));
+    // Aguarda todas OU timeout de 10s — o que vier primeiro
+    const timeout = new Promise(resolve => setTimeout(resolve, 10000));
     await Promise.race([Promise.all(tasks), timeout]);
 
     setBar(100, 'Pronto!');
