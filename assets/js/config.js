@@ -196,8 +196,9 @@ const Config = (() => {
         <div class="card">
           <div class="card-header"><h3>Banco de Dados</h3></div>
           <div class="card-body">
-            <p class="text-muted mb-3">Inicializa as planilhas no Google Sheets pela primeira vez.</p>
+            <p class="text-muted mb-3">Inicializa as planilhas no Google Sheets pela primeira vez. Também corrige parcelas com conta vinculada errada.</p>
             <button class="btn btn-secondary" onclick="Config.initDB()">Inicializar Planilhas</button>
+            <button class="btn btn-outline ml-2" onclick="Config.repairDB()" style="margin-top:8px">🔧 Reparar Dados</button>
           </div>
         </div>
       </div>
@@ -356,13 +357,27 @@ const Config = (() => {
     const res = await API.db.initDB();
     Loading.hide();
     if (res?.success) {
-      Toast.success('Planilhas inicializadas!');
+      const repaired = (res.results || []).find(r => r.includes('Reparadas'));
+      Toast.success('Planilhas inicializadas!' + (repaired ? ' ' + repaired + '.' : ''));
+      API.clearCache();
       await loadData(); renderView();
     } else Toast.error('Erro: ' + res?.error);
+  }
+
+  async function repairDB() {
+    if (!LocalConfig.getUrl()) { Toast.warning('Configure a URL do Apps Script primeiro'); return; }
+    Loading.show();
+    const res = await API.db.repairDB();
+    Loading.hide();
+    if (res?.success) {
+      const n = res.fixed || 0;
+      Toast.success(n > 0 ? `${n} parcela(s) reparadas — saldo das contas atualizado!` : 'Nenhuma inconsistência encontrada.');
+      if (n > 0) API.clearCache();
+    } else Toast.error('Erro: ' + (res?.error || ''));
   }
 
   return { render, saveUrl, testarConexao, saveHoras, saveFatores,
            openCatForm, saveCat, toggleCat,
            openContaForm, saveConta, toggleConta,
-           initDB };
+           initDB, repairDB };
 })();

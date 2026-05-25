@@ -30,9 +30,10 @@ function doGet(e) {
   try {
     const action = params.action;
     let result;
-    if (action === 'read')        result = read(params.sheet, params.id || null, parseFilters(params));
-    else if (action === 'initDB') result = initializeSheets();
-    else if (action === 'stats')  result = getDashboardStats();
+    if (action === 'read')           result = read(params.sheet, params.id || null, parseFilters(params));
+    else if (action === 'initDB')    result = initializeSheets();
+    else if (action === 'stats')     result = getDashboardStats();
+    else if (action === 'repairDB')  result = repairParcelasContaId();
     else result = { success: false, error: 'Ação inválida' };
     return respond(result);
   } catch (err) {
@@ -227,7 +228,8 @@ function fecharOS(data) {
 
 function registrarCompra(data) {
   // data: { fornecedor_id, data, valor_total, parcelas_count, primeira_data_vencimento,
-  //         data_competencia, categoria_id, itens: [{descricao, estoque_id, quantidade, valor_unit, valor_total}], observacoes }
+  //         data_competencia, categoria_id, quem_pagou (opcional),
+  //         itens: [{descricao, estoque_id, quantidade, valor_unit, valor_total}], observacoes }
   const compraData = {
     fornecedor_id: data.fornecedor_id,
     data:          data.data,
@@ -266,25 +268,99 @@ function registrarCompra(data) {
   const valorParc = data.valor_total / parcCount;
   const fornRec = data.fornecedor_id ? read('clientes', data.fornecedor_id).data[0] : null;
   const fornNome = fornRec ? fornRec.nome : '';
+  const dataPago = data.data || data.primeira_data_vencimento;
 
-  let primeiraVenc = new Date(data.primeira_data_vencimento);
-  for (let i = 0; i < parcCount; i++) {
-    const venc = new Date(primeiraVenc);
-    venc.setMonth(venc.getMonth() + i);
+  if (data.quem_pagou) {
+    // Caminho fiado: a pessoa já pagou do bolso.
+    // Parcelas da compra marcadas como pago (a despesa aconteceu).
+    let primeiraVenc = new Date(data.primeira_data_vencimento);
+    for (let i = 0; i < parcCount; i++) {
+      const venc = new Date(primeiraVenc);
+      venc.setMonth(venc.getMonth() + i);
+      create('parcelas', {
+        tipo:            'pagar',
+        origem:          'compra',
+        origem_id:       compraId,
+        cliente_id:      data.fornecedor_id || '',
+        descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
+        valor:           valorParc,
+        data_competencia:data.data_competencia,
+        data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        data_pagamento:  dataPago,
+        status:          'pago',
+        conta_id:        '',  // saiu do bolso da pessoa, não da conta da empresa
+        categoria_id:    data.categoria_id || '',
+        observacoes:     data.observacoes || '',
+      });
+    }
+    // Receita-fiado: neutraliza a saída no caixa (pessoa cobriu)
+    const catDevFiado = _findCategoria('Devolução de fiado');
     create('parcelas', {
-      tipo:            'pagar',
-      origem:          'compra',
+      tipo:            'receber',
+      origem:          'fiado_pago',
       origem_id:       compraId,
-      cliente_id:      data.fornecedor_id || '',
-      descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
-      valor:           valorParc,
+      cliente_id:      '',
+      descricao:       'Fiado ' + data.quem_pagou + ' (entrada): Compra ' + fornNome,
+      valor:           data.valor_total,
       data_competencia:data.data_competencia,
-      data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      data_vencimento: dataPago,
+      data_pagamento:  dataPago,
+      status:          'pago',
+      conta_id:        '',
+      categoria_id:    catDevFiado,
+      observacoes:     'Cobertura de compra paga por ' + data.quem_pagou,
+    });
+    // Reembolso pendente (empresa deve à pessoa)
+    const catFiado = _findCategoria('Fiado ' + data.quem_pagou);
+    const reemb = create('parcelas', {
+      tipo:            'pagar',
+      origem:          'fiado',
+      origem_id:       '',
+      cliente_id:      '',
+      descricao:       'Reembolso ' + data.quem_pagou + ': Compra ' + fornNome,
+      valor:           data.valor_total,
+      data_competencia:data.data_competencia,
+      data_vencimento: data.primeira_data_vencimento,
       data_pagamento:  '',
       status:          'pendente',
-      categoria_id:    data.categoria_id || '',
+      conta_id:        '',
+      categoria_id:    catFiado,
       observacoes:     data.observacoes || '',
     });
+    // Registro fiado vinculado ao reembolso
+    const fiado = create('fiado', {
+      pessoa:          data.quem_pagou,
+      descricao:       'Compra ' + fornNome,
+      valor:           data.valor_total,
+      data:            dataPago,
+      parcela_pagar_id:reemb.data.id,
+      status:          'pendente',
+      observacoes:     data.observacoes || '',
+    });
+    if (fiado?.data?.id) {
+      update('parcelas', reemb.data.id, { origem_id: fiado.data.id });
+    }
+  } else {
+    // Caminho normal: parcelas pendentes
+    let primeiraVenc = new Date(data.primeira_data_vencimento);
+    for (let i = 0; i < parcCount; i++) {
+      const venc = new Date(primeiraVenc);
+      venc.setMonth(venc.getMonth() + i);
+      create('parcelas', {
+        tipo:            'pagar',
+        origem:          'compra',
+        origem_id:       compraId,
+        cliente_id:      data.fornecedor_id || '',
+        descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
+        valor:           valorParc,
+        data_competencia:data.data_competencia,
+        data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        data_pagamento:  '',
+        status:          'pendente',
+        categoria_id:    data.categoria_id || '',
+        observacoes:     data.observacoes || '',
+      });
+    }
   }
 
   return { success: true, compra_id: compraId };
@@ -403,6 +479,44 @@ function getDashboardStats() {
   };
 }
 
+// ─── HELPERS INTERNOS ───────────────────────────────────────
+// Retorna o id de uma categoria pelo nome (busca na planilha)
+function _findCategoria(nome) {
+  try {
+    const cats = sheetToRecords(getSheet('categorias'));
+    return cats.find(c => c.nome === nome)?.id || '';
+  } catch { return ''; }
+}
+
+// Repara parcelas onde conta_id e observacoes foram gravados invertidos
+// (bug do create() que usava SHEET_HEADERS em vez de headers reais após migração).
+// Detecta: conta_id = vazio e observacoes = UUID → troca os valores.
+function repairParcelasContaId() {
+  const sh = getSheet('parcelas');
+  const all = sh.getDataRange().getValues();
+  if (all.length < 2) return { fixed: 0 };
+  const headers  = all[0];
+  const contaIdx = headers.indexOf('conta_id');
+  const obsIdx   = headers.indexOf('observacoes');
+  if (contaIdx === -1 || obsIdx === -1) return { fixed: 0, msg: 'colunas não encontradas' };
+  const uuidPat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let fixed = 0;
+  for (let i = 1; i < all.length; i++) {
+    const row     = all[i];
+    if (!row[0]) continue;
+    const contaVal = String(row[contaIdx] || '').trim();
+    const obsVal   = String(row[obsIdx]   || '').trim();
+    // Observações têm um UUID (o conta_id que ficou na coluna errada)
+    // e conta_id está vazio — troca
+    if (!contaVal && uuidPat.test(obsVal)) {
+      sh.getRange(i + 1, contaIdx + 1).setValue(obsVal);
+      sh.getRange(i + 1, obsIdx   + 1).setValue('');
+      fixed++;
+    }
+  }
+  return { success: true, fixed };
+}
+
 // ─── SETUP ───────────────────────────────────────────────────
 function initializeSheets() {
   const results = [];
@@ -494,6 +608,10 @@ function initializeSheets() {
   contas.forEach(c => {
     if (!existingContas.find(ec => ec.nome === c.nome)) create('contas', c);
   });
+
+  // Repara parcelas com conta_id/observacoes invertidos (bug do create() pré-v1.5.5)
+  const repair = repairParcelasContaId();
+  if (repair.fixed > 0) results.push('Reparadas ' + repair.fixed + ' parcelas (conta_id corrigido)');
 
   return { success: true, results };
 }

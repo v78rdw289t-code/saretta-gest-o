@@ -553,9 +553,10 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 
 /* Previne auto-zoom do iOS Safari ao focar inputs (zoom acontece quando font-size < 16px).
-   Usa hover:none para não afetar desktops com fonte menor. */
+   Usa hover:none+coarse para afetar apenas dispositivos touch (não desktop). */
 @media (hover: none) and (pointer: coarse) {
-  .input, .input-select, .input-search { font-size: 16px; }
+  .input, .input-select, .input-search,
+  input, select, textarea { font-size: 16px; }
 }
 
 /* ─── FILTROS ─────────────────────────────────────────────── */

@@ -21,7 +21,7 @@ const API = (() => {
     delete:          (body) => [body.sheet],
     batch:           (body) => Array.from(new Set((body.operations || []).map(op => op.sheet).filter(Boolean))),
     fecharOS:        ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias'],
-    registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'parcelas'],
+    registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'parcelas', 'fiado'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
     pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
     excluirOS:       ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque'],
@@ -206,6 +206,7 @@ const API = (() => {
     // Cacheado agora — é invalidado pela invalidateSheets() em todo POST
     stats() { return get('stats', {}, true); },
     initDB() { return get('initDB', {}, false); },
+    repairDB() { return get('repairDB', {}, false); },
     fecharOS(data) { return post('fecharOS', data); },
     registrarCompra(data) { return post('registrarCompra', data); },
     registrarFiado(data) { return post('registrarFiado', data); },

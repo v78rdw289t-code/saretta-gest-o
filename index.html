@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=1.5.5">
+  <link rel="stylesheet" href="assets/css/style.css?v=1.6.0">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
   <link rel="apple-touch-icon" href="assets/img/logo-icon.svg">
@@ -411,6 +411,17 @@
       <div class="form-group">
         <label>Observações</label>
         <input type="text" id="compra-obs" class="input" placeholder="Opcional">
+      </div>
+      <div class="form-group" id="compra-quempagou-wrap">
+        <label>Quem pagou? <small style="color:var(--text-muted);font-weight:400">(deixe vazio se foi a empresa)</small></label>
+        <select id="compra-quempagou" class="input" onchange="Compras.onQuemPagouChange()">
+          <option value="">— Empresa pagou —</option>
+          <option value="Rodrigo">Rodrigo</option>
+          <option value="Odinei">Odinei</option>
+        </select>
+        <div id="compra-quempagou-hint" class="hidden" style="font-size:.75rem;color:var(--info);margin-top:6px;line-height:1.4">
+          💡 Será gerado: despesa (paga) + reembolso pendente + registro de fiado.
+        </div>
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
       <div style="font-size:.88rem;font-weight:800;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Itens da Compra</div>

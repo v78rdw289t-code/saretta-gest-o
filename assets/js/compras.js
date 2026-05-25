@@ -160,8 +160,16 @@ const Compras = (() => {
     qs('#compra-parc').value      = '1';
     qs('#compra-cat').innerHTML   = App.categoriaOptions('saida');
     qs('#compra-obs').value       = '';
+    const qp = qs('#compra-quempagou');
+    if (qp) qp.value = '';
+    qs('#compra-quempagou-hint')?.classList.add('hidden');
     renderItensForm();
     Modal.open('modal-compra');
+  }
+
+  function onQuemPagouChange() {
+    const v = qs('#compra-quempagou')?.value || '';
+    qs('#compra-quempagou-hint')?.classList.toggle('hidden', !v);
   }
 
   function renderItensForm() {
@@ -198,14 +206,15 @@ const Compras = (() => {
   }
 
   async function saveForm() {
-    const fornId = qs('#compra-forn').value;
-    const data   = qs('#compra-data').value;
-    const venc   = qs('#compra-venc').value;
-    const comp   = qs('#compra-comp').value + '-01';
-    const parc   = Number(qs('#compra-parc').value) || 1;
-    const catId  = qs('#compra-cat').value;
-    const obs    = qs('#compra-obs').value;
-    const total  = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const fornId    = qs('#compra-forn').value;
+    const data      = qs('#compra-data').value;
+    const venc      = qs('#compra-venc').value;
+    const comp      = qs('#compra-comp').value + '-01';
+    const parc      = Number(qs('#compra-parc').value) || 1;
+    const catId     = qs('#compra-cat').value;
+    const obs       = qs('#compra-obs').value;
+    const quemPagou = qs('#compra-quempagou')?.value || '';
+    const total     = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
 
     if (itensForm.length === 0) { Toast.warning('Adicione ao menos um item'); return; }
 
@@ -214,12 +223,16 @@ const Compras = (() => {
       fornecedor_id: fornId, data, valor_total: total,
       parcelas_count: parc, primeira_data_vencimento: venc,
       data_competencia: comp, categoria_id: catId,
+      quem_pagou: quemPagou || undefined,
       itens: itensForm, observacoes: obs,
     });
     Loading.hide();
 
     if (res?.success) {
-      Toast.success('Compra registrada! Estoque e financeiro atualizados.');
+      const msg = quemPagou
+        ? `Compra registrada! Fiado de ${quemPagou} gerado.`
+        : 'Compra registrada! Estoque e financeiro atualizados.';
+      Toast.success(msg);
       Modal.close('modal-compra');
       await loadData(); renderList();
     } else Toast.error('Erro: ' + res?.error);
@@ -229,5 +242,5 @@ const Compras = (() => {
     openDetail(id);
   }
 
-  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, addItem, removeItem, saveForm };
+  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, onQuemPagouChange, addItem, removeItem, saveForm };
 })();
