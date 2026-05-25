@@ -23,6 +23,7 @@ const Clientes = (() => {
     let items = allClientes.filter(c => c.ativo !== false && c.ativo !== 'false');
     if (filtroTipo) items = items.filter(c => c.tipo === filtroTipo);
     if (q) items = filterRecords(items, q, ['nome','telefone','endereco']);
+    items = [...items].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
     const tipoBadgeCli = t => {
       if (t === 'cliente')    return '<span class="badge badge-info">Cliente</span>';

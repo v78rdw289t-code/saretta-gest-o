@@ -83,7 +83,8 @@ const App = (() => {
       API.db.read('categorias'),
       API.db.read('contas'),
     ]);
-    allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false');
+    allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
+                                          .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
     allCategorias = (catRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false');
     allContas     = (conRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
                                           .sort((a, b) => (Number(a.ordem)||0) - (Number(b.ordem)||0));

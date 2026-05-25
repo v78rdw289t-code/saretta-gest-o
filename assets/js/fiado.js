@@ -16,6 +16,7 @@ const Fiado = (() => {
     const [fRes, pRes] = await Promise.all([
       API.db.read('fiado'),
       API.db.read('parcelas'),
+      App.loadGlobals(), // garante que App.getContas() esteja populado para o modal de quitação
     ]);
     if (shown) Loading.hide();
     // Normaliza 'pessoa' para minúsculo (entradas antigas ou via compras podem ter 'Rodrigo' capitalizado)
@@ -55,18 +56,29 @@ const Fiado = (() => {
       </div>
       <div class="page-header">
         <h1>Fiado</h1>
-        <button class="btn btn-primary" onclick="Fiado.openForm()">+ Novo Fiado</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${(totalRodrigo + totalOdinei) > 0 ? `
+            <button class="btn btn-success btn-sm" onclick="Fiado.openQuitarTudo('')">✅ Quitar Tudo</button>
+          ` : ''}
+          <button class="btn btn-primary" onclick="Fiado.openForm()">+ Novo</button>
+        </div>
       </div>
       <div class="stats-grid mb-4">
-        <div class="stat-card stat-blue" style="cursor:pointer" onclick="Fiado.openQuitarTudo('rodrigo')">
+        <div class="stat-card stat-blue">
           <div class="stat-label">Deve ao Rodrigo</div>
           <div class="stat-value">${Fmt.currency(totalRodrigo)}</div>
-          ${totalRodrigo > 0 ? '<div class="stat-sub" style="font-size:.68rem;margin-top:2px">Toque para quitar tudo</div>' : ''}
+          ${totalRodrigo > 0 ? `
+            <button class="btn btn-sm" style="margin-top:8px;width:100%;background:rgba(255,255,255,.18);color:inherit;border:1px solid rgba(255,255,255,.3)"
+              onclick="event.stopPropagation();Fiado.openQuitarTudo('rodrigo')">Quitar Rodrigo</button>
+          ` : ''}
         </div>
-        <div class="stat-card stat-orange" style="cursor:pointer" onclick="Fiado.openQuitarTudo('odinei')">
+        <div class="stat-card stat-orange">
           <div class="stat-label">Deve ao Odinei</div>
           <div class="stat-value">${Fmt.currency(totalOdinei)}</div>
-          ${totalOdinei > 0 ? '<div class="stat-sub" style="font-size:.68rem;margin-top:2px">Toque para quitar tudo</div>' : ''}
+          ${totalOdinei > 0 ? `
+            <button class="btn btn-sm" style="margin-top:8px;width:100%;background:rgba(255,255,255,.18);color:inherit;border:1px solid rgba(255,255,255,.3)"
+              onclick="event.stopPropagation();Fiado.openQuitarTudo('odinei')">Quitar Odinei</button>
+          ` : ''}
         </div>
         <div class="stat-card stat-red">
           <div class="stat-label">Total a Pagar</div>
@@ -173,17 +185,29 @@ const Fiado = (() => {
     });
   }
 
-  // Abre o modal de quitação em lote para uma pessoa
+  // Abre o modal de quitação em lote.
+  // pessoa = '' → quita TODOS os pendentes de todas as pessoas
+  // pessoa = 'rodrigo' | 'odinei' → quita só dessa pessoa
   function openQuitarTudo(pessoa) {
-    const pendentes = allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente');
-    if (pendentes.length === 0) { Toast.info('Nenhum fiado pendente para ' + pessoa); return; }
-    const total = pendentes.reduce((s, f) => s + valorVivo(f), 0);
-    const pessoaFmt = pessoa.charAt(0).toUpperCase() + pessoa.slice(1);
-    qs('#fiado-quitar-desc').textContent =
-      `${pendentes.length} fiado(s) pendente(s) de ${pessoaFmt} — Total: ${Fmt.currency(total)}`;
-    qs('#fiado-quitar-data').value  = DateUtil.today();
+    const pendentes = pessoa
+      ? allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente')
+      : allFiado.filter(f => f.status === 'pendente');
+
+    if (pendentes.length === 0) {
+      Toast.warning('Nenhum fiado pendente' + (pessoa ? ` para ${pessoa}` : ''));
+      return;
+    }
+
+    const total     = pendentes.reduce((s, f) => s + valorVivo(f), 0);
+    const pessoaLabel = pessoa
+      ? pessoa.charAt(0).toUpperCase() + pessoa.slice(1)
+      : 'todos';
+
+    qs('#fiado-quitar-desc').innerHTML =
+      `<strong>${pendentes.length} fiado(s)</strong> de <strong>${pessoaLabel}</strong><br>
+       Total a quitar: <strong style="color:var(--danger)">${Fmt.currency(total)}</strong>`;
+    qs('#fiado-quitar-data').value      = DateUtil.today();
     qs('#fiado-quitar-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
-    // Salva a lista de pendentes no modal para a confirmação usar
     qs('#fiado-quitar-btn').dataset.pessoa = pessoa;
     Modal.open('modal-fiado-quitar-tudo');
   }
@@ -195,7 +219,12 @@ const Fiado = (() => {
     if (!data)  { Toast.warning('Informe a data de pagamento'); return; }
     if (!conta) { Toast.warning('Selecione a conta'); return; }
 
-    const pendentes = allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente');
+    const pendentes = pessoa
+      ? allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente')
+      : allFiado.filter(f => f.status === 'pendente');
+
+    if (pendentes.length === 0) { Toast.warning('Nenhum fiado pendente'); return; }
+
     const ops = [];
     pendentes.forEach(f => {
       ops.push({ action: 'update', sheet: 'fiado', id: f.id, data: { status: 'quitado' } });
