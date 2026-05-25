@@ -685,6 +685,44 @@
   </div>
 </div>
 
+<!-- Transferência entre Contas -->
+<div id="modal-transferencia" class="modal-center">
+  <div class="modal-center-box">
+    <div class="modal-header">
+      <h3>↔ Transferência entre Contas</h3>
+      <button class="modal-close" onclick="Modal.close('modal-transferencia')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>De (Origem)</label>
+        <select id="transf-origem" class="input"></select>
+      </div>
+      <div class="form-group">
+        <label>Para (Destino)</label>
+        <select id="transf-destino" class="input"></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Valor (R$)</label>
+          <input type="number" id="transf-valor" class="input" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Data</label>
+          <input type="date" id="transf-data" class="input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <input type="text" id="transf-obs" class="input" placeholder="Opcional">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Financeiro.salvarTransferencia()">Transferir</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-transferencia')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Categoria -->
 <div id="modal-categoria" class="modal-center">
   <div class="modal-center-box">

@@ -56,12 +56,7 @@ const Fiado = (() => {
       </div>
       <div class="page-header">
         <h1>Fiado</h1>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${(totalRodrigo + totalOdinei) > 0 ? `
-            <button class="btn btn-success btn-sm" onclick="Fiado.openQuitarTudo('')">✅ Quitar Tudo</button>
-          ` : ''}
-          <button class="btn btn-primary" onclick="Fiado.openForm()">+ Novo</button>
-        </div>
+        <button class="btn btn-primary" onclick="Fiado.openForm()">+ Novo</button>
       </div>
       <div class="stats-grid mb-4">
         <div class="stat-card stat-blue">

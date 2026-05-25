@@ -45,7 +45,10 @@ const Financeiro = (() => {
       </div>
       <div class="page-header">
         <h1>Financeiro</h1>
-        <button class="btn btn-primary btn-sm" onclick="Financeiro.openManual()">+ Lançamento</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" onclick="Financeiro.openTransferencia()">↔ Transferir</button>
+          <button class="btn btn-primary btn-sm" onclick="Financeiro.openManual()">+ Lançamento</button>
+        </div>
       </div>
 
       <div id="fin-content"></div>
@@ -217,8 +220,9 @@ const Financeiro = (() => {
 
     const recComp = allParcelas.filter(p => p.tipo === 'receber' && String(p.data_competencia||'').startsWith(mes));
     const pagComp = allParcelas.filter(p => p.tipo === 'pagar'   && String(p.data_competencia||'').startsWith(mes));
-    const recCaixa= allParcelas.filter(p => p.tipo === 'receber' && p.status === 'pago' && String(p.data_pagamento||'').startsWith(mes));
-    const pagCaixa= allParcelas.filter(p => p.tipo === 'pagar'   && p.status === 'pago' && String(p.data_pagamento||'').startsWith(mes));
+    // Exclui transferências do regime de caixa (são neutras — saldo líquido = 0)
+    const recCaixa= allParcelas.filter(p => p.tipo === 'receber' && p.status === 'pago' && p.origem !== 'transferencia' && String(p.data_pagamento||'').startsWith(mes));
+    const pagCaixa= allParcelas.filter(p => p.tipo === 'pagar'   && p.status === 'pago' && p.origem !== 'transferencia' && String(p.data_pagamento||'').startsWith(mes));
 
     const sum = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
 
@@ -624,8 +628,69 @@ const Financeiro = (() => {
     });
   }
 
+  // ─── TRANSFERÊNCIA ──────────────────────────────────────────
+  function openTransferencia() {
+    qs('#transf-origem').innerHTML  = App.contaOptions('', '— Conta de origem —');
+    qs('#transf-destino').innerHTML = App.contaOptions('', '— Conta de destino —');
+    qs('#transf-valor').value = '';
+    qs('#transf-data').value  = DateUtil.today();
+    qs('#transf-obs').value   = '';
+    Modal.open('modal-transferencia');
+  }
+
+  async function salvarTransferencia() {
+    const origem  = qs('#transf-origem').value;
+    const destino = qs('#transf-destino').value;
+    const valor   = Number(qs('#transf-valor').value) || 0;
+    const data    = qs('#transf-data').value;
+    const obs     = qs('#transf-obs').value.trim();
+
+    if (!origem)             { Toast.warning('Selecione a conta de origem');            return; }
+    if (!destino)            { Toast.warning('Selecione a conta de destino');           return; }
+    if (origem === destino)  { Toast.warning('Origem e destino devem ser diferentes');  return; }
+    if (!valor)              { Toast.warning('Informe o valor');                        return; }
+    if (!data)               { Toast.warning('Informe a data');                         return; }
+
+    const contas      = App.getContas();
+    const origemNome  = contas.find(c => c.id === origem)?.nome  || '';
+    const destinoNome = contas.find(c => c.id === destino)?.nome || '';
+    const desc = `Transferência: ${origemNome} → ${destinoNome}`;
+    const comp = data.substring(0, 7) + '-01';
+
+    Loading.show();
+    const res = await API.db.batch([
+      // Saída da conta origem
+      { action: 'create', sheet: 'parcelas', data: {
+          tipo: 'pagar', origem: 'transferencia', origem_id: '',
+          cliente_id: '', descricao: desc, valor,
+          data_competencia: comp, data_vencimento: data,
+          data_pagamento: data, status: 'pago',
+          conta_id: origem, observacoes: obs,
+      }},
+      // Entrada na conta destino
+      { action: 'create', sheet: 'parcelas', data: {
+          tipo: 'receber', origem: 'transferencia', origem_id: '',
+          cliente_id: '', descricao: desc, valor,
+          data_competencia: comp, data_vencimento: data,
+          data_pagamento: data, status: 'pago',
+          conta_id: destino, observacoes: obs,
+      }},
+    ]);
+    Loading.hide();
+
+    if (res?.success) {
+      Toast.success(`${Fmt.currency(valor)} transferidos de ${origemNome} para ${destinoNome}`);
+      Modal.close('modal-transferencia');
+      await loadData();
+      renderView();
+    } else {
+      Toast.error('Erro ao registrar transferência');
+    }
+  }
+
   return { render, switchTab, filtrar, verMais, calcNetValor,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
+           openTransferencia, salvarTransferencia,
            editarParcela, excluirParcela, tapParcela };
 })();
