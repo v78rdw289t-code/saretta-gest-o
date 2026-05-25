@@ -112,10 +112,22 @@ function read(sheetName, id = null, filters = null) {
 
 function create(sheetName, data) {
   const sh = getSheet(sheetName);
-  const headers = SHEET_HEADERS[sheetName];
-  if (!headers) throw new Error('Headers não definidos para: ' + sheetName);
+  // Lê os cabeçalhos REAIS da planilha (pós-migração a ordem pode diferir de SHEET_HEADERS).
+  // Consistente com update(), que também lê headers da planilha em vez de SHEET_HEADERS.
+  const all = sh.getDataRange().getValues();
+  let headers;
+  if (all.length >= 1 && all[0][0]) {
+    headers = all[0];
+  } else {
+    // Planilha vazia: inicializa cabeçalhos a partir de SHEET_HEADERS
+    headers = SHEET_HEADERS[sheetName];
+    if (!headers) throw new Error('Headers não definidos para: ' + sheetName);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+  }
   data.id = Utilities.getUuid();
-  const row = headers.map(h => data[h] !== undefined ? data[h] : '');
+  const row = headers.map(h => (h && data[h] !== undefined) ? data[h] : '');
   sh.appendRow(row);
   return { success: true, data: { ...data } };
 }
@@ -457,6 +469,7 @@ function initializeSheets() {
     { nome: 'Ferramentas',       tipo: 'saida',   ativo: true },
     { nome: 'Fiado Rodrigo',     tipo: 'pagar',   ativo: true },
     { nome: 'Fiado Odinei',      tipo: 'pagar',   ativo: true },
+    { nome: 'Devolução de fiado',tipo: 'entrada', ativo: true },
     { nome: 'Outros',            tipo: 'ambos',   ativo: true },
     // Categorias de OS (tipo='os')
     { nome: 'Elétrica',                  tipo: 'os', ativo: true },

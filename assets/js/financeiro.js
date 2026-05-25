@@ -16,7 +16,8 @@ const Financeiro = (() => {
         </div>`;
       return;
     }
-    await loadData();
+    // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
+    await Promise.all([loadData(), App.loadGlobals()]);
     renderView();
   }
 
@@ -52,8 +53,13 @@ const Financeiro = (() => {
 
   function switchTab(tab) {
     currentTab = tab;
-    // Re-renderiza tudo para que as section-tabs reflitam o estado ativo
-    renderView();
+    // Re-renderiza tudo para que as section-tabs reflitam o estado ativo.
+    // Para o resumo, recarrega os dados antes de renderizar (garante saldos atualizados).
+    if (tab === 'resumo') {
+      loadData().then(() => renderView());
+    } else {
+      renderView();
+    }
   }
 
   function renderTab() {
@@ -394,6 +400,10 @@ const Financeiro = (() => {
     // Caminho especial: fiado integrado
     if (tipo === 'pagar' && quemPagou) {
       const dataPago = pagto || venc || DateUtil.today();
+      // Busca categoria "Devolução de fiado" do cache (para a parcela de entrada)
+      const catDevFiado = App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
+      // Busca "Fiado <Pessoa>" para o reembolso (ex: "Fiado Rodrigo")
+      const catFiadoPessoa = App.getCategorias().find(c => c.nome === `Fiado ${quemPagou}`)?.id || '';
       Loading.show();
       // Para fiado integrado: a despesa real e a receita-fiado entram/saem
       // numa "conta virtual" do colaborador (não na conta da empresa).
@@ -409,14 +419,14 @@ const Financeiro = (() => {
         tipo: 'receber', origem: 'fiado_pago', origem_id: '',
         cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${desc}`, valor,
         data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
-        status: 'pago', categoria_id: '', conta_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
+        status: 'pago', categoria_id: catDevFiado, conta_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
       });
       // 3ª parcela — A pagar de reembolso (futuro)
       const reemb = await API.db.create('parcelas', {
         tipo: 'pagar', origem: 'fiado', origem_id: '',
         cliente_id: '', descricao: `Reembolso ${quemPagou}: ${desc}`, valor,
         data_competencia: compFull, data_vencimento: venc || dataPago, data_pagamento: '',
-        status: 'pendente', categoria_id: '', conta_id: '', observacoes: obs,
+        status: 'pendente', categoria_id: catFiadoPessoa, conta_id: '', observacoes: obs,
       });
       // Registro fiado vinculado à parcela de reembolso
       if (reemb?.data?.id) {
