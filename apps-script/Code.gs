@@ -490,7 +490,15 @@ function _findCategoria(nome) {
 
 // Repara parcelas onde conta_id e observacoes foram gravados invertidos
 // (bug do create() que usava SHEET_HEADERS em vez de headers reais após migração).
-// Detecta: conta_id = vazio e observacoes = UUID → troca os valores.
+//
+// Situação: a sheet 'parcelas' foi criada SEM conta_id; após migração, conta_id
+// foi adicionado ao FINAL. O SHEET_HEADERS tinha a ordem antiga (conta_id antes
+// de observacoes). O create() bugado montava a linha por SHEET_HEADERS, então:
+//   • posição da coluna observacoes  → recebia data.conta_id  (um UUID)
+//   • posição da coluna conta_id     → recebia data.observacoes (texto ou vazio)
+//
+// Detecção: coluna observacoes tem um UUID E coluna conta_id NÃO tem um UUID.
+// Restauração: troca os valores; o texto original de observacoes é preservado.
 function repairParcelasContaId() {
   const sh = getSheet('parcelas');
   const all = sh.getDataRange().getValues();
@@ -502,15 +510,17 @@ function repairParcelasContaId() {
   const uuidPat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let fixed = 0;
   for (let i = 1; i < all.length; i++) {
-    const row     = all[i];
+    const row      = all[i];
     if (!row[0]) continue;
     const contaVal = String(row[contaIdx] || '').trim();
     const obsVal   = String(row[obsIdx]   || '').trim();
-    // Observações têm um UUID (o conta_id que ficou na coluna errada)
-    // e conta_id está vazio — troca
-    if (!contaVal && uuidPat.test(obsVal)) {
-      sh.getRange(i + 1, contaIdx + 1).setValue(obsVal);
-      sh.getRange(i + 1, obsIdx   + 1).setValue('');
+    // Condição robusta:
+    //   obsVal  É  um UUID  → o conta_id ficou gravado ali por engano
+    //   contaVal NÃO é UUID → conta_id coluna ainda não tem o valor correto
+    // (se contaVal já for UUID, a linha já foi corrigida ou nunca foi afetada)
+    if (uuidPat.test(obsVal) && !uuidPat.test(contaVal)) {
+      sh.getRange(i + 1, contaIdx + 1).setValue(obsVal);    // conta_id ← UUID correto
+      sh.getRange(i + 1, obsIdx   + 1).setValue(contaVal);  // observacoes ← texto original (pode ser vazio)
       fixed++;
     }
   }
