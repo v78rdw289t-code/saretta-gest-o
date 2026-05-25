@@ -249,7 +249,10 @@ const Financeiro = (() => {
     const resumoByCategoria = (arr) => {
       const map = {};
       arr.forEach(p => {
-        const k = App.categoriaNome(p.categoria_id) || 'Sem Categoria';
+        const nome = App.categoriaNome(p.categoria_id);
+        // categoriaNome retorna '—' quando não acha — '—' é truthy e engolia o fallback.
+        // Aqui normalizamos: qualquer coisa sem categoria real vai para 'Sem Categoria'.
+        const k = (nome && nome !== '—') ? nome : 'Sem Categoria';
         map[k] = (map[k] || 0) + Number(p.valor || 0);
       });
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
