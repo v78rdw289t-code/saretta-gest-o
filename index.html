@@ -199,18 +199,50 @@
         </div>
       </div>
 
-      <!-- Blocos de tempo dinâmicos -->
-      <div style="margin:14px 0 6px;display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)">Períodos Trabalhados</span>
-        <button type="button" class="btn btn-sm btn-outline" onclick="OS.addDiariaBloco()">+ Período</button>
+      <!-- MANHÃ -->
+      <div class="periodo-block periodo-manha">
+        <div class="periodo-title">☀️ Manhã</div>
+        <div class="form-row" style="gap:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Entrada</label>
+            <input type="time" id="modal-diaria-manha-in" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Saída</label>
+            <input type="time" id="modal-diaria-manha-fim" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+        </div>
       </div>
-      <div id="diaria-blocos-list">
-        <!-- preenchido dinamicamente por OS.renderDiariaBlocos() -->
+
+      <!-- TARDE -->
+      <div class="periodo-block periodo-tarde">
+        <div class="periodo-title">🌤 Tarde / Extra</div>
+        <div class="form-row" style="gap:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Entrada</label>
+            <input type="time" id="modal-diaria-tarde-in" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Saída</label>
+            <input type="time" id="modal-diaria-tarde-fim" class="input"
+              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+          </div>
+        </div>
       </div>
-      <div id="modal-diaria-info" style="margin-top:4px"></div>
+
+      <!-- PAINEL DE REAJUSTE (opcional) -->
+      <button id="reajuste-toggle-btn" type="button" class="btn btn-outline btn-full"
+        style="margin-top:6px;border-style:dashed;font-size:.85rem"
+        onclick="OS.toggleReajuste()">
+        + Adicionar horas com reajuste
+      </button>
+      <div id="reajuste-panel" style="display:none"></div>
 
       <!-- RESUMO CALCULADO -->
-      <div class="calc-preview" style="margin-top:12px">
+      <div class="calc-preview" style="margin-top:14px">
         <div class="calc-item">
           <label>Total de Horas</label>
           <span id="modal-diaria-horas">0h 00min</span>
@@ -220,8 +252,12 @@
           <span id="modal-diaria-valor">R$ 0,00</span>
         </div>
       </div>
+      <div id="modal-diaria-breakdown"
+        style="display:none;text-align:center;font-size:.75rem;color:var(--text-muted);margin:-4px 0 6px"></div>
 
-      <div class="form-group mt-3">
+      <div id="modal-diaria-info" style="margin:4px 0 6px"></div>
+
+      <div class="form-group">
         <label>Valor fixo <small style="color:var(--text-muted);font-weight:400">(opcional — substitui o cálculo)</small></label>
         <input type="number" id="modal-diaria-manual" class="input" step="0.01"
           placeholder="R$ 0,00 — deixe vazio para usar o calculado"

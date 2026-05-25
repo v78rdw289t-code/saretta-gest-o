@@ -4,7 +4,9 @@
 
 const OS = (() => {
   let allOS = [], allDiarias = [], allItens = [];
-  let _diariasBlocos = []; // estado temporário do modal de registro de dia
+  // Estado temporário do modal de registro de dia
+  let _diariaReajuste = { ativo: false, horas: 0, fatoresAtivos: [] };
+  let _diariaFatores  = []; // carregado ao abrir o modal
   let currentOS = null;
   let currentView = 'list'; // list | detail | form | diaria | fechamento
 
@@ -252,25 +254,23 @@ const OS = (() => {
                   const valor = Number(d.valor_manual || d.valor_calculado || 0);
                   const horas = Number(d.horas_totais || 0);
 
-                  // Tenta usar os novos blocos; se não houver, usa manha/tarde legado
-                  let periodos = '';
-                  let temRisco = false;
-                  if (d.blocos) {
+                  // Periodos normais
+                  const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
+                  const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
+                  const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
+                  const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
+                  const periodos = [manha, tarde].filter(Boolean).join('  ');
+
+                  // Badge de reajuste (se tiver)
+                  let reajusteBadge = '';
+                  if (d.reajuste_json) {
                     try {
-                      const bs = JSON.parse(d.blocos);
-                      periodos = bs.filter(b => b.inicio && b.fim)
-                        .map(b => {
-                          if (b.tipo === 'risco') { temRisco = true; return `🔴 ${b.inicio}–${b.fim}`; }
-                          return `🔵 ${b.inicio}–${b.fim}`;
-                        }).join('  ');
+                      const rj = JSON.parse(d.reajuste_json);
+                      if (rj.horas > 0) {
+                        const nomes = (rj.fatores || []).map(f => f.label?.split(' ')[0] || '').filter(Boolean).join(', ');
+                        reajusteBadge = `<span class="badge badge-danger" style="font-size:.65rem">+${rj.horas}h reajuste${nomes ? ': ' + nomes : ''}</span>`;
+                      }
                     } catch {}
-                  }
-                  if (!periodos) {
-                    const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
-                    const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
-                    const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
-                    const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
-                    periodos = [manha, tarde].filter(Boolean).join('  ');
                   }
 
                   return `
@@ -280,10 +280,8 @@ const OS = (() => {
                       </div>
                       <div class="entity-info">
                         <div class="entity-name">${periodos || (d.valor_manual ? '💰 Valor manual' : 'Sem horários')}</div>
-                        <div class="entity-sub">
-                          ${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}
-                          ${temRisco ? ' · <span style="color:var(--danger);font-weight:700;font-size:.75rem">risco</span>' : ''}
-                        </div>
+                        <div class="entity-sub">${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}</div>
+                        ${reajusteBadge ? `<div class="entity-badges">${reajusteBadge}</div>` : ''}
                       </div>
                       <div class="entity-right">
                         <span class="entity-value">${Fmt.currency(valor)}</span>
@@ -720,67 +718,88 @@ const OS = (() => {
   }
 
   // ─── FORM DIÁRIA ────────────────────────────────────────
-  // Converte o formato legado (manha/tarde) para o array de blocos
-  function _legacyToBlocos(d) {
-    const blocos = [];
-    const mi = Fmt.timeInput(d?.manha_inicio), mf = Fmt.timeInput(d?.manha_fim);
-    const ti = Fmt.timeInput(d?.tarde_inicio),  tf = Fmt.timeInput(d?.tarde_fim);
-    if (mi || mf) blocos.push({ tipo: 'normal', inicio: mi || '', fim: mf || '' });
-    if (ti || tf) blocos.push({ tipo: 'normal', inicio: ti || '', fim: tf || '' });
-    if (blocos.length === 0) blocos.push({ tipo: 'normal', inicio: '', fim: '' });
-    return blocos;
-  }
+  // ─── FORM DIÁRIA — manhã/tarde normais + painel de reajuste opcional ──
 
-  // Renderiza os blocos no modal
-  function renderDiariaBlocos() {
-    const list = qs('#diaria-blocos-list');
-    if (!list) return;
-    list.innerHTML = _diariasBlocos.map((b, i) => `
-      <div style="background:var(--bg);border-radius:12px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)">
-        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-          <div class="form-group" style="flex:0 0 160px;min-width:130px;margin-bottom:0">
-            <label style="font-size:.75rem">Tipo</label>
-            <select class="input" onchange="OS._setBlocoTipo(${i},this.value);OS.calcDiariaPreview()"
-              style="padding:8px 10px">
-              <option value="normal" ${b.tipo !== 'risco' ? 'selected' : ''}>Normal</option>
-              <option value="risco"  ${b.tipo === 'risco' ? 'selected' : ''}>Local de Risco</option>
-            </select>
-          </div>
-          <div class="form-group" style="flex:1;min-width:80px;margin-bottom:0">
-            <label style="font-size:.75rem">Entrada</label>
-            <input type="time" class="input" value="${b.inicio || ''}"
-              oninput="OS._setBlocoInicio(${i},this.value);OS.calcDiariaPreview()"
-              onchange="OS._setBlocoInicio(${i},this.value);OS.calcDiariaPreview()">
-          </div>
-          <div class="form-group" style="flex:1;min-width:80px;margin-bottom:0">
-            <label style="font-size:.75rem">Saida</label>
-            <input type="time" class="input" value="${b.fim || ''}"
-              oninput="OS._setBlocoFim(${i},this.value);OS.calcDiariaPreview()"
-              onchange="OS._setBlocoFim(${i},this.value);OS.calcDiariaPreview()">
-          </div>
-          ${_diariasBlocos.length > 1 ? `
-            <button type="button" onclick="OS.removeDiariaBloco(${i})"
-              style="flex:0 0 auto;background:var(--danger);color:#fff;border:none;border-radius:8px;
-                     padding:7px 11px;cursor:pointer;font-size:.85rem;margin-bottom:8px">x</button>
-          ` : ''}
-        </div>
-      </div>
-    `).join('');
-  }
-
-  function _setBlocoTipo(i, v)   { if (_diariasBlocos[i]) _diariasBlocos[i].tipo  = v; }
-  function _setBlocoInicio(i, v) { if (_diariasBlocos[i]) _diariasBlocos[i].inicio = v; }
-  function _setBlocoFim(i, v)    { if (_diariasBlocos[i]) _diariasBlocos[i].fim    = v; }
-
-  function addDiariaBloco() {
-    _diariasBlocos.push({ tipo: 'normal', inicio: '', fim: '' });
-    renderDiariaBlocos();
-  }
-
-  function removeDiariaBloco(i) {
-    _diariasBlocos.splice(i, 1);
-    renderDiariaBlocos();
+  // Abre/fecha o painel de horas com reajuste
+  function toggleReajuste() {
+    _diariaReajuste.ativo = !_diariaReajuste.ativo;
+    if (!_diariaReajuste.ativo) {
+      _diariaReajuste.horas = 0;
+      _diariaReajuste.fatoresAtivos = [];
+    }
+    renderReajustePanel();
     calcDiariaPreview();
+  }
+
+  // Renderiza o painel de reajuste (sincronamente — fatores já carregados)
+  function renderReajustePanel() {
+    const wrap = qs('#reajuste-panel');
+    const btn  = qs('#reajuste-toggle-btn');
+    if (!wrap) return;
+
+    if (btn) {
+      if (_diariaReajuste.ativo) {
+        btn.textContent = '✕ Remover reajuste';
+        btn.style.cssText = 'border-color:var(--danger);color:var(--danger)';
+      } else {
+        btn.textContent = '+ Adicionar horas com reajuste';
+        btn.style.cssText = '';
+      }
+    }
+
+    if (!_diariaReajuste.ativo) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+
+    const fatoresTotal = _diariaReajuste.fatoresAtivos.reduce((s, f) => s + Number(f.percentual || 0), 0);
+    const multiplicador = 1 + fatoresTotal / 100;
+
+    wrap.innerHTML = `
+      <div style="background:#fff8f8;border:1px solid var(--danger);border-radius:12px;padding:14px;margin-top:6px">
+        <div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+                    color:var(--danger);margin-bottom:12px">Horas com Reajuste</div>
+        <div class="form-row" style="align-items:flex-end;gap:10px;margin-bottom:12px">
+          <div class="form-group" style="flex:0 0 140px;margin-bottom:0">
+            <label style="font-size:.8rem">Quantidade de horas</label>
+            <input type="number" id="reajuste-horas" class="input" step="0.5" min="0"
+              value="${_diariaReajuste.horas || ''}" placeholder="Ex: 2"
+              oninput="OS._setReajusteHoras(this.value);OS.calcDiariaPreview()"
+              onchange="OS._setReajusteHoras(this.value);OS.calcDiariaPreview()">
+          </div>
+          <div id="reajuste-preview" style="flex:1;font-size:.82rem;font-weight:700;
+               color:var(--danger);padding-bottom:10px"></div>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-muted);font-weight:700;margin-bottom:8px">
+          Fatores de ajuste (acumulam sobre a hora base):
+        </div>
+        ${_diariaFatores.map(f => {
+          const checked = _diariaReajuste.fatoresAtivos.some(a => a.id === f.id);
+          return `
+            <label class="checkbox-item" style="margin-bottom:4px"
+              onclick="OS._toggleFatorReajuste(${f.id});OS.calcDiariaPreview()">
+              <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.preventDefault()">
+              <span style="font-size:.85rem">${f.label}
+                <small style="color:var(--text-muted)">(+${f.percentual}%)</small></span>
+            </label>`;
+        }).join('')}
+        ${fatoresTotal > 0 ? `
+          <div style="margin-top:10px;padding-top:8px;border-top:1px solid #fcc;
+               font-size:.78rem;color:var(--text-muted)">
+            Fator total: ${fatoresTotal}% → tarifa = base × ${multiplicador.toFixed(2)}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function _setReajusteHoras(v) { _diariaReajuste.horas = Math.max(0, Number(v) || 0); }
+
+  function _toggleFatorReajuste(id) {
+    const idx = _diariaReajuste.fatoresAtivos.findIndex(f => f.id === id);
+    if (idx >= 0) {
+      _diariaReajuste.fatoresAtivos.splice(idx, 1);
+    } else {
+      const f = _diariaFatores.find(x => x.id === id);
+      if (f) _diariaReajuste.fatoresAtivos.push({ ...f });
+    }
+    renderReajustePanel();
   }
 
   async function openDiaria(diariaId = null) {
@@ -789,71 +808,139 @@ const OS = (() => {
     if (diariaId) d = allDiarias.find(x => x.id === diariaId);
     const cfg = await Calculator.getConfig();
 
-    qs('#modal-diaria-os-id').value = currentOS.id;
-    qs('#modal-diaria-id').value    = diariaId || '';
-    qs('#modal-diaria-data').value  = Fmt.dateInput(d?.data) || DateUtil.today();
+    qs('#modal-diaria-os-id').value     = currentOS.id;
+    qs('#modal-diaria-id').value        = diariaId || '';
+    qs('#modal-diaria-data').value      = Fmt.dateInput(d?.data) || DateUtil.today();
     const catPadrao = d?.categoria_id ?? currentOS.categoria_id ?? '';
     qs('#modal-diaria-categoria').innerHTML = App.categoriaOptions('os', catPadrao);
-    qs('#modal-diaria-manual').value = d?.valor_manual || '';
+    qs('#modal-diaria-manha-in').value  = Fmt.timeInput(d?.manha_inicio);
+    qs('#modal-diaria-manha-fim').value = Fmt.timeInput(d?.manha_fim);
+    qs('#modal-diaria-tarde-in').value  = Fmt.timeInput(d?.tarde_inicio);
+    qs('#modal-diaria-tarde-fim').value = Fmt.timeInput(d?.tarde_fim);
+    qs('#modal-diaria-manual').value    = d?.valor_manual || '';
 
-    if (d && d.blocos) {
-      try { _diariasBlocos = JSON.parse(d.blocos); }
-      catch { _diariasBlocos = _legacyToBlocos(d); }
-    } else if (d) {
-      _diariasBlocos = _legacyToBlocos(d);
+    // Carrega fatores da config (usados no painel de reajuste)
+    _diariaFatores = Calculator.getFatores(cfg);
+
+    // Inicializa estado do reajuste (do registro salvo ou do zero)
+    if (d && d.reajuste_json) {
+      try {
+        const saved = JSON.parse(d.reajuste_json);
+        _diariaReajuste = {
+          ativo: true,
+          horas: saved.horas || 0,
+          fatoresAtivos: saved.fatores || [],
+        };
+      } catch { _diariaReajuste = { ativo: false, horas: 0, fatoresAtivos: [] }; }
     } else {
-      _diariasBlocos = [
-        { tipo: 'normal', inicio: '', fim: '' },
-        { tipo: 'normal', inicio: '', fim: '' },
-      ];
+      _diariaReajuste = { ativo: false, horas: 0, fatoresAtivos: [] };
     }
 
-    const rateNorm  = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
-    const rateRisco = Calculator.cfgNum(cfg, 'valor_hora_risco', 0) || rateNorm;
+    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
     qs('#modal-diaria-info').innerHTML =
-      `<span style="font-size:.75rem;color:var(--text-muted)">Normal: ${Fmt.currency(rateNorm)}/h &nbsp; Risco: ${Fmt.currency(rateRisco)}/h</span>`;
+      `<span style="font-size:.75rem;color:var(--text-muted)">Valor hora base: ${Fmt.currency(baseRate)}/h</span>`;
 
-    renderDiariaBlocos();
+    renderReajustePanel();
     await calcDiariaPreview();
     Modal.open('modal-diaria');
   }
 
   async function calcDiariaPreview() {
+    const mi     = qs('#modal-diaria-manha-in')?.value  || '';
+    const mf     = qs('#modal-diaria-manha-fim')?.value || '';
+    const ti     = qs('#modal-diaria-tarde-in')?.value  || '';
+    const tf     = qs('#modal-diaria-tarde-fim')?.value || '';
     const manual = qs('#modal-diaria-manual')?.value;
-    const valor  = await Calculator.calcularDiaComBlocos(_diariasBlocos, manual || null);
-    const { hTotal } = Calculator.calcBreakdownBlocos(_diariasBlocos);
-    if (qs('#modal-diaria-horas')) qs('#modal-diaria-horas').textContent = Fmt.hours(hTotal);
-    if (qs('#modal-diaria-valor')) qs('#modal-diaria-valor').textContent = Fmt.currency(valor);
+
+    let normalHoras = 0;
+    if (mi && mf) normalHoras += DateUtil.diffHours(mi, mf);
+    if (ti && tf) normalHoras += DateUtil.diffHours(ti, tf);
+
+    const cfg      = await Calculator.getConfig();
+    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+
+    // Valor das horas normais
+    let normalValor = normalHoras * baseRate;
+
+    // Valor das horas com reajuste (aplicando fatores acumulados)
+    let reajusteValor = 0, reajusteHoras = 0;
+    if (_diariaReajuste.ativo && _diariaReajuste.horas > 0) {
+      reajusteHoras = _diariaReajuste.horas;
+      const percTotal = _diariaReajuste.fatoresAtivos.reduce((s, f) => s + Number(f.percentual || 0), 0);
+      reajusteValor = reajusteHoras * baseRate * (1 + percTotal / 100);
+    }
+
+    const totalHoras = normalHoras + reajusteHoras;
+    const totalValor = manual ? Number(manual) : (normalValor + reajusteValor);
+
+    if (qs('#modal-diaria-horas')) qs('#modal-diaria-horas').textContent = Fmt.hours(totalHoras);
+    if (qs('#modal-diaria-valor')) qs('#modal-diaria-valor').textContent = Fmt.currency(totalValor);
+
+    // Detalhe do reajuste no preview inline do painel
+    const prevEl = qs('#reajuste-preview');
+    if (prevEl && _diariaReajuste.ativo) {
+      prevEl.textContent = reajusteHoras > 0
+        ? `${reajusteHoras}h = ${Fmt.currency(reajusteValor)}`
+        : '';
+    }
+
+    // Linha de breakdown embaixo do total (só quando reajuste ativo)
+    const breakdown = qs('#modal-diaria-breakdown');
+    if (breakdown) {
+      breakdown.style.display = (_diariaReajuste.ativo && reajusteHoras > 0 && !manual) ? '' : 'none';
+      breakdown.textContent = `${normalHoras}h normal: ${Fmt.currency(normalValor)} + ${reajusteHoras}h reajuste: ${Fmt.currency(reajusteValor)}`;
+    }
   }
 
   async function saveDiaria() {
     const osId   = qs('#modal-diaria-os-id').value;
     const id     = qs('#modal-diaria-id').value;
+    const mi     = qs('#modal-diaria-manha-in').value;
+    const mf     = qs('#modal-diaria-manha-fim').value;
+    const ti     = qs('#modal-diaria-tarde-in').value;
+    const tf     = qs('#modal-diaria-tarde-fim').value;
     const manual = qs('#modal-diaria-manual').value;
 
-    const blocosFilled = _diariasBlocos.filter(b => b.inicio && b.fim);
-    if (blocosFilled.length === 0) {
-      Toast.warning('Preencha ao menos um periodo (entrada e saida)');
+    // Valida: pelo menos 2 campos de horário OU reajuste com horas
+    const horasFilled = [mi, mf, ti, tf].filter(Boolean).length;
+    const temReajuste = _diariaReajuste.ativo && _diariaReajuste.horas > 0;
+    if (horasFilled < 2 && !temReajuste && !manual) {
+      Toast.warning('Preencha ao menos 2 horarios ou horas com reajuste');
       return;
     }
 
-    const { hTotal } = Calculator.calcBreakdownBlocos(blocosFilled);
-    const valorCalc  = await Calculator.calcularDiaComBlocos(blocosFilled, null);
+    let normalHoras = 0;
+    if (mi && mf) normalHoras += DateUtil.diffHours(mi, mf);
+    if (ti && tf) normalHoras += DateUtil.diffHours(ti, tf);
 
-    // Backward compat: 1o bloco -> manha, 2o bloco -> tarde
+    const cfg      = await Calculator.getConfig();
+    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+
+    let reajusteValor = 0, reajusteHoras = 0;
+    if (temReajuste) {
+      reajusteHoras = _diariaReajuste.horas;
+      const percTotal = _diariaReajuste.fatoresAtivos.reduce((s, f) => s + Number(f.percentual || 0), 0);
+      reajusteValor = reajusteHoras * baseRate * (1 + percTotal / 100);
+    }
+
+    const totalHoras = normalHoras + reajusteHoras;
+    const valorCalc  = (normalHoras * baseRate) + reajusteValor;
+
     const safe = t => t ? '@' + t : '';
-    const b0 = blocosFilled[0] || {}, b1 = blocosFilled[1] || {};
+    const reajuste_json = temReajuste
+      ? JSON.stringify({ horas: reajusteHoras, fatores: _diariaReajuste.fatoresAtivos })
+      : '';
 
     const data = {
       os_id:           osId,
       categoria_id:    qs('#modal-diaria-categoria')?.value || '',
       data:            qs('#modal-diaria-data').value,
-      manha_inicio:    safe(b0.inicio), manha_fim: safe(b0.fim),
-      tarde_inicio:    safe(b1.inicio), tarde_fim: safe(b1.fim),
-      horas_totais:    hTotal,
+      manha_inicio:    safe(mi), manha_fim: safe(mf),
+      tarde_inicio:    safe(ti), tarde_fim: safe(tf),
+      horas_totais:    totalHoras,
       valor_calculado: valorCalc,
       valor_manual:    manual || '',
-      blocos:          JSON.stringify(blocosFilled),
+      reajuste_json,
       observacoes:     '',
     };
 
@@ -1483,8 +1570,7 @@ const OS = (() => {
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
-    renderDiariaBlocos, addDiariaBloco, removeDiariaBloco,
-    _setBlocoTipo, _setBlocoInicio, _setBlocoFim,
+    toggleReajuste, renderReajustePanel, _setReajusteHoras, _toggleFatorReajuste,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,

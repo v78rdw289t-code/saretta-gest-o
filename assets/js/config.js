@@ -73,12 +73,6 @@ const Config = (() => {
                   <input type="number" name="valor_hora_projeto" class="input" step="0.01"
                     value="${getCfg('valor_hora_projeto', '200')}" required>
                 </div>
-                <div class="form-group">
-                  <label>🔴 Local de Risco (R$/h)</label>
-                  <input type="number" name="valor_hora_risco" class="input" step="0.01"
-                    value="${getCfg('valor_hora_risco', getCfg('valor_hora_manutencao', '155'))}">
-                  <small style="color:var(--text-muted);font-size:.72rem">Aplicado nos blocos marcados como "Local de Risco" nas diárias</small>
-                </div>
               </div>
               <p style="font-size:.8rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 12px">Material e Chamada</p>
               <div class="form-row">
