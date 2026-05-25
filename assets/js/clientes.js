@@ -95,6 +95,8 @@ const Clientes = (() => {
     const totalRec       = parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
     const totalPag       = parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
     const totalRecebido  = parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalPagoForn  = parcelas.filter(p => p.tipo === 'pagar' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
+    const saldoPagarPend = parcelas.filter(p => p.tipo === 'pagar' && p.status !== 'pago' && p.status !== 'cancelado').reduce((s, p) => s + Number(p.valor||0), 0);
 
     const section = qs('#page-clientes');
     section.innerHTML = `
@@ -119,8 +121,12 @@ const Clientes = (() => {
           <div class="card-body">
             <div class="info-row"><span>Total a Receber</span><strong class="text-green">${Fmt.currency(totalRec)}</strong></div>
             <div class="info-row"><span>Total Recebido</span><strong class="text-blue">${Fmt.currency(totalRecebido)}</strong></div>
-            <div class="info-row"><span>Saldo pendente</span><strong class="text-orange">${Fmt.currency(totalRec - totalRecebido)}</strong></div>
-            <div class="info-row"><span>Total Pago (compras)</span><strong class="text-red">${Fmt.currency(totalPag)}</strong></div>
+            <div class="info-row"><span>Saldo a Receber</span><strong class="text-orange">${Fmt.currency(totalRec - totalRecebido)}</strong></div>
+            ${totalPag > 0 ? `
+            <div class="info-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span>Total Compras</span><strong>${Fmt.currency(totalPag)}</strong></div>
+            <div class="info-row"><span>Pago a Fornecedor</span><strong class="text-blue">${Fmt.currency(totalPagoForn)}</strong></div>
+            <div class="info-row"><span>Saldo a Pagar</span><strong class="text-red">${Fmt.currency(saldoPagarPend)}</strong></div>
+            ` : ''}
           </div>
         </div>
       </div>
@@ -139,7 +145,7 @@ const Clientes = (() => {
                   <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
                 </div>
                 <div class="entity-right">
-                  <span class="entity-value">${Fmt.currency(o.valor_fechamento || o.valor_calculado)}</span>
+                  ${o.valor_fechamento ? `<span class="entity-value">${Fmt.currency(o.valor_fechamento)}</span>` : ''}
                   <span class="entity-chevron">›</span>
                 </div>
               </div>
