@@ -250,7 +250,7 @@ const Calculator = {
     return this.FATORES_DEFAULT.map(f => ({ ...f }));
   },
 
-  // Cálculo simples para diárias (horas × valor_hora_base)
+  // Cálculo simples para diárias (horas × valor_hora_base) — mantido para compat.
   async calcularDia(manhaInicio, manhaFim, tardeInicio, tardeFim, valorManual = null) {
     if (valorManual !== null && valorManual !== '') return Number(valorManual);
     const cfg   = await this.getConfig();
@@ -259,6 +259,37 @@ const Calculator = {
     if (manhaInicio && manhaFim) horas += DateUtil.diffHours(manhaInicio, manhaFim);
     if (tardeInicio && tardeFim) horas += DateUtil.diffHours(tardeInicio, tardeFim);
     return Math.round(horas * base * 100) / 100;
+  },
+
+  // Cálculo para diárias com BLOCOS de tipo (normal / risco)
+  // blocos: [{ tipo:'normal'|'risco', inicio:'HH:MM', fim:'HH:MM' }, ...]
+  async calcularDiaComBlocos(blocos, valorManual = null) {
+    if (valorManual !== null && valorManual !== '') return Number(valorManual);
+    const cfg       = await this.getConfig();
+    const rateNorm  = this.cfgNum(cfg, 'valor_hora_manutencao', 0) || this.cfgNum(cfg, 'valor_hora', 0);
+    const rateRisco = this.cfgNum(cfg, 'valor_hora_risco', 0) || rateNorm;
+    let total = 0;
+    for (const b of (blocos || [])) {
+      if (!b.inicio || !b.fim) continue;
+      const h    = DateUtil.diffHours(b.inicio, b.fim);
+      if (h <= 0) continue;
+      const rate = b.tipo === 'risco' ? rateRisco : rateNorm;
+      total += h * rate;
+    }
+    return Math.round(total * 100) / 100;
+  },
+
+  // Retorna horas por tipo + total — usado no preview e no detalhe da OS
+  calcBreakdownBlocos(blocos) {
+    let hNormal = 0, hRisco = 0;
+    for (const b of (blocos || [])) {
+      if (!b.inicio || !b.fim) continue;
+      const h = DateUtil.diffHours(b.inicio, b.fim);
+      if (h <= 0) continue;
+      if (b.tipo === 'risco') hRisco += h;
+      else hNormal += h;
+    }
+    return { hNormal, hRisco, hTotal: hNormal + hRisco };
   },
 
   // Cálculo completo (usado no fechamento)

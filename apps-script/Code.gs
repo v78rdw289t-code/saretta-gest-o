@@ -12,7 +12,7 @@ const SHEET_HEADERS = {
   categorias:     ['id','nome','tipo','ativo'],
   os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao'],
   os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total'],
-  diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes'],
+  diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes','blocos'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
   fechamento_dias:['id','fechamento_id','diaria_id'],
   parcelas:       ['id','tipo','origem','origem_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],

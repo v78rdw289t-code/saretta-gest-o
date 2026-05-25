@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=1.7.0">
+  <link rel="stylesheet" href="assets/css/style.css?v=1.8.0">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
   <link rel="apple-touch-icon" href="assets/img/logo-icon.svg">
@@ -178,7 +178,7 @@
 
 <!-- Diária -->
 <div id="modal-diaria" class="modal">
-  <div class="modal-box">
+  <div class="modal-box modal-box-lg">
     <div class="modal-handle"></div>
     <div class="modal-header">
       <h3>Registrar Dia</h3>
@@ -199,42 +199,18 @@
         </div>
       </div>
 
-      <!-- MANHÃ -->
-      <div class="periodo-block periodo-manha">
-        <div class="periodo-title">☀️ Manhã</div>
-        <div class="form-row" style="gap:10px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Entrada</label>
-            <input type="time" id="modal-diaria-manha-in" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>Saída</label>
-            <input type="time" id="modal-diaria-manha-fim" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-        </div>
+      <!-- Blocos de tempo dinâmicos -->
+      <div style="margin:14px 0 6px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)">Períodos Trabalhados</span>
+        <button type="button" class="btn btn-sm btn-outline" onclick="OS.addDiariaBloco()">+ Período</button>
       </div>
-
-      <!-- TARDE -->
-      <div class="periodo-block periodo-tarde">
-        <div class="periodo-title">🌤 Tarde / Extra</div>
-        <div class="form-row" style="gap:10px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Entrada</label>
-            <input type="time" id="modal-diaria-tarde-in" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>Saída</label>
-            <input type="time" id="modal-diaria-tarde-fim" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-        </div>
+      <div id="diaria-blocos-list">
+        <!-- preenchido dinamicamente por OS.renderDiariaBlocos() -->
       </div>
+      <div id="modal-diaria-info" style="margin-top:4px"></div>
 
       <!-- RESUMO CALCULADO -->
-      <div class="calc-preview">
+      <div class="calc-preview" style="margin-top:12px">
         <div class="calc-item">
           <label>Total de Horas</label>
           <span id="modal-diaria-horas">0h 00min</span>
@@ -246,13 +222,11 @@
       </div>
 
       <div class="form-group mt-3">
-        <label>Valor fixo (opcional — substitui o cálculo)</label>
+        <label>Valor fixo <small style="color:var(--text-muted);font-weight:400">(opcional — substitui o cálculo)</small></label>
         <input type="number" id="modal-diaria-manual" class="input" step="0.01"
           placeholder="R$ 0,00 — deixe vazio para usar o calculado"
           oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
       </div>
-
-      <div id="modal-diaria-info"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary btn-lg" onclick="OS.saveDiaria()">Salvar Dia</button>
@@ -785,18 +759,18 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=1.7.0"></script>
-<script src="assets/js/utils.js?v=1.7.0"></script>
-<script src="assets/js/home.js?v=1.7.0"></script>
-<script src="assets/js/os.js?v=1.7.0"></script>
-<script src="assets/js/financeiro.js?v=1.7.0"></script>
-<script src="assets/js/clientes.js?v=1.7.0"></script>
-<script src="assets/js/estoque.js?v=1.7.0"></script>
-<script src="assets/js/compras.js?v=1.7.0"></script>
-<script src="assets/js/fiado.js?v=1.7.0"></script>
-<script src="assets/js/insights.js?v=1.7.0"></script>
-<script src="assets/js/config.js?v=1.7.0"></script>
-<script src="assets/js/app.js?v=1.7.0"></script>
+<script src="assets/js/api.js?v=1.8.0"></script>
+<script src="assets/js/utils.js?v=1.8.0"></script>
+<script src="assets/js/home.js?v=1.8.0"></script>
+<script src="assets/js/os.js?v=1.8.0"></script>
+<script src="assets/js/financeiro.js?v=1.8.0"></script>
+<script src="assets/js/clientes.js?v=1.8.0"></script>
+<script src="assets/js/estoque.js?v=1.8.0"></script>
+<script src="assets/js/compras.js?v=1.8.0"></script>
+<script src="assets/js/fiado.js?v=1.8.0"></script>
+<script src="assets/js/insights.js?v=1.8.0"></script>
+<script src="assets/js/config.js?v=1.8.0"></script>
+<script src="assets/js/app.js?v=1.8.0"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

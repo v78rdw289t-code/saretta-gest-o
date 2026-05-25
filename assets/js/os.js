@@ -4,6 +4,7 @@
 
 const OS = (() => {
   let allOS = [], allDiarias = [], allItens = [];
+  let _diariasBlocos = []; // estado temporário do modal de registro de dia
   let currentOS = null;
   let currentView = 'list'; // list | detail | form | diaria | fechamento
 
@@ -250,11 +251,28 @@ const OS = (() => {
               : diarias.map(d => {
                   const valor = Number(d.valor_manual || d.valor_calculado || 0);
                   const horas = Number(d.horas_totais || 0);
-                  const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
-                  const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
-                  const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
-                  const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
-                  const periodos = [manha, tarde].filter(Boolean).join('   ');
+
+                  // Tenta usar os novos blocos; se não houver, usa manha/tarde legado
+                  let periodos = '';
+                  let temRisco = false;
+                  if (d.blocos) {
+                    try {
+                      const bs = JSON.parse(d.blocos);
+                      periodos = bs.filter(b => b.inicio && b.fim)
+                        .map(b => {
+                          if (b.tipo === 'risco') { temRisco = true; return `🔴 ${b.inicio}–${b.fim}`; }
+                          return `🔵 ${b.inicio}–${b.fim}`;
+                        }).join('  ');
+                    } catch {}
+                  }
+                  if (!periodos) {
+                    const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
+                    const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
+                    const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
+                    const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
+                    periodos = [manha, tarde].filter(Boolean).join('  ');
+                  }
+
                   return `
                     <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
                       <div class="avatar av-navy" style="font-size:.7rem;font-weight:800;flex-direction:column;gap:0;line-height:1.1">
@@ -262,7 +280,10 @@ const OS = (() => {
                       </div>
                       <div class="entity-info">
                         <div class="entity-name">${periodos || (d.valor_manual ? '💰 Valor manual' : 'Sem horários')}</div>
-                        <div class="entity-sub">${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}</div>
+                        <div class="entity-sub">
+                          ${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}
+                          ${temRisco ? ' · <span style="color:var(--danger);font-weight:700;font-size:.75rem">risco</span>' : ''}
+                        </div>
                       </div>
                       <div class="entity-right">
                         <span class="entity-value">${Fmt.currency(valor)}</span>
@@ -699,77 +720,141 @@ const OS = (() => {
   }
 
   // ─── FORM DIÁRIA ────────────────────────────────────────
+  // Converte o formato legado (manha/tarde) para o array de blocos
+  function _legacyToBlocos(d) {
+    const blocos = [];
+    const mi = Fmt.timeInput(d?.manha_inicio), mf = Fmt.timeInput(d?.manha_fim);
+    const ti = Fmt.timeInput(d?.tarde_inicio),  tf = Fmt.timeInput(d?.tarde_fim);
+    if (mi || mf) blocos.push({ tipo: 'normal', inicio: mi || '', fim: mf || '' });
+    if (ti || tf) blocos.push({ tipo: 'normal', inicio: ti || '', fim: tf || '' });
+    if (blocos.length === 0) blocos.push({ tipo: 'normal', inicio: '', fim: '' });
+    return blocos;
+  }
+
+  // Renderiza os blocos no modal
+  function renderDiariaBlocos() {
+    const list = qs('#diaria-blocos-list');
+    if (!list) return;
+    list.innerHTML = _diariasBlocos.map((b, i) => `
+      <div style="background:var(--bg);border-radius:12px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)">
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="flex:0 0 160px;min-width:130px;margin-bottom:0">
+            <label style="font-size:.75rem">Tipo</label>
+            <select class="input" onchange="OS._setBlocoTipo(${i},this.value);OS.calcDiariaPreview()"
+              style="padding:8px 10px">
+              <option value="normal" ${b.tipo !== 'risco' ? 'selected' : ''}>Normal</option>
+              <option value="risco"  ${b.tipo === 'risco' ? 'selected' : ''}>Local de Risco</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px;margin-bottom:0">
+            <label style="font-size:.75rem">Entrada</label>
+            <input type="time" class="input" value="${b.inicio || ''}"
+              oninput="OS._setBlocoInicio(${i},this.value);OS.calcDiariaPreview()"
+              onchange="OS._setBlocoInicio(${i},this.value);OS.calcDiariaPreview()">
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px;margin-bottom:0">
+            <label style="font-size:.75rem">Saida</label>
+            <input type="time" class="input" value="${b.fim || ''}"
+              oninput="OS._setBlocoFim(${i},this.value);OS.calcDiariaPreview()"
+              onchange="OS._setBlocoFim(${i},this.value);OS.calcDiariaPreview()">
+          </div>
+          ${_diariasBlocos.length > 1 ? `
+            <button type="button" onclick="OS.removeDiariaBloco(${i})"
+              style="flex:0 0 auto;background:var(--danger);color:#fff;border:none;border-radius:8px;
+                     padding:7px 11px;cursor:pointer;font-size:.85rem;margin-bottom:8px">x</button>
+          ` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function _setBlocoTipo(i, v)   { if (_diariasBlocos[i]) _diariasBlocos[i].tipo  = v; }
+  function _setBlocoInicio(i, v) { if (_diariasBlocos[i]) _diariasBlocos[i].inicio = v; }
+  function _setBlocoFim(i, v)    { if (_diariasBlocos[i]) _diariasBlocos[i].fim    = v; }
+
+  function addDiariaBloco() {
+    _diariasBlocos.push({ tipo: 'normal', inicio: '', fim: '' });
+    renderDiariaBlocos();
+  }
+
+  function removeDiariaBloco(i) {
+    _diariasBlocos.splice(i, 1);
+    renderDiariaBlocos();
+    calcDiariaPreview();
+  }
+
   async function openDiaria(diariaId = null) {
     if (!currentOS) return;
     let d = null;
     if (diariaId) d = allDiarias.find(x => x.id === diariaId);
     const cfg = await Calculator.getConfig();
 
-    qs('#modal-diaria-os-id').value     = currentOS.id;
-    qs('#modal-diaria-id').value        = diariaId || '';
-    qs('#modal-diaria-data').value      = Fmt.dateInput(d?.data) || DateUtil.today();
-    // Categoria: padrão = a categoria da OS (se houver); pode ser sobrescrita por dia
+    qs('#modal-diaria-os-id').value = currentOS.id;
+    qs('#modal-diaria-id').value    = diariaId || '';
+    qs('#modal-diaria-data').value  = Fmt.dateInput(d?.data) || DateUtil.today();
     const catPadrao = d?.categoria_id ?? currentOS.categoria_id ?? '';
     qs('#modal-diaria-categoria').innerHTML = App.categoriaOptions('os', catPadrao);
-    qs('#modal-diaria-manha-in').value  = Fmt.timeInput(d?.manha_inicio);
-    qs('#modal-diaria-manha-fim').value = Fmt.timeInput(d?.manha_fim);
-    qs('#modal-diaria-tarde-in').value  = Fmt.timeInput(d?.tarde_inicio);
-    qs('#modal-diaria-tarde-fim').value = Fmt.timeInput(d?.tarde_fim);
-    qs('#modal-diaria-manual').value    = d?.valor_manual || '';
-    const vHora = cfg.valor_hora_manutencao || cfg.valor_hora || 0;
-    qs('#modal-diaria-info').textContent = `Valor hora: ${Fmt.currency(vHora)} | Total calculado com base nas horas`;
+    qs('#modal-diaria-manual').value = d?.valor_manual || '';
 
+    if (d && d.blocos) {
+      try { _diariasBlocos = JSON.parse(d.blocos); }
+      catch { _diariasBlocos = _legacyToBlocos(d); }
+    } else if (d) {
+      _diariasBlocos = _legacyToBlocos(d);
+    } else {
+      _diariasBlocos = [
+        { tipo: 'normal', inicio: '', fim: '' },
+        { tipo: 'normal', inicio: '', fim: '' },
+      ];
+    }
+
+    const rateNorm  = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+    const rateRisco = Calculator.cfgNum(cfg, 'valor_hora_risco', 0) || rateNorm;
+    qs('#modal-diaria-info').innerHTML =
+      `<span style="font-size:.75rem;color:var(--text-muted)">Normal: ${Fmt.currency(rateNorm)}/h &nbsp; Risco: ${Fmt.currency(rateRisco)}/h</span>`;
+
+    renderDiariaBlocos();
     await calcDiariaPreview();
     Modal.open('modal-diaria');
   }
 
   async function calcDiariaPreview() {
-    const mi = qs('#modal-diaria-manha-in').value;
-    const mf = qs('#modal-diaria-manha-fim').value;
-    const ti = qs('#modal-diaria-tarde-in').value;
-    const tf = qs('#modal-diaria-tarde-fim').value;
-    const manual = qs('#modal-diaria-manual').value;
-
-    let horas = 0;
-    if (mi && mf) horas += DateUtil.diffHours(mi, mf);
-    if (ti && tf) horas += DateUtil.diffHours(ti, tf);
-
-    const valor = await Calculator.calcularDia(mi, mf, ti, tf, manual || null);
-    qs('#modal-diaria-horas').textContent = Fmt.hours(horas);
-    qs('#modal-diaria-valor').textContent = Fmt.currency(valor);
+    const manual = qs('#modal-diaria-manual')?.value;
+    const valor  = await Calculator.calcularDiaComBlocos(_diariasBlocos, manual || null);
+    const { hTotal } = Calculator.calcBreakdownBlocos(_diariasBlocos);
+    if (qs('#modal-diaria-horas')) qs('#modal-diaria-horas').textContent = Fmt.hours(hTotal);
+    if (qs('#modal-diaria-valor')) qs('#modal-diaria-valor').textContent = Fmt.currency(valor);
   }
 
   async function saveDiaria() {
-    const osId    = qs('#modal-diaria-os-id').value;
-    const id      = qs('#modal-diaria-id').value;
-    const mi      = qs('#modal-diaria-manha-in').value;
-    const mf      = qs('#modal-diaria-manha-fim').value;
-    const ti      = qs('#modal-diaria-tarde-in').value;
-    const tf      = qs('#modal-diaria-tarde-fim').value;
-    const manual  = qs('#modal-diaria-manual').value;
+    const osId   = qs('#modal-diaria-os-id').value;
+    const id     = qs('#modal-diaria-id').value;
+    const manual = qs('#modal-diaria-manual').value;
 
-    // Validar: pelo menos 2 campos preenchidos
-    const filled = [mi, mf, ti, tf].filter(Boolean).length;
-    if (filled < 2) { Toast.warning('Preencha ao menos 2 horários'); return; }
+    const blocosFilled = _diariasBlocos.filter(b => b.inicio && b.fim);
+    if (blocosFilled.length === 0) {
+      Toast.warning('Preencha ao menos um periodo (entrada e saida)');
+      return;
+    }
 
-    let horas = 0;
-    if (mi && mf) horas += DateUtil.diffHours(mi, mf);
-    if (ti && tf) horas += DateUtil.diffHours(ti, tf);
-    const valorCalc = await Calculator.calcularDia(mi, mf, ti, tf, null);
+    const { hTotal } = Calculator.calcBreakdownBlocos(blocosFilled);
+    const valorCalc  = await Calculator.calcularDiaComBlocos(blocosFilled, null);
 
-    // Prefixo '@' impede o Google Sheets de converter "HH:MM" para tipo Time
-    // (que causaria deslocamento de fuso horário ao ler de volta)
+    // Backward compat: 1o bloco -> manha, 2o bloco -> tarde
     const safe = t => t ? '@' + t : '';
+    const b0 = blocosFilled[0] || {}, b1 = blocosFilled[1] || {};
+
     const data = {
-      os_id:         osId,
-      categoria_id:  qs('#modal-diaria-categoria')?.value || '',
-      data:          qs('#modal-diaria-data').value,
-      manha_inicio:  safe(mi), manha_fim: safe(mf),
-      tarde_inicio:  safe(ti), tarde_fim: safe(tf),
-      horas_totais:  horas,
+      os_id:           osId,
+      categoria_id:    qs('#modal-diaria-categoria')?.value || '',
+      data:            qs('#modal-diaria-data').value,
+      manha_inicio:    safe(b0.inicio), manha_fim: safe(b0.fim),
+      tarde_inicio:    safe(b1.inicio), tarde_fim: safe(b1.fim),
+      horas_totais:    hTotal,
       valor_calculado: valorCalc,
-      valor_manual:  manual || '',
-      observacoes:   '',
+      valor_manual:    manual || '',
+      blocos:          JSON.stringify(blocosFilled),
+      observacoes:     '',
     };
 
     Loading.show();
@@ -779,7 +864,6 @@ const OS = (() => {
     if (res?.success) {
       Toast.success('Dia registrado!');
       Modal.close('modal-diaria');
-      // Atualizar datas da OS
       const dRes = await API.db.read('diarias', null, { os_id: osId });
       const dias = (dRes?.data || []).sort((a, b) => a.data > b.data ? 1 : -1);
       if (dias.length > 0) {
@@ -1399,6 +1483,8 @@ const OS = (() => {
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
+    renderDiariaBlocos, addDiariaBloco, removeDiariaBloco,
+    _setBlocoTipo, _setBlocoInicio, _setBlocoFim,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
