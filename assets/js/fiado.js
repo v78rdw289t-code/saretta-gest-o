@@ -18,7 +18,10 @@ const Fiado = (() => {
       API.db.read('parcelas'),
     ]);
     if (shown) Loading.hide();
-    allFiado    = (fRes?.data || []).sort((a, b) => a.data > b.data ? -1 : 1);
+    // Normaliza 'pessoa' para minúsculo (entradas antigas ou via compras podem ter 'Rodrigo' capitalizado)
+    allFiado    = (fRes?.data || [])
+      .map(f => ({ ...f, pessoa: (f.pessoa || '').toLowerCase() }))
+      .sort((a, b) => a.data > b.data ? -1 : 1);
     allParcelas = pRes?.data || [];
   }
 

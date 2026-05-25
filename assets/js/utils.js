@@ -137,17 +137,34 @@ const Toast = {
 };
 
 // ─── Modal ───────────────────────────────────────────────────
+// _modalZ garante que cada novo open() empilha ACIMA dos já abertos,
+// independente da posição no DOM. Reseta quando todos fecham.
+let _modalZ = 400;
 const Modal = {
   open(id) {
     const el = document.getElementById(id);
-    if (el) { el.classList.add('open'); document.body.style.overflow = 'hidden'; }
+    if (!el) return;
+    _modalZ += 50;
+    el.style.zIndex = String(_modalZ);
+    el.classList.add('open');
+    document.body.style.overflow = 'hidden';
   },
   close(id) {
     const el = document.getElementById(id);
-    if (el) { el.classList.remove('open'); document.body.style.overflow = ''; }
+    if (!el) return;
+    el.classList.remove('open');
+    el.style.zIndex = '';
+    if (!document.querySelector('.modal.open, .modal-center.open')) {
+      _modalZ = 400;
+      document.body.style.overflow = '';
+    }
   },
   closeAll() {
-    document.querySelectorAll('.modal.open, .modal-center.open').forEach(m => m.classList.remove('open'));
+    document.querySelectorAll('.modal.open, .modal-center.open').forEach(m => {
+      m.classList.remove('open');
+      m.style.zIndex = '';
+    });
+    _modalZ = 400;
     document.body.style.overflow = '';
   },
   confirm(msg, onYes, onNo = null) {
