@@ -5,6 +5,9 @@
 const Financeiro = (() => {
   let allParcelas = [];
   let currentTab = 'receber'; // receber | pagar | resumo
+  let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
+  let _visibleCount = 30;    // quantos itens mostrar atualmente
+  const PAGE_SIZE   = 30;
 
   async function render() {
     if (!LocalConfig.getUrl()) {
@@ -123,19 +126,39 @@ const Financeiro = (() => {
         });
       }
     }
-    items = [...items].sort((a, b) => (a.data_vencimento > b.data_vencimento ? 1 : -1));
+    // Mais recente primeiro
+    items = [...items].sort((a, b) => (a.data_vencimento > b.data_vencimento ? -1 : 1));
 
+    _lastFiltered = items;
+    _visibleCount = PAGE_SIZE;
+    _renderTable();
+  }
+
+  function verMais() {
+    _visibleCount += PAGE_SIZE;
+    _renderTable();
+  }
+
+  function _renderTable() {
     if (!qs('#fin-table')) return;
-    if (items.length === 0) { qs('#fin-table').innerHTML = '<div class="entity-empty">Nenhum lançamento encontrado</div>'; return; }
-
-    const total = items.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const tipo  = currentTab;
     const isRec = tipo === 'receber';
+    const items = _lastFiltered;
+
+    if (items.length === 0) {
+      qs('#fin-table').innerHTML = '<div class="entity-empty">Nenhum lançamento encontrado</div>';
+      return;
+    }
+
+    const shown   = items.slice(0, _visibleCount);
+    const hasMore = items.length > _visibleCount;
+    const total   = items.reduce((s, p) => s + Number(p.valor || 0), 0);
 
     qs('#fin-table').innerHTML = `
       <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-        ${items.map(p => {
-          const venc   = new Date(p.data_vencimento + 'T00:00:00');
-          const hoje   = new Date();
+        ${shown.map(p => {
+          const venc    = new Date(p.data_vencimento + 'T00:00:00');
+          const hoje    = new Date();
           const vencido = p.status === 'pendente' && venc < hoje;
           const clienteNome = App.clienteNome(p.cliente_id);
           return `
@@ -153,9 +176,15 @@ const Financeiro = (() => {
           `;
         }).join('')}
         <div class="entity-item" style="background:var(--bg);cursor:default">
-          <div class="entity-info"><strong>Total</strong></div>
+          <div class="entity-info"><strong>Total (${items.length} registros)</strong></div>
           <div class="entity-right"><span class="entity-value">${Fmt.currency(total)}</span></div>
         </div>
+        ${hasMore ? `
+          <div style="text-align:center;padding:10px">
+            <button class="btn btn-outline btn-sm" onclick="Financeiro.verMais()">
+              Ver mais (${items.length - _visibleCount} restantes)
+            </button>
+          </div>` : ''}
       </div>
     `;
   }
@@ -331,11 +360,26 @@ const Financeiro = (() => {
     qs('#manual-categoria').innerHTML = App.categoriaOptions(tipoCategoria, curCategoria);
   }
 
+  function calcNetValor() {
+    const bruto = Number(qs('#manual-valor')?.value) || 0;
+    const desc  = Number(qs('#manual-desconto')?.value) || 0;
+    const row   = qs('#manual-valor-liq-row');
+    if (!row) return;
+    if (desc > 0 && bruto > 0) {
+      row.textContent = `Valor líquido: ${Fmt.currency(Math.max(0, bruto - desc))}`;
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  }
+
   function openManual() {
     qs('#manual-save-btn').onclick = () => saveManual();
     qs('#manual-tipo').value   = 'pagar';
     qs('#manual-desc').value   = '';
     qs('#manual-valor').value  = '';
+    qs('#manual-desconto').value = '0';
+    if (qs('#manual-valor-liq-row')) qs('#manual-valor-liq-row').style.display = 'none';
     qs('#manual-comp').value   = DateUtil.today().substring(0, 7);
     qs('#manual-venc').value   = DateUtil.today();
     // Padrão: já pago hoje. Usuário muda pra "Pendente" se ainda não foi pago.
@@ -383,7 +427,9 @@ const Financeiro = (() => {
     const quemPagou = qs('#manual-quempagou')?.value || '';
 
     const desc     = qs('#manual-desc').value.trim();
-    const valor    = Number(qs('#manual-valor').value) || 0;
+    const valorBruto = Number(qs('#manual-valor').value) || 0;
+    const desconto   = Number(qs('#manual-desconto')?.value) || 0;
+    const valor      = Math.max(0, valorBruto - desconto);
     const compMonth= qs('#manual-comp').value;
     const venc     = qs('#manual-venc').value;
     const pagto    = qs('#manual-pagto').value;
@@ -403,7 +449,9 @@ const Financeiro = (() => {
       // Busca categoria "Devolução de fiado" do cache (para a parcela de entrada)
       const catDevFiado = App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
       // Busca "Fiado <Pessoa>" para o reembolso (ex: "Fiado Rodrigo")
-      const catFiadoPessoa = App.getCategorias().find(c => c.nome === `Fiado ${quemPagou}`)?.id || '';
+      // quemPagou vem minúsculo do select → capitalizar para casar com a categoria
+      const quemFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
+      const catFiadoPessoa = App.getCategorias().find(c => c.nome === `Fiado ${quemFmt}`)?.id || '';
       Loading.show();
       // Para fiado integrado: a despesa real e a receita-fiado entram/saem
       // numa "conta virtual" do colaborador (não na conta da empresa).
@@ -515,9 +563,11 @@ const Financeiro = (() => {
       return;
     }
 
-    qs('#manual-tipo').value   = p.tipo;
-    qs('#manual-desc').value   = p.descricao;
-    qs('#manual-valor').value  = p.valor;
+    qs('#manual-tipo').value     = p.tipo;
+    qs('#manual-desc').value     = p.descricao;
+    qs('#manual-valor').value    = p.valor;
+    qs('#manual-desconto').value = '0';
+    if (qs('#manual-valor-liq-row')) qs('#manual-valor-liq-row').style.display = 'none';
     qs('#manual-comp').value   = Fmt.monthInput(p.data_competencia);
     qs('#manual-venc').value   = Fmt.dateInput(p.data_vencimento);
     qs('#manual-pagto').value  = Fmt.dateInput(p.data_pagamento);
@@ -574,7 +624,8 @@ const Financeiro = (() => {
     });
   }
 
-  return { render, switchTab, filtrar, renderResumo, renderResumoMes,
+  return { render, switchTab, filtrar, verMais, calcNetValor,
+           renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
            editarParcela, excluirParcela, tapParcela };
 })();

@@ -160,6 +160,7 @@ const Compras = (() => {
     qs('#compra-parc').value      = '1';
     qs('#compra-cat').innerHTML   = App.categoriaOptions('saida');
     qs('#compra-obs').value       = '';
+    if (qs('#compra-desconto')) qs('#compra-desconto').value = '0';
     const qp = qs('#compra-quempagou');
     if (qp) qp.value = '';
     qs('#compra-quempagou-hint')?.classList.add('hidden');
@@ -182,8 +183,11 @@ const Compras = (() => {
           <button type="button" class="btn btn-sm btn-danger" onclick="Compras.removeItem(${i})">✕</button>
         </div>
       `).join('');
-    const total = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
-    qs('#compra-total-display').textContent = Fmt.currency(total);
+    const subtotal  = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const desconto  = Number(qs('#compra-desconto')?.value) || 0;
+    const totalFinal = Math.max(0, subtotal - desconto);
+    if (qs('#compra-subtotal-display')) qs('#compra-subtotal-display').textContent = Fmt.currency(subtotal);
+    qs('#compra-total-display').textContent = Fmt.currency(totalFinal);
   }
 
   function addItem() {
@@ -214,7 +218,8 @@ const Compras = (() => {
     const catId     = qs('#compra-cat').value;
     const obs       = qs('#compra-obs').value;
     const quemPagou = qs('#compra-quempagou')?.value || '';
-    const total     = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const desconto  = Number(qs('#compra-desconto')?.value) || 0;
+    const total     = Math.max(0, itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0) - desconto);
 
     if (itensForm.length === 0) { Toast.warning('Adicione ao menos um item'); return; }
 

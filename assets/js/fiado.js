@@ -55,13 +55,15 @@ const Fiado = (() => {
         <button class="btn btn-primary" onclick="Fiado.openForm()">+ Novo Fiado</button>
       </div>
       <div class="stats-grid mb-4">
-        <div class="stat-card stat-blue">
+        <div class="stat-card stat-blue" style="cursor:pointer" onclick="Fiado.openQuitarTudo('rodrigo')">
           <div class="stat-label">Deve ao Rodrigo</div>
           <div class="stat-value">${Fmt.currency(totalRodrigo)}</div>
+          ${totalRodrigo > 0 ? '<div class="stat-sub" style="font-size:.68rem;margin-top:2px">Toque para quitar tudo</div>' : ''}
         </div>
-        <div class="stat-card stat-orange">
+        <div class="stat-card stat-orange" style="cursor:pointer" onclick="Fiado.openQuitarTudo('odinei')">
           <div class="stat-label">Deve ao Odinei</div>
           <div class="stat-value">${Fmt.currency(totalOdinei)}</div>
+          ${totalOdinei > 0 ? '<div class="stat-sub" style="font-size:.68rem;margin-top:2px">Toque para quitar tudo</div>' : ''}
         </div>
         <div class="stat-card stat-red">
           <div class="stat-label">Total a Pagar</div>
@@ -168,6 +170,46 @@ const Fiado = (() => {
     });
   }
 
+  // Abre o modal de quitação em lote para uma pessoa
+  function openQuitarTudo(pessoa) {
+    const pendentes = allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente');
+    if (pendentes.length === 0) { Toast.info('Nenhum fiado pendente para ' + pessoa); return; }
+    const total = pendentes.reduce((s, f) => s + valorVivo(f), 0);
+    const pessoaFmt = pessoa.charAt(0).toUpperCase() + pessoa.slice(1);
+    qs('#fiado-quitar-desc').textContent =
+      `${pendentes.length} fiado(s) pendente(s) de ${pessoaFmt} — Total: ${Fmt.currency(total)}`;
+    qs('#fiado-quitar-data').value  = DateUtil.today();
+    qs('#fiado-quitar-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
+    // Salva a lista de pendentes no modal para a confirmação usar
+    qs('#fiado-quitar-btn').dataset.pessoa = pessoa;
+    Modal.open('modal-fiado-quitar-tudo');
+  }
+
+  async function confirmarQuitarTudo() {
+    const pessoa = qs('#fiado-quitar-btn').dataset.pessoa;
+    const data   = qs('#fiado-quitar-data').value;
+    const conta  = qs('#fiado-quitar-conta').value;
+    if (!data)  { Toast.warning('Informe a data de pagamento'); return; }
+    if (!conta) { Toast.warning('Selecione a conta'); return; }
+
+    const pendentes = allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente');
+    const ops = [];
+    pendentes.forEach(f => {
+      ops.push({ action: 'update', sheet: 'fiado', id: f.id, data: { status: 'quitado' } });
+      if (f.parcela_pagar_id) {
+        ops.push({ action: 'update', sheet: 'parcelas', id: f.parcela_pagar_id,
+          data: { status: 'pago', data_pagamento: data, conta_id: conta } });
+      }
+    });
+
+    Loading.show();
+    await API.db.batch(ops);
+    Loading.hide();
+    Toast.success(`${pendentes.length} fiado(s) quitado(s)!`);
+    Modal.close('modal-fiado-quitar-tudo');
+    await loadData(); renderList();
+  }
+
   async function confirmDelete(id) {
     const fiado = allFiado.find(x => x.id === id);
     const msg = fiado?.status === 'quitado'
@@ -197,5 +239,6 @@ const Fiado = (() => {
     ActionSheet.open(f.descricao, actions);
   }
 
-  return { render, renderList, tapCard, openForm, saveForm, quitar, confirmDelete };
+  return { render, renderList, tapCard, openForm, saveForm,
+           quitar, openQuitarTudo, confirmarQuitarTudo, confirmDelete };
 })();

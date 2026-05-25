@@ -822,21 +822,34 @@ const OS = (() => {
     qs('#modal-item-qtd').value   = item?.quantidade || '1';
     qs('#modal-item-unit').value  = item?.valor_unit || '';
     qs('#modal-item-total').value = item?.valor_total || '';
+    if (qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
     qs('#modal-item-estoque').innerHTML =
       '<option value="">— Selecione do estoque (opcional) —</option>' +
       estoque.map(e => `<option value="${e.id}" data-unit="${e.valor_unit}" ${e.id === item?.estoque_id ? 'selected' : ''}>${e.descricao} (Qtd: ${e.quantidade})</option>`).join('');
+    onItemTipoChange(); // sincroniza visibilidade do campo quem pagou
     Modal.open('modal-item');
   }
 
+  // Mostra/oculta campo "quem pagou" conforme o tipo do item
+  function onItemTipoChange() {
+    const tipo = qs('#modal-item-tipo')?.value;
+    const wrap = qs('#item-quempagou-wrap');
+    if (wrap) wrap.style.display = tipo === 'material' ? '' : 'none';
+    if (tipo !== 'material' && qs('#modal-item-quempagou')) {
+      qs('#modal-item-quempagou').value = '';
+    }
+  }
+
   async function saveItem() {
-    const itemId  = qs('#modal-item-id').value;
-    const osId    = qs('#modal-item-os-id').value;
-    const tipo    = qs('#modal-item-tipo').value;
-    const estId   = qs('#modal-item-estoque').value;
-    const desc    = qs('#modal-item-desc').value;
-    const qtd     = Number(qs('#modal-item-qtd').value) || 1;
-    const unit    = Number(qs('#modal-item-unit').value) || 0;
-    const total   = Number(qs('#modal-item-total').value) || (qtd * unit);
+    const itemId    = qs('#modal-item-id').value;
+    const osId      = qs('#modal-item-os-id').value;
+    const tipo      = qs('#modal-item-tipo').value;
+    const estId     = qs('#modal-item-estoque').value;
+    const desc      = qs('#modal-item-desc').value;
+    const qtd       = Number(qs('#modal-item-qtd').value) || 1;
+    const unit      = Number(qs('#modal-item-unit').value) || 0;
+    const total     = Number(qs('#modal-item-total').value) || (qtd * unit);
+    const quemPagou = (tipo === 'material' ? qs('#modal-item-quempagou')?.value : '') || '';
 
     if (!desc && !estId) { Toast.warning('Informe a descrição'); return; }
 
@@ -875,10 +888,45 @@ const OS = (() => {
     const res = itemId
       ? await API.db.update('os_itens', itemId, itemData)
       : await API.db.create('os_itens', itemData);
+
+    // Se material pago por colaborador: gerar fiado de reembolso
+    if (res?.success && !itemId && quemPagou && total > 0) {
+      const pessoaFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
+      const catFiado  = App.getCategorias().find(c => c.nome === `Fiado ${pessoaFmt}`)?.id || '';
+      const osNum     = currentOS?.numero || '';
+      const parc = await API.db.create('parcelas', {
+        tipo: 'pagar', origem: 'fiado', origem_id: '',
+        cliente_id: '', valor: total,
+        descricao:        `Reembolso ${pessoaFmt}: ${finalDesc || desc} (OS #${osNum})`,
+        data_competencia: DateUtil.today().substring(0, 7) + '-01',
+        data_vencimento:  DateUtil.today(),
+        data_pagamento:   '',
+        status:           'pendente',
+        categoria_id:     catFiado,
+        observacoes:      `Material na OS #${osNum}`,
+      });
+      if (parc?.data?.id) {
+        const fiad = await API.db.create('fiado', {
+          pessoa:           quemPagou,
+          descricao:        `${finalDesc || desc} (OS #${osNum})`,
+          valor:            total,
+          data:             DateUtil.today(),
+          parcela_pagar_id: parc.data.id,
+          status:           'pendente',
+          observacoes:      `Material na OS #${osNum}`,
+        });
+        if (fiad?.data?.id) {
+          await API.db.update('parcelas', parc.data.id, { origem_id: fiad.data.id });
+        }
+      }
+    }
     Loading.hide();
 
     if (res?.success) {
-      Toast.success(itemId ? 'Item atualizado!' : 'Item adicionado!');
+      const msg = (!itemId && quemPagou)
+        ? `Item adicionado! Fiado de reembolso gerado para ${quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1)}.`
+        : (itemId ? 'Item atualizado!' : 'Item adicionado!');
+      Toast.success(msg);
       Modal.close('modal-item');
       await loadData();
       openDetail(osId);
@@ -1351,7 +1399,7 @@ const OS = (() => {
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
     openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
-    openItemForm, saveItem, deleteItem,
+    openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento,
