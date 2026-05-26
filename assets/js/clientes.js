@@ -92,11 +92,12 @@ const Clientes = (() => {
     ]);
     const osList   = (osRes?.data  || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
     const parcelas = (parRes?.data || []).sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
-    const totalRec       = parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
-    const totalPag       = parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
-    const totalRecebido  = parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
-    const totalPagoForn  = parcelas.filter(p => p.tipo === 'pagar' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
-    const saldoPagarPend = parcelas.filter(p => p.tipo === 'pagar' && p.status !== 'pago' && p.status !== 'cancelado').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalRec        = parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalPag        = parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalRecebido   = parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
+    const saldoReceberPend= parcelas.filter(p => p.tipo === 'receber' && p.status !== 'pago' && p.status !== 'cancelado').reduce((s, p) => s + Number(p.valor||0), 0);
+    const totalPagoForn   = parcelas.filter(p => p.tipo === 'pagar' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
+    const saldoPagarPend  = parcelas.filter(p => p.tipo === 'pagar' && p.status !== 'pago' && p.status !== 'cancelado').reduce((s, p) => s + Number(p.valor||0), 0);
 
     const section = qs('#page-clientes');
     section.innerHTML = `
@@ -119,14 +120,17 @@ const Clientes = (() => {
         <div class="card">
           <div class="card-header"><h3>Financeiro</h3></div>
           <div class="card-body">
-            <div class="info-row"><span>Total a Receber</span><strong class="text-green">${Fmt.currency(totalRec)}</strong></div>
-            <div class="info-row"><span>Total Recebido</span><strong class="text-blue">${Fmt.currency(totalRecebido)}</strong></div>
-            <div class="info-row"><span>Saldo a Receber</span><strong class="text-orange">${Fmt.currency(totalRec - totalRecebido)}</strong></div>
-            ${totalPag > 0 ? `
-            <div class="info-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span>Total Compras</span><strong>${Fmt.currency(totalPag)}</strong></div>
-            <div class="info-row"><span>Pago a Fornecedor</span><strong class="text-blue">${Fmt.currency(totalPagoForn)}</strong></div>
-            <div class="info-row"><span>Saldo a Pagar</span><strong class="text-red">${Fmt.currency(saldoPagarPend)}</strong></div>
+            ${totalRec > 0 ? `
+            <div class="info-row"><span>Total Faturado</span><strong>${Fmt.currency(totalRec)}</strong></div>
+            <div class="info-row"><span>Recebido</span><strong class="text-green">${Fmt.currency(totalRecebido)}</strong></div>
+            <div class="info-row"><span>A Receber</span><strong class="${saldoReceberPend > 0 ? 'text-orange' : 'text-muted'}">${Fmt.currency(saldoReceberPend)}</strong></div>
             ` : ''}
+            ${totalPag > 0 ? `
+            <div class="info-row" style="${totalRec > 0 ? 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)' : ''}"><span>Total Compras</span><strong>${Fmt.currency(totalPag)}</strong></div>
+            <div class="info-row"><span>Pago a Fornecedor</span><strong class="text-blue">${Fmt.currency(totalPagoForn)}</strong></div>
+            <div class="info-row"><span>Saldo a Pagar</span><strong class="${saldoPagarPend > 0 ? 'text-red' : 'text-muted'}">${Fmt.currency(saldoPagarPend)}</strong></div>
+            ` : ''}
+            ${totalRec === 0 && totalPag === 0 ? `<div class="entity-empty" style="padding:8px 0">Sem movimentações</div>` : ''}
           </div>
         </div>
       </div>
