@@ -1325,21 +1325,39 @@ const OS = (() => {
     });
     Loading.hide();
 
-    if (res?.success) {
-      // Redundância: garante status=fechado mesmo que o Code.gs ainda não esteja atualizado
-      await API.db.update('os', osId, {
-        status: 'fechado',
-        valor_fechamento: liquido,
-        data_fim: new Date().toISOString().substring(0, 10),
-        data_atualizacao: new Date().toISOString(),
-      });
-      Toast.success('OS fechada! Parcela gerada no financeiro.');
-      await loadData();
-      await App.loadGlobals();
-      renderList();
-    } else {
-      Toast.error('Erro: ' + (res?.error || ''));
+    const dataFim = new Date().toISOString().substring(0, 10);
+    const patch = {
+      status: 'fechado',
+      valor_fechamento: liquido,
+      data_fim: dataFim,
+      data_atualizacao: new Date().toISOString(),
+    };
+
+    // Atualiza localmente na hora — independe do retorno do fecharOS
+    if (currentOS) {
+      currentOS.status          = 'fechado';
+      currentOS.valor_fechamento = liquido;
+      currentOS.data_fim         = dataFim;
     }
+    const idx = allOS.findIndex(o => o.id === osId);
+    if (idx >= 0) {
+      allOS[idx].status           = 'fechado';
+      allOS[idx].valor_fechamento  = liquido;
+      allOS[idx].data_fim          = dataFim;
+    }
+
+    if (res?.success) {
+      // Redundância: força status=fechado via update direto
+      await API.db.update('os', osId, patch);
+      Toast.success('OS fechada!');
+    } else {
+      // fecharOS falhou (parcela não gerada), mas status muda de qualquer forma
+      await API.db.update('os', osId, patch);
+      Toast.warning('OS marcada como fechada, mas houve erro ao gerar parcela: ' + (res?.error || ''));
+    }
+
+    await loadData();
+    openDetail(osId);
   }
 
   async function mudarStatus(novoStatus) {
