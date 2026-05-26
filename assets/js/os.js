@@ -123,7 +123,6 @@ const OS = (() => {
                 <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}</div>
               </div>
               <div class="entity-right">
-                ${o.valor_fechamento ? `<span class="entity-value">${Fmt.currency(o.valor_fechamento)}</span>` : ''}
                 <span class="entity-chevron">›</span>
               </div>
             </div>
