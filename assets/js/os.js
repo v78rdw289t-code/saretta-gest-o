@@ -1121,20 +1121,29 @@ const OS = (() => {
     });
   }
 
-  // ─── FECHAMENTO (versão simplificada — apenas valor + competência + venc) ─
-  // Pré-requisito: a calculadora no detalhe já preencheu _calc.liquido.
+  // ─── FECHAMENTO ──────────────────────────────────────────────
   function openFechamento() {
     if (!currentOS) return;
 
-    // Se a calculadora ainda não foi tocada (raro), usa o valor calculado da OS
-    if (_calc.liquido <= 0) {
+    const isDiaria   = currentOS.tipo === 'diaria';
+    const diarias    = allDiarias.filter(d => d.os_id === currentOS.id);
+    const itens      = allItens.filter(i => i.os_id === currentOS.id);
+    const totalDias  = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+
+    // Para diária: sempre recalcula direto das diárias + itens (independe de _calc)
+    if (isDiaria) {
+      const base = totalDias + totalItens;
+      _calc.liquido = base;
+      _calc.bruto   = base;
+    } else if (_calc.liquido <= 0) {
       _calc.liquido = Number(currentOS.valor_calculado || 0);
       _calc.bruto   = _calc.liquido;
     }
 
     const calc = _calc.liquido;
 
-    // Renderiza modal de fechamento (página dedicada, simples)
+    // Renderiza modal de fechamento
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
@@ -1147,7 +1156,26 @@ const OS = (() => {
           <form id="fechamento-form" onsubmit="OS.saveFechamento(event)">
             <input type="hidden" id="fech-os-id" value="${currentOS.id}">
 
-            <!-- Valor calculado (readonly) -->
+            <!-- Breakdown de valores -->
+            ${isDiaria ? `
+            <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:16px">
+              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
+              <div class="info-row" style="margin-bottom:4px">
+                <span>Diárias (${diarias.length} dia${diarias.length !== 1 ? 's' : ''})</span>
+                <strong>${Fmt.currency(totalDias)}</strong>
+              </div>
+              ${totalItens > 0 ? `
+              <div class="info-row" style="margin-bottom:4px">
+                <span>Materiais / Itens</span>
+                <strong>${Fmt.currency(totalItens)}</strong>
+              </div>` : ''}
+              <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+                <span><strong>Subtotal</strong></span>
+                <strong class="text-green">${Fmt.currency(calc)}</strong>
+              </div>
+            </div>
+            ` : `
+            <!-- OS normal: valor calculado -->
             <div class="form-group">
               <label>Valor calculado</label>
               <input type="text" id="fech-calculado" class="input" value="${Fmt.currency(calc)}"
@@ -1155,11 +1183,12 @@ const OS = (() => {
               <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
               <small style="color:var(--text-muted);font-size:.72rem">Vem da calculadora — se quiser sobrescrever, preencha "valor manual" abaixo.</small>
             </div>
+            `}
 
             <!-- Valor manual opcional -->
             <div class="form-group">
-              <label>Valor manual <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
-              <input type="number" id="fech-manual" class="input" step="0.01" min="0" placeholder="Em branco = usar calculado"
+              <label>Valor manual <small style="color:var(--text-muted);font-weight:400">(opcional — substitui o subtotal acima)</small></label>
+              <input type="number" id="fech-manual" class="input" step="0.01" min="0" placeholder="Em branco = usar subtotal"
                 oninput="OS.atualizarFechamento()">
             </div>
 
