@@ -221,7 +221,7 @@ function fecharOS(data) {
   const parcela = create('parcelas', parcelaData);
 
   // Atualizar status da OS
-  update('os', data.os_id, { status: 'acerto', valor_fechamento: data.valor_liquido, data_atualizacao: new Date().toISOString() });
+  update('os', data.os_id, { status: 'fechado', valor_fechamento: data.valor_liquido, data_fim: new Date().toISOString().substring(0,10), data_atualizacao: new Date().toISOString() });
 
   return { success: true, fechamento_id: fechId, parcela_id: parcela.data.id };
 }
