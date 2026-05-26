@@ -91,7 +91,10 @@ const Clientes = (() => {
       API.db.read('parcelas', null, { cliente_id: id }),
     ]);
     const osList   = (osRes?.data  || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
-    const parcelas = (parRes?.data || []).sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
+    const _origemFiado = o => o === 'fiado' || o === 'fiado_pago' || o === 'transferencia';
+    const parcelas = (parRes?.data || [])
+      .filter(p => !_origemFiado(p.origem))
+      .sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
     const totalRec        = parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
     const totalPag        = parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
     const totalRecebido   = parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
