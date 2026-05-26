@@ -8,8 +8,9 @@ const Financeiro = (() => {
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
   const PAGE_SIZE   = 30;
+  let _filtroVenc7d = false; // quando true, mostra só vencendo nos próximos 7 dias
 
-  async function render() {
+  async function render(params = {}) {
     if (!LocalConfig.getUrl()) {
       const section = qs('#page-financeiro');
       section.innerHTML = `
@@ -18,6 +19,10 @@ const Financeiro = (() => {
           ⚙️ Configure a URL do Apps Script em <strong>Configurações</strong> para usar o financeiro.
         </div>`;
       return;
+    }
+    if (params.filtro === 'vencendo7d') {
+      _filtroVenc7d = true;
+      currentTab = 'receber';
     }
     // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
     await Promise.all([loadData(), App.loadGlobals()]);
@@ -91,6 +96,15 @@ const Financeiro = (() => {
           <div class="stat-value">${Fmt.currency(totalPago)}</div>
         </div>
       </div>
+      ${_filtroVenc7d ? `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0 4px;flex-wrap:wrap">
+        <span style="background:var(--warning-lt,#fff3cd);color:var(--warning,#856404);border:1px solid currentColor;border-radius:20px;padding:4px 12px;font-size:.82rem;font-weight:600;display:flex;align-items:center;gap:6px">
+          ⏰ Vencendo nos próximos 7 dias
+          <button type="button" onclick="Financeiro.limparFiltroVenc7d()"
+            style="background:none;border:none;cursor:pointer;font-size:1rem;line-height:1;padding:0;color:inherit">×</button>
+        </span>
+      </div>
+      ` : `
       <div class="filters-bar">
         <input type="month" id="fin-mes" class="input-select" value="${mesAtual}" onchange="Financeiro.filtrar()">
         <select id="fin-status" class="input-select" onchange="Financeiro.filtrar()">
@@ -104,11 +118,17 @@ const Financeiro = (() => {
           <option value="caixa">Caixa</option>
         </select>
       </div>
+      `}
       <div class="card">
         <div id="fin-table" class="table-responsive"></div>
       </div>
     `;
     filtrar();
+  }
+
+  function limparFiltroVenc7d() {
+    _filtroVenc7d = false;
+    renderView();
   }
 
   function filtrar() {
@@ -118,19 +138,33 @@ const Financeiro = (() => {
     const regime  = qs('#fin-regime')?.value || 'competencia';
 
     let items = allParcelas.filter(p => p.tipo === tipo);
-    if (status) items = items.filter(p => p.status === status);
-    if (mes) {
-      if (regime === 'competencia') {
-        items = items.filter(p => String(p.data_competencia || '').substring(0, 7) === mes);
-      } else {
-        items = items.filter(p => {
-          if (p.status === 'pago') return String(p.data_pagamento || '').substring(0, 7) === mes;
-          return String(p.data_vencimento || '').substring(0, 7) === mes;
-        });
+
+    if (_filtroVenc7d) {
+      // Filtro especial: pendentes vencendo nos próximos 7 dias
+      const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+      const em7  = new Date(hoje); em7.setDate(em7.getDate() + 7);
+      items = items.filter(p => {
+        if (p.status !== 'pendente') return false;
+        const d = new Date(p.data_vencimento + 'T00:00:00');
+        return d >= hoje && d <= em7;
+      });
+      // Ordena do mais próximo ao mais distante
+      items = [...items].sort((a, b) => (a.data_vencimento < b.data_vencimento ? -1 : 1));
+    } else {
+      if (status) items = items.filter(p => p.status === status);
+      if (mes) {
+        if (regime === 'competencia') {
+          items = items.filter(p => String(p.data_competencia || '').substring(0, 7) === mes);
+        } else {
+          items = items.filter(p => {
+            if (p.status === 'pago') return String(p.data_pagamento || '').substring(0, 7) === mes;
+            return String(p.data_vencimento || '').substring(0, 7) === mes;
+          });
+        }
       }
+      // Mais recente primeiro
+      items = [...items].sort((a, b) => (a.data_vencimento > b.data_vencimento ? -1 : 1));
     }
-    // Mais recente primeiro
-    items = [...items].sort((a, b) => (a.data_vencimento > b.data_vencimento ? -1 : 1));
 
     _lastFiltered = items;
     _visibleCount = PAGE_SIZE;
@@ -691,7 +725,7 @@ const Financeiro = (() => {
     }
   }
 
-  return { render, switchTab, filtrar, verMais, calcNetValor,
+  return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
            openTransferencia, salvarTransferencia,

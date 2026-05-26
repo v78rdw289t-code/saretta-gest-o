@@ -140,7 +140,7 @@ const Home = (() => {
         <div class="stat-value">${Fmt.currency(d.rec_total - d.rec_pago)}</div>
         <div class="stat-sub">este mês</div>
       </div>
-      <div class="stat-card stat-${d.vencendo_7d > 0 ? 'red' : 'navy'}" onclick="App.navigate('financeiro')" style="cursor:pointer">
+      <div class="stat-card stat-${d.vencendo_7d > 0 ? 'red' : 'navy'}" onclick="App.navigate('financeiro', { filtro: 'vencendo7d' })" style="cursor:pointer">
         <div class="stat-label">Vencendo</div>
         <div class="stat-value">${d.vencendo_7d}</div>
         <div class="stat-sub">próximos 7 dias</div>
