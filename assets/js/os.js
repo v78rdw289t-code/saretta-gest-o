@@ -215,7 +215,19 @@ const OS = (() => {
       <div class="card mb-3">
         <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div><div class="info-label">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
-          <div><div class="info-label">Status</div>${statusBadge(currentOS.status)}</div>
+          <div>
+            <div class="info-label">Status</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              ${statusBadge(currentOS.status)}
+              <select onchange="OS.mudarStatus(this.value)"
+                style="font-size:.75rem;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer">
+                <option value="" disabled selected>alterar…</option>
+                <option value="andamento">Em Andamento</option>
+                <option value="acerto">Em Acerto</option>
+                <option value="fechado">Fechado</option>
+              </select>
+            </div>
+          </div>
           <div><div class="info-label">Início</div><strong>${Fmt.date(currentOS.data_inicio)}</strong></div>
           ${currentOS.data_fim ? `<div><div class="info-label">Fim</div><strong>${Fmt.date(currentOS.data_fim)}</strong></div>` : '<div></div>'}
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
@@ -1314,12 +1326,43 @@ const OS = (() => {
     Loading.hide();
 
     if (res?.success) {
+      // Redundância: garante status=fechado mesmo que o Code.gs ainda não esteja atualizado
+      await API.db.update('os', osId, {
+        status: 'fechado',
+        valor_fechamento: liquido,
+        data_fim: new Date().toISOString().substring(0, 10),
+        data_atualizacao: new Date().toISOString(),
+      });
       Toast.success('OS fechada! Parcela gerada no financeiro.');
       await loadData();
       await App.loadGlobals();
       renderList();
     } else {
       Toast.error('Erro: ' + (res?.error || ''));
+    }
+  }
+
+  async function mudarStatus(novoStatus) {
+    if (!currentOS || !novoStatus) return;
+    Loading.show();
+    const patch = {
+      status: novoStatus,
+      data_atualizacao: new Date().toISOString(),
+    };
+    if (novoStatus === 'fechado' && !currentOS.data_fim) {
+      patch.data_fim = new Date().toISOString().substring(0, 10);
+    }
+    const res = await API.db.update('os', currentOS.id, patch);
+    Loading.hide();
+    if (res?.success) {
+      currentOS.status = novoStatus;
+      if (patch.data_fim) currentOS.data_fim = patch.data_fim;
+      const idx = allOS.findIndex(o => o.id === currentOS.id);
+      if (idx >= 0) { allOS[idx].status = novoStatus; if (patch.data_fim) allOS[idx].data_fim = patch.data_fim; }
+      Toast.success('Status atualizado.');
+      openDetail(currentOS.id);
+    } else {
+      Toast.error('Erro ao atualizar status.');
     }
   }
 
@@ -1608,7 +1651,7 @@ const OS = (() => {
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
-    openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento,
+    openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento, mudarStatus,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
     openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
     addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado,
