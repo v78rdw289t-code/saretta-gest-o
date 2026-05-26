@@ -20,10 +20,10 @@ const Financeiro = (() => {
         </div>`;
       return;
     }
-    if (params.filtro === 'vencendo7d') {
-      _filtroVenc7d = true;
-      currentTab = 'receber';
-    }
+    // Ao entrar no módulo: reseta filtro especial e volta para aba receber
+    // (evita ficar preso em 'resumo' de uma visita anterior)
+    _filtroVenc7d = params.filtro === 'vencendo7d';
+    currentTab = 'receber';
     // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
     await Promise.all([loadData(), App.loadGlobals()]);
     renderView();
