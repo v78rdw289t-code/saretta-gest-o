@@ -92,7 +92,7 @@ const Financeiro = (() => {
           <div class="stat-value">${Fmt.currency(totalPendente)}</div>
         </div>
         <div class="stat-card stat-blue">
-          <div class="stat-label">Total Pago</div>
+          <div class="stat-label">${tipo === 'receber' ? 'Total Recebido' : 'Total Pago'}</div>
           <div class="stat-value">${Fmt.currency(totalPago)}</div>
         </div>
       </div>
