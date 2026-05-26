@@ -1199,10 +1199,14 @@ const OS = (() => {
               </div>
             </div>
 
+            ${currentOS.categoria_id ? `
             <div class="form-group">
-              <label>Categoria <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
-              <select id="fech-categoria" class="input">${App.categoriaOptions('entrada')}</select>
+              <label>Categoria</label>
+              <input class="input" readonly style="background:var(--bg);color:var(--text-muted)"
+                value="${App.categoriaNome(currentOS.categoria_id)}">
+              <small style="color:var(--text-muted);font-size:.72rem">Herdada da OS — altere na OS se precisar mudar.</small>
             </div>
+            ` : ''}
 
             <div class="form-group">
               <label>Observações</label>
@@ -1259,7 +1263,7 @@ const OS = (() => {
     const liquido = Math.max(0, base - descontoAbs);
     const comp    = qs('#fech-competencia').value + '-01';
     const venc    = qs('#fech-vencimento').value;
-    const catId   = qs('#fech-categoria').value;
+    const catId   = currentOS.categoria_id || '';
     const obs     = qs('#fech-obs').value;
 
     // Para diárias: pega os dias que estão marcados na CALCULADORA do detalhe
