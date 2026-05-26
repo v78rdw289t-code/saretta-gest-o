@@ -1157,6 +1157,9 @@ const OS = (() => {
             <input type="hidden" id="fech-os-id" value="${currentOS.id}">
 
             <!-- Breakdown de valores -->
+            <!-- hidden sempre presente — base para atualizarFechamento e saveFechamento -->
+            <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
+
             ${isDiaria ? `
             <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:16px">
               <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
@@ -1178,9 +1181,8 @@ const OS = (() => {
             <!-- OS normal: valor calculado -->
             <div class="form-group">
               <label>Valor calculado</label>
-              <input type="text" id="fech-calculado" class="input" value="${Fmt.currency(calc)}"
+              <input type="text" class="input" value="${Fmt.currency(calc)}"
                 readonly style="background:var(--bg);font-weight:700;color:var(--text-muted)">
-              <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
               <small style="color:var(--text-muted);font-size:.72rem">Vem da calculadora — se quiser sobrescrever, preencha "valor manual" abaixo.</small>
             </div>
             `}
