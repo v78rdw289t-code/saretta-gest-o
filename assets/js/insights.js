@@ -182,10 +182,11 @@ const Insights = (() => {
     const custoHora    = horasPeriodo > 0 ? totalDesp   / horasPeriodo : 0;
     const receitaHora  = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
 
-    // Top clientes no período (por receita)
+    // Top clientes no período (por receita) — ignora lançamentos sem cliente identificado
     const porCliente = {};
     receitas.forEach(p => {
-      const k = App.clienteNome(p.cliente_id) || 'Sem cliente';
+      const k = App.clienteNome(p.cliente_id);
+      if (!k || k === '—') return;
       porCliente[k] = (porCliente[k] || 0) + Number(p.valor || 0);
     });
     const clientesRanked = Object.entries(porCliente).sort((a, b) => b[1] - a[1]);
