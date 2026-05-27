@@ -24,7 +24,8 @@ const API = (() => {
     registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'parcelas', 'fiado'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
     pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
-    excluirOS:       ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque'],
+    excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque'],
+    excluirLancamento:  ()     => ['parcelas', 'fiado'],
   };
 
   function invalidateSheets(sheets) {
@@ -212,6 +213,7 @@ const API = (() => {
     registrarFiado(data) { return post('registrarFiado', data); },
     pagarParcela(data) { return post('pagarParcela', data); },
     excluirOS(id) { return post('excluirOS', { id }); },
+    excluirLancamento(parcelaId) { return post('excluirLancamento', { parcela_id: parcelaId }); },
   };
 
   function clearCache() {

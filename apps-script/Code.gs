@@ -15,7 +15,7 @@ const SHEET_HEADERS = {
   diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes','reajuste_json'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
   fechamento_dias:['id','fechamento_id','diaria_id'],
-  parcelas:       ['id','tipo','origem','origem_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
+  parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
   contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
   estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo'],
@@ -54,8 +54,9 @@ function doPost(e) {
       case 'fecharOS':        result = fecharOS(data); break;
       case 'registrarCompra': result = registrarCompra(data); break;
       case 'registrarFiado':  result = registrarFiado(data); break;
-      case 'pagarParcela':    result = pagarParcela(data); break;
-      case 'excluirOS':       result = excluirOS(data.id); break;
+      case 'pagarParcela':      result = pagarParcela(data); break;
+      case 'excluirLancamento': result = excluirLancamento(data.parcela_id); break;
+      case 'excluirOS':         result = excluirOS(data.id); break;
       default:                result = { success: false, error: 'Ação inválida' };
     }
     return respond(result);
@@ -269,6 +270,8 @@ function registrarCompra(data) {
   const fornRec = data.fornecedor_id ? read('clientes', data.fornecedor_id).data[0] : null;
   const fornNome = fornRec ? fornRec.nome : '';
   const dataPago = data.data || data.primeira_data_vencimento;
+  // grupo_id: une todas as parcelas desta transação para exclusão em conjunto
+  const grupoIdCompra = Utilities.getUuid();
 
   if (data.quem_pagou) {
     // Caminho fiado: a pessoa já pagou do bolso.
@@ -281,6 +284,7 @@ function registrarCompra(data) {
         tipo:            'pagar',
         origem:          'compra',
         origem_id:       compraId,
+        grupo_id:        grupoIdCompra,
         cliente_id:      data.fornecedor_id || '',
         descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
         valor:           valorParc,
@@ -299,6 +303,7 @@ function registrarCompra(data) {
       tipo:            'receber',
       origem:          'fiado_pago',
       origem_id:       compraId,
+      grupo_id:        grupoIdCompra,
       cliente_id:      '',
       descricao:       'Fiado ' + data.quem_pagou + ' (entrada): Compra ' + fornNome,
       valor:           data.valor_total,
@@ -316,6 +321,7 @@ function registrarCompra(data) {
       tipo:            'pagar',
       origem:          'fiado',
       origem_id:       '',
+      grupo_id:        grupoIdCompra,
       cliente_id:      '',
       descricao:       'Reembolso ' + data.quem_pagou + ': Compra ' + fornNome,
       valor:           data.valor_total,
@@ -350,6 +356,7 @@ function registrarCompra(data) {
         tipo:            'pagar',
         origem:          'compra',
         origem_id:       compraId,
+        grupo_id:        grupoIdCompra,
         cliente_id:      data.fornecedor_id || '',
         descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
         valor:           valorParc,
@@ -413,6 +420,108 @@ function pagarParcela(data) {
     update('fiado', parc.origem_id, { status: 'quitado' });
   }
   return { success: true };
+}
+
+// Exclui um lançamento e todas as parcelas criadas junto com ele (mesmo grupo_id).
+// Para registros antigos sem grupo_id, aplica fallbacks por tipo de origem:
+//   - transferencia → busca o par pelo mesmo descricao+valor+vencimento
+//   - compra        → busca todas com o mesmo origem_id
+//   - fiado_pago    → busca irmãs com mesmo valor+competencia
+// Em todos os casos, registros 'fiado' com origem_id são excluídos em cascata.
+function excluirLancamento(parcelaId) {
+  const todasParcelas = sheetToRecords(getSheet('parcelas'));
+  const parc = todasParcelas.find(function(p) { return String(p.id) === String(parcelaId); });
+  if (!parc) return { success: false, error: 'Parcela não encontrada' };
+
+  var grupo = []; // parcelas para excluir
+
+  if (parc.grupo_id) {
+    // Novos registros: agrupa pelo grupo_id
+    grupo = todasParcelas.filter(function(p) { return p.grupo_id === parc.grupo_id; });
+  } else if (parc.origem === 'transferencia') {
+    // Fallback: encontra o par pela descrição + valor + vencimento
+    var par = todasParcelas.find(function(p) {
+      return p.id !== parc.id &&
+             p.origem === 'transferencia' &&
+             p.descricao === parc.descricao &&
+             String(p.valor) === String(parc.valor) &&
+             p.data_vencimento === parc.data_vencimento;
+    });
+    grupo = par ? [parc, par] : [parc];
+  } else if (parc.origem === 'compra' && parc.origem_id) {
+    // Fallback: todas parcelas da mesma compra (compra + fiado_pago com mesmo origem_id)
+    grupo = todasParcelas.filter(function(p) {
+      return p.origem_id === parc.origem_id &&
+             (p.origem === 'compra' || p.origem === 'fiado_pago');
+    });
+    // Inclui parcela de reembolso (fiado) vinculada a este grupo via fiado record
+    var fiadoReemb = todasParcelas.find(function(p) {
+      return p.origem === 'fiado' && p.origem_id &&
+             grupo.some(function(g) { return g.id === p.id; }) === false;
+    });
+    // Busca pelo fiado record cujo parcela_pagar_id aponte para a parcela de reembolso
+    if (grupo.length > 0) {
+      try {
+        var fiadoSheet = sheetToRecords(getSheet('fiado'));
+        var fiadoRec = fiadoSheet.find(function(f) {
+          return todasParcelas.some(function(p) {
+            return p.id === f.parcela_pagar_id && p.origem_id === parc.origem_id;
+          });
+        });
+        if (!fiadoRec) {
+          // Alternativa: acha pelo reembolso que tem mesmo valor e mesmo compra_id no obs (heurística)
+          fiadoRec = fiadoSheet.find(function(f) {
+            return String(f.valor) === String(parc.valor) &&
+                   todasParcelas.some(function(p) {
+                     return p.id === f.parcela_pagar_id && p.origem === 'fiado';
+                   });
+          });
+        }
+        if (fiadoRec) {
+          var reembParc = todasParcelas.find(function(p) { return p.id === fiadoRec.parcela_pagar_id; });
+          if (reembParc) grupo.push(reembParc);
+        }
+      } catch(e) {}
+    }
+    if (grupo.length === 0) grupo = [parc];
+  } else if (parc.origem === 'fiado_pago') {
+    // Fallback: agrupa fiado_pago com mesmo valor+competencia (criados juntos)
+    grupo = todasParcelas.filter(function(p) {
+      return p.origem === 'fiado_pago' &&
+             String(p.valor) === String(parc.valor) &&
+             p.data_competencia === parc.data_competencia;
+    });
+    // Inclui parcela de reembolso com mesmo valor+competencia
+    var reemb = todasParcelas.find(function(p) {
+      return p.origem === 'fiado' &&
+             String(p.valor) === String(parc.valor) &&
+             p.data_competencia === parc.data_competencia;
+    });
+    if (reemb) grupo.push(reemb);
+    if (grupo.length === 0) grupo = [parc];
+  } else {
+    grupo = [parc];
+  }
+
+  // Deduplica por id
+  var vistos = {};
+  grupo = grupo.filter(function(p) {
+    if (vistos[p.id]) return false;
+    vistos[p.id] = true;
+    return true;
+  });
+
+  // Exclui fiado records vinculados e depois as parcelas
+  grupo.forEach(function(p) {
+    if (p.origem === 'fiado' && p.origem_id) {
+      try { remove('fiado', p.origem_id); } catch(e) {}
+    }
+  });
+  grupo.forEach(function(p) {
+    try { remove('parcelas', p.id); } catch(e) {}
+  });
+
+  return { success: true, deleted: grupo.length };
 }
 
 function excluirOS(osId) {

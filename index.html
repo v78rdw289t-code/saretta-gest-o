@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=1.9.2">
+  <link rel="stylesheet" href="assets/css/style.css?v=1.9.7">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
   <link rel="apple-touch-icon" href="assets/img/logo-icon.svg">
@@ -604,6 +604,21 @@
         </div>
       </div>
       <div id="manual-valor-liq-row" style="display:none;text-align:right;font-size:.82rem;font-weight:700;color:var(--primary);margin:-6px 0 8px"></div>
+      <!-- Compra Parcelada -->
+      <div class="form-row" id="manual-parcelado-row">
+        <div class="form-group">
+          <label>Parcelado?</label>
+          <select id="manual-parcelado" class="input" onchange="Financeiro.toggleParcelado()">
+            <option value="">Não</option>
+            <option value="sim">Sim</option>
+          </select>
+        </div>
+        <div class="form-group" id="manual-nparcelas-wrap" style="display:none">
+          <label>Nº Parcelas</label>
+          <input type="number" id="manual-nparcelas" class="input" min="2" max="60" value="2"
+            oninput="Financeiro.calcNetValor()">
+        </div>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label>Cliente / Forn.</label>
@@ -795,18 +810,18 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=1.9.2"></script>
-<script src="assets/js/utils.js?v=1.9.2"></script>
-<script src="assets/js/home.js?v=1.9.2"></script>
-<script src="assets/js/os.js?v=1.9.2"></script>
-<script src="assets/js/financeiro.js?v=1.9.2"></script>
-<script src="assets/js/clientes.js?v=1.9.2"></script>
-<script src="assets/js/estoque.js?v=1.9.2"></script>
-<script src="assets/js/compras.js?v=1.9.2"></script>
-<script src="assets/js/fiado.js?v=1.9.2"></script>
-<script src="assets/js/insights.js?v=1.9.2"></script>
-<script src="assets/js/config.js?v=1.9.2"></script>
-<script src="assets/js/app.js?v=1.9.2"></script>
+<script src="assets/js/api.js?v=1.9.7"></script>
+<script src="assets/js/utils.js?v=1.9.7"></script>
+<script src="assets/js/home.js?v=1.9.7"></script>
+<script src="assets/js/os.js?v=1.9.7"></script>
+<script src="assets/js/financeiro.js?v=1.9.7"></script>
+<script src="assets/js/clientes.js?v=1.9.7"></script>
+<script src="assets/js/estoque.js?v=1.9.7"></script>
+<script src="assets/js/compras.js?v=1.9.7"></script>
+<script src="assets/js/fiado.js?v=1.9.7"></script>
+<script src="assets/js/insights.js?v=1.9.7"></script>
+<script src="assets/js/config.js?v=1.9.7"></script>
+<script src="assets/js/app.js?v=1.9.7"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

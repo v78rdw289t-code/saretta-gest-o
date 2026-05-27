@@ -82,8 +82,10 @@ const Financeiro = (() => {
     const mesAtual = new Date().toISOString().substring(0, 7);
     let items = allParcelas.filter(p => p.tipo === tipo);
 
-    const totalPendente = items.filter(p => p.status === 'pendente').reduce((s, p) => s + Number(p.valor || 0), 0);
-    const totalPago     = items.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
+    // Transferências são movimentações internas — não contam como receita/despesa real
+    const itemsReais    = items.filter(p => p.origem !== 'transferencia');
+    const totalPendente = itemsReais.filter(p => p.status === 'pendente').reduce((s, p) => s + Number(p.valor || 0), 0);
+    const totalPago     = itemsReais.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
 
     qs('#fin-content').innerHTML = `
       <div class="stats-grid mb-4">
@@ -252,9 +254,10 @@ const Financeiro = (() => {
   function renderResumoMes() {
     const mes = qs('#resumo-mes')?.value || new Date().toISOString().substring(0, 7);
 
-    const recComp = allParcelas.filter(p => p.tipo === 'receber' && String(p.data_competencia||'').startsWith(mes));
-    const pagComp = allParcelas.filter(p => p.tipo === 'pagar'   && String(p.data_competencia||'').startsWith(mes));
-    // Exclui transferências do regime de caixa (são neutras — saldo líquido = 0)
+    // Transferências são movimentações internas entre contas — não entram nos resumos de receita/despesa
+    const recComp = allParcelas.filter(p => p.tipo === 'receber' && p.origem !== 'transferencia' && String(p.data_competencia||'').startsWith(mes));
+    const pagComp = allParcelas.filter(p => p.tipo === 'pagar'   && p.origem !== 'transferencia' && String(p.data_competencia||'').startsWith(mes));
+    // Regime de caixa: também exclui transferências (apenas entradas/saídas reais)
     const recCaixa= allParcelas.filter(p => p.tipo === 'receber' && p.status === 'pago' && p.origem !== 'transferencia' && String(p.data_pagamento||'').startsWith(mes));
     const pagCaixa= allParcelas.filter(p => p.tipo === 'pagar'   && p.status === 'pago' && p.origem !== 'transferencia' && String(p.data_pagamento||'').startsWith(mes));
 
@@ -402,16 +405,49 @@ const Financeiro = (() => {
   }
 
   function calcNetValor() {
-    const bruto = Number(qs('#manual-valor')?.value) || 0;
-    const desc  = Number(qs('#manual-desconto')?.value) || 0;
-    const row   = qs('#manual-valor-liq-row');
+    const bruto     = Number(qs('#manual-valor')?.value) || 0;
+    const desc      = Number(qs('#manual-desconto')?.value) || 0;
+    const liq       = Math.max(0, bruto - desc);
+    const row       = qs('#manual-valor-liq-row');
     if (!row) return;
-    if (desc > 0 && bruto > 0) {
-      row.textContent = `Valor líquido: ${Fmt.currency(Math.max(0, bruto - desc))}`;
+    const parcelado = qs('#manual-parcelado')?.value === 'sim';
+    const nParc     = parcelado ? (parseInt(qs('#manual-nparcelas')?.value) || 2) : 1;
+    if (parcelado && nParc >= 2 && liq > 0) {
+      const unitario = liq / nParc;
+      row.textContent = `${nParc}x de ${Fmt.currency(unitario)} = total ${Fmt.currency(liq)}`;
+      row.style.display = '';
+    } else if (desc > 0 && bruto > 0) {
+      row.textContent = `Valor líquido: ${Fmt.currency(liq)}`;
       row.style.display = '';
     } else {
       row.style.display = 'none';
     }
+  }
+
+  // Mostra/esconde campos dependendo do modo parcelado
+  function toggleParcelado() {
+    const parcelado  = qs('#manual-parcelado')?.value === 'sim';
+    const nWrap      = qs('#manual-nparcelas-wrap');
+    if (nWrap) nWrap.style.display = parcelado ? '' : 'none';
+
+    // Parcelado → status/pagto/conta ficam ocultos (todas as parcelas nascem pendentes)
+    const statusWrap = qs('#manual-status')?.closest('.form-group');
+    if (statusWrap)  statusWrap.style.display  = parcelado ? 'none' : '';
+    const pagtoWrap  = qs('#manual-pagto')?.closest('.form-group');
+    if (pagtoWrap)   pagtoWrap.style.display   = parcelado ? 'none' : '';
+    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = parcelado ? 'none' : '';
+    // "Quem pagou" incompatível com parcelado
+    if (parcelado) {
+      const quemWrap = qs('#manual-quempagou-wrap');
+      if (quemWrap) quemWrap.style.display = 'none';
+    } else {
+      refreshQuemPagouVisibility();
+    }
+    // Ajusta label do vencimento para deixar claro que é o da 1ª parcela
+    const vencLabel = qs('#manual-venc')?.closest('.form-group')?.querySelector('label');
+    if (vencLabel) vencLabel.textContent = parcelado ? 'Vencimento 1ª Parcela' : 'Vencimento';
+
+    calcNetValor();
   }
 
   function openManual() {
@@ -421,6 +457,18 @@ const Financeiro = (() => {
     qs('#manual-valor').value  = '';
     qs('#manual-desconto').value = '0';
     if (qs('#manual-valor-liq-row')) qs('#manual-valor-liq-row').style.display = 'none';
+    // Reset parcelado
+    if (qs('#manual-parcelado'))      qs('#manual-parcelado').value = '';
+    if (qs('#manual-nparcelas'))      qs('#manual-nparcelas').value = '2';
+    if (qs('#manual-nparcelas-wrap')) qs('#manual-nparcelas-wrap').style.display = 'none';
+    // Garante que campos que toggleParcelado pode esconder estejam visíveis
+    const _statusWrap = qs('#manual-status')?.closest('.form-group');
+    if (_statusWrap) _statusWrap.style.display = '';
+    const _pagtoWrap  = qs('#manual-pagto')?.closest('.form-group');
+    if (_pagtoWrap)  _pagtoWrap.style.display  = '';
+    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = '';
+    const _vencLabel = qs('#manual-venc')?.closest('.form-group')?.querySelector('label');
+    if (_vencLabel) _vencLabel.textContent = 'Vencimento';
     qs('#manual-comp').value   = DateUtil.today().substring(0, 7);
     qs('#manual-venc').value   = DateUtil.today();
     // Padrão: já pago hoje. Usuário muda pra "Pendente" se ainda não foi pago.
@@ -479,40 +527,107 @@ const Financeiro = (() => {
     const conta    = qs('#manual-conta')?.value || '';
     const obs      = qs('#manual-obs').value;
 
+    const isParcelado = qs('#manual-parcelado')?.value === 'sim';
+
     if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
-    if (status === 'pago' && !conta) { Toast.warning('Selecione a conta quando o status for "Pago"'); return; }
+    if (!isParcelado && status === 'pago' && !conta) {
+      Toast.warning('Selecione a conta quando o status for "Pago"'); return;
+    }
 
     const compFull = (compMonth || DateUtil.today().substring(0,7)) + '-01';
+
+    // ── Caminho parcelado: cria N parcelas mensais com grupo_id compartilhado ──
+    if (isParcelado) {
+      const nParc   = Math.max(2, Math.min(60, parseInt(qs('#manual-nparcelas')?.value) || 2));
+      const vencBase = new Date((venc || DateUtil.today()) + 'T00:00:00');
+      if (isNaN(vencBase.getTime())) { Toast.warning('Informe o vencimento da 1ª parcela'); return; }
+
+      const grupoId = (crypto?.randomUUID?.() ||
+        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        }));
+
+      // Divide igualmente; a última absorve o centavo de arredondamento
+      const valorUnit = Math.floor((valor / nParc) * 100) / 100;
+      const resto     = Math.round((valor - valorUnit * nParc) * 100) / 100;
+
+      const operations = Array.from({ length: nParc }, (_, i) => {
+        const d = new Date(vencBase);
+        d.setMonth(d.getMonth() + i);
+        const vencStr = d.toISOString().substring(0, 10);
+        const compStr = vencStr.substring(0, 7) + '-01';
+        return {
+          action: 'create', sheet: 'parcelas',
+          data: {
+            tipo,
+            origem:           'manual',
+            origem_id:        '',
+            grupo_id:         grupoId,
+            cliente_id:       cliente,
+            descricao:        `${desc} (${i + 1}/${nParc})`,
+            valor:            Math.round((valorUnit + (i === nParc - 1 ? resto : 0)) * 100) / 100,
+            data_competencia: compStr,
+            data_vencimento:  vencStr,
+            data_pagamento:   '',
+            status:           'pendente',
+            categoria_id:     categoria,
+            conta_id:         '',
+            observacoes:      obs,
+          },
+        };
+      });
+
+      Loading.show();
+      const res = await API.db.batch(operations);
+      Loading.hide();
+      if (res?.success) {
+        Toast.success(`${nParc} parcelas criadas! (${Fmt.currency(valorUnit)}/mês)`);
+        Modal.close('modal-manual-lancamento');
+        await loadData();
+        renderView();
+      } else {
+        Toast.error('Erro ao criar parcelas: ' + (res?.error || ''));
+      }
+      return;
+    }
 
     // Caminho especial: fiado integrado
     if (tipo === 'pagar' && quemPagou) {
       const dataPago = pagto || venc || DateUtil.today();
-      // Busca categoria "Devolução de fiado" do cache (para a parcela de entrada)
-      const catDevFiado = App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
+      // Busca categoria "Fiado" (antigo "Devolução de fiado") para a parcela de entrada
+      const catDevFiado = App.getCategorias().find(c => c.nome === 'Fiado')?.id
+                       || App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
       // Busca "Fiado <Pessoa>" para o reembolso (ex: "Fiado Rodrigo")
       // quemPagou vem minúsculo do select → capitalizar para casar com a categoria
       const quemFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
       const catFiadoPessoa = App.getCategorias().find(c => c.nome === `Fiado ${quemFmt}`)?.id || '';
+      // grupo_id único para vincular as 3 parcelas — permite exclusão em conjunto
+      const grupoId = (crypto?.randomUUID?.() ||
+        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        }));
       Loading.show();
       // Para fiado integrado: a despesa real e a receita-fiado entram/saem
       // numa "conta virtual" do colaborador (não na conta da empresa).
       // 1ª parcela — A despesa real (saiu do caixa)
       const desp = await API.db.create('parcelas', {
-        tipo: 'pagar', origem: 'fiado_pago', origem_id: '',
+        tipo: 'pagar', origem: 'fiado_pago', origem_id: '', grupo_id: grupoId,
         cliente_id: cliente, descricao: desc, valor,
         data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
         status: 'pago', categoria_id: categoria, conta_id: '', observacoes: obs,
       });
       // 2ª parcela — A receita-fiado (entrou no caixa, do bolso)
       const rec = await API.db.create('parcelas', {
-        tipo: 'receber', origem: 'fiado_pago', origem_id: '',
+        tipo: 'receber', origem: 'fiado_pago', origem_id: '', grupo_id: grupoId,
         cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${desc}`, valor,
         data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
         status: 'pago', categoria_id: catDevFiado, conta_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
       });
       // 3ª parcela — A pagar de reembolso (futuro)
       const reemb = await API.db.create('parcelas', {
-        tipo: 'pagar', origem: 'fiado', origem_id: '',
+        tipo: 'pagar', origem: 'fiado', origem_id: '', grupo_id: grupoId,
         cliente_id: '', descricao: `Reembolso ${quemPagou}: ${desc}`, valor,
         data_competencia: compFull, data_vencimento: venc || dataPago, data_pagamento: '',
         status: 'pendente', categoria_id: catFiadoPessoa, conta_id: '', observacoes: obs,
@@ -647,20 +762,33 @@ const Financeiro = (() => {
 
   async function excluirParcela(id) {
     const p = allParcelas.find(x => x.id === id);
-    const aviso = p?.origem === 'os' || p?.origem === 'compra'
-      ? `Esta parcela foi gerada por uma ${p.origem === 'os' ? 'OS' : 'compra'}. Excluir aqui remove só o lançamento financeiro — a ${p.origem === 'os' ? 'OS' : 'compra'} continua. Continuar?`
-      : 'Excluir este lançamento? Esta ação não pode ser desfeita.';
+
+    // Calcula quantas parcelas do mesmo grupo existem (para exibir aviso correto)
+    const grupoCount = p?.grupo_id
+      ? allParcelas.filter(x => x.grupo_id === p.grupo_id).length
+      : 0;
+
+    let aviso;
+    if (p?.origem === 'os') {
+      aviso = 'Esta parcela foi gerada por uma OS. Excluir remove só o lançamento financeiro — a OS continua. Continuar?';
+    } else if (p?.origem === 'transferencia' || (grupoCount >= 2)) {
+      const total = grupoCount >= 2 ? grupoCount : 2;
+      aviso = `Este lançamento faz parte de um grupo (${total} parcelas relacionadas). Todas serão excluídas juntas. Continuar?`;
+    } else if (p?.origem === 'compra') {
+      aviso = 'Esta parcela foi gerada por uma compra. Todas as parcelas desta compra serão excluídas. Continuar?';
+    } else if (p?.origem === 'fiado' || p?.origem === 'fiado_pago') {
+      aviso = 'Excluir este lançamento de fiado? Os registros relacionados também serão removidos.';
+    } else {
+      aviso = 'Excluir este lançamento? Esta ação não pode ser desfeita.';
+    }
+
     Modal.confirm(aviso, async () => {
-      const ops = [{ action: 'delete', sheet: 'parcelas', id }];
-      // Se for parcela de fiado, remove o registro fiado também pra manter sincronia
-      if (p && p.origem === 'fiado' && p.origem_id) {
-        ops.push({ action: 'delete', sheet: 'fiado', id: p.origem_id });
-      }
       Loading.show();
-      const res = await API.db.batch(ops);
+      const res = await API.db.excluirLancamento(id);
       Loading.hide();
-      if (!res?.success) { Toast.error('Erro ao excluir'); return; }
-      Toast.success('Excluído');
+      if (!res?.success) { Toast.error('Erro ao excluir: ' + (res?.error || '')); return; }
+      const qtd = res.deleted || 1;
+      Toast.success(qtd > 1 ? `${qtd} lançamentos excluídos` : 'Excluído');
       await loadData(); filtrar();
     });
   }
@@ -693,12 +821,18 @@ const Financeiro = (() => {
     const destinoNome = contas.find(c => c.id === destino)?.nome || '';
     const desc = `Transferência: ${origemNome} → ${destinoNome}`;
     const comp = data.substring(0, 7) + '-01';
+    // grupo_id une as 2 parcelas da transferência para exclusão em conjunto
+    const grupoTransf = (crypto?.randomUUID?.() ||
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      }));
 
     Loading.show();
     const res = await API.db.batch([
       // Saída da conta origem
       { action: 'create', sheet: 'parcelas', data: {
-          tipo: 'pagar', origem: 'transferencia', origem_id: '',
+          tipo: 'pagar', origem: 'transferencia', origem_id: '', grupo_id: grupoTransf,
           cliente_id: '', descricao: desc, valor,
           data_competencia: comp, data_vencimento: data,
           data_pagamento: data, status: 'pago',
@@ -706,7 +840,7 @@ const Financeiro = (() => {
       }},
       // Entrada na conta destino
       { action: 'create', sheet: 'parcelas', data: {
-          tipo: 'receber', origem: 'transferencia', origem_id: '',
+          tipo: 'receber', origem: 'transferencia', origem_id: '', grupo_id: grupoTransf,
           cliente_id: '', descricao: desc, valor,
           data_competencia: comp, data_vencimento: data,
           data_pagamento: data, status: 'pago',
@@ -729,5 +863,6 @@ const Financeiro = (() => {
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
            openTransferencia, salvarTransferencia,
+           toggleParcelado,
            editarParcela, excluirParcela, tapParcela };
 })();

@@ -90,11 +90,21 @@ const Clientes = (() => {
       API.db.read('os', null, { cliente_id: id }),
       API.db.read('parcelas', null, { cliente_id: id }),
     ]);
-    const osList   = (osRes?.data  || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
+    const osList   = (osRes?.data || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
+    const allParc  = parRes?.data || [];
     const _origemFiado = o => o === 'fiado' || o === 'fiado_pago' || o === 'transferencia';
-    const parcelas = (parRes?.data || [])
-      .filter(p => !_origemFiado(p.origem))
-      .sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
+    const isForn   = c.tipo === 'fornecedor';
+
+    // ── Fornecedor: todos os lançamentos a pagar (sem filtro de origem) ──
+    const fornPagar     = allParc.filter(p => p.tipo === 'pagar')
+                                  .sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
+    const valorComprado = fornPagar.reduce((s, p) => s + Number(p.valor||0), 0);
+    const valorPago     = fornPagar.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
+    const valorAPagar   = fornPagar.filter(p => p.status === 'pendente').reduce((s, p) => s + Number(p.valor||0), 0);
+
+    // ── Cliente: parcelas filtradas (sem fiado/transferência) ──
+    const parcelas        = allParc.filter(p => !_origemFiado(p.origem))
+                                    .sort((a, b) => a.data_vencimento > b.data_vencimento ? -1 : 1);
     const totalRec        = parcelas.filter(p => p.tipo === 'receber').reduce((s, p) => s + Number(p.valor||0), 0);
     const totalPag        = parcelas.filter(p => p.tipo === 'pagar').reduce((s, p) => s + Number(p.valor||0), 0);
     const totalRecebido   = parcelas.filter(p => p.tipo === 'receber' && p.status === 'pago').reduce((s, p) => s + Number(p.valor||0), 0);
@@ -123,49 +133,74 @@ const Clientes = (() => {
         <div class="card">
           <div class="card-header"><h3>Financeiro</h3></div>
           <div class="card-body">
-            ${totalRec > 0 ? `
-            <div class="info-row"><span>Total Faturado</span><strong>${Fmt.currency(totalRec)}</strong></div>
-            <div class="info-row"><span>Recebido</span><strong class="text-green">${Fmt.currency(totalRecebido)}</strong></div>
-            <div class="info-row"><span>A Receber</span><strong class="${saldoReceberPend > 0 ? 'text-orange' : 'text-muted'}">${Fmt.currency(saldoReceberPend)}</strong></div>
-            ` : ''}
-            ${totalPag > 0 ? `
-            <div class="info-row" style="${totalRec > 0 ? 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)' : ''}"><span>Total Compras</span><strong>${Fmt.currency(totalPag)}</strong></div>
-            <div class="info-row"><span>Pago a Fornecedor</span><strong class="text-blue">${Fmt.currency(totalPagoForn)}</strong></div>
-            <div class="info-row"><span>Saldo a Pagar</span><strong class="${saldoPagarPend > 0 ? 'text-red' : 'text-muted'}">${Fmt.currency(saldoPagarPend)}</strong></div>
-            ` : ''}
-            ${totalRec === 0 && totalPag === 0 ? `<div class="entity-empty" style="padding:8px 0">Sem movimentações</div>` : ''}
+            ${isForn ? `
+              ${fornPagar.length === 0 ? `
+                <div class="entity-empty" style="padding:8px 0">Sem movimentações</div>
+              ` : `
+                <div class="stats-grid">
+                  <div class="stat-card stat-blue">
+                    <div class="stat-label">Total Comprado</div>
+                    <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(valorComprado)}</div>
+                    <div class="stat-sub">${fornPagar.length} lançamento(s)</div>
+                  </div>
+                  <div class="stat-card stat-green">
+                    <div class="stat-label">Total Pago</div>
+                    <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(valorPago)}</div>
+                  </div>
+                </div>
+                <div class="stat-card ${valorAPagar > 0 ? 'stat-red' : 'stat-green'}" style="margin-top:8px">
+                  <div class="stat-label">A Pagar</div>
+                  <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(valorAPagar)}</div>
+                </div>
+              `}
+            ` : `
+              ${totalRec > 0 ? `
+              <div class="info-row"><span>Total Faturado</span><strong>${Fmt.currency(totalRec)}</strong></div>
+              <div class="info-row"><span>Recebido</span><strong class="text-green">${Fmt.currency(totalRecebido)}</strong></div>
+              <div class="info-row"><span>A Receber</span><strong class="${saldoReceberPend > 0 ? 'text-orange' : 'text-muted'}">${Fmt.currency(saldoReceberPend)}</strong></div>
+              ` : ''}
+              ${totalPag > 0 ? `
+              <div class="info-row" style="${totalRec > 0 ? 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)' : ''}"><span>Total Compras</span><strong>${Fmt.currency(totalPag)}</strong></div>
+              <div class="info-row"><span>Pago a Fornecedor</span><strong class="text-blue">${Fmt.currency(totalPagoForn)}</strong></div>
+              <div class="info-row"><span>Saldo a Pagar</span><strong class="${saldoPagarPend > 0 ? 'text-red' : 'text-muted'}">${Fmt.currency(saldoPagarPend)}</strong></div>
+              ` : ''}
+              ${totalRec === 0 && totalPag === 0 ? `<div class="entity-empty" style="padding:8px 0">Sem movimentações</div>` : ''}
+            `}
           </div>
         </div>
       </div>
 
+      ${osList.length > 0 ? `
       <div class="card mt-4">
         <div class="card-header"><h3>Ordens de Serviço</h3></div>
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-          ${osList.length === 0
-            ? '<div class="entity-empty">Nenhuma OS</div>'
-            : osList.map(o => `
-              <div class="entity-item" onclick="App.navigate('os', {id:'${o.id}'})">
-                <div class="avatar avatar-sm ${o.status === 'fechado' ? 'av-green' : o.status === 'andamento' ? 'av-blue' : 'av-orange'} avatar-icon">🔧</div>
-                <div class="entity-info">
-                  <div class="entity-name">${o.numero}</div>
-                  <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
-                  <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
-                </div>
-                <div class="entity-right">
-                  ${o.valor_fechamento ? `<span class="entity-value">${Fmt.currency(o.valor_fechamento)}</span>` : ''}
-                  <span class="entity-chevron">›</span>
-                </div>
+          ${osList.map(o => `
+            <div class="entity-item" onclick="App.navigate('os', {id:'${o.id}'})">
+              <div class="avatar avatar-sm ${o.status === 'fechado' ? 'av-green' : o.status === 'andamento' ? 'av-blue' : 'av-orange'} avatar-icon">🔧</div>
+              <div class="entity-info">
+                <div class="entity-name">${o.numero}</div>
+                <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
+                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
               </div>
-            `).join('')}
+              <div class="entity-right">
+                ${o.valor_fechamento ? `<span class="entity-value">${Fmt.currency(o.valor_fechamento)}</span>` : ''}
+                <span class="entity-chevron">›</span>
+              </div>
+            </div>
+          `).join('')}
         </div>
       </div>
+      ` : ''}
 
       <div class="card mt-4">
-        <div class="card-header"><h3>Movimentações</h3></div>
+        <div class="card-header">
+          <h3>${isForn ? 'Lançamentos' : 'Movimentações'}</h3>
+          ${isForn && fornPagar.length > 0 ? `<span class="badge badge-secondary">${fornPagar.length}</span>` : ''}
+        </div>
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-          ${parcelas.length === 0
+          ${(isForn ? fornPagar : parcelas).length === 0
             ? '<div class="entity-empty">Nenhuma movimentação</div>'
-            : parcelas.map(p => `
+            : (isForn ? fornPagar : parcelas).map(p => `
               <div class="entity-item">
                 <div class="avatar avatar-sm ${p.tipo==='receber'?'av-green':'av-red'} avatar-icon">${p.tipo==='receber'?'↓':'↑'}</div>
                 <div class="entity-info">

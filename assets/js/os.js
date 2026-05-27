@@ -215,21 +215,22 @@ const OS = (() => {
       <div class="card mb-3">
         <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div><div class="info-label">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
-          <div>
+          <div><div class="info-label">Início</div><strong>${Fmt.date(currentOS.data_inicio)}</strong></div>
+          ${currentOS.data_fim ? `<div><div class="info-label">Fim</div><strong>${Fmt.date(currentOS.data_fim)}</strong></div>` : ''}
+          <!-- Status em linha inteira para não ficar apertado no mobile -->
+          <div style="grid-column:1/-1">
             <div class="info-label">Status</div>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               ${statusBadge(currentOS.status)}
               <select onchange="OS.mudarStatus(this.value)"
-                style="font-size:.75rem;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer">
-                <option value="" disabled selected>alterar…</option>
+                style="padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;min-width:140px">
+                <option value="" disabled selected>alterar status…</option>
                 <option value="andamento">Em Andamento</option>
                 <option value="acerto">Em Acerto</option>
                 <option value="fechado">Fechado</option>
               </select>
             </div>
           </div>
-          <div><div class="info-label">Início</div><strong>${Fmt.date(currentOS.data_inicio)}</strong></div>
-          ${currentOS.data_fim ? `<div><div class="info-label">Fim</div><strong>${Fmt.date(currentOS.data_fim)}</strong></div>` : '<div></div>'}
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
         </div>
@@ -589,7 +590,7 @@ const OS = (() => {
 
   function renderItens(itens) {
     if (itens.length === 0) return '<p class="p-3 text-muted">Nenhum item</p>';
-    return `<table class="table">
+    return `<div class="table-responsive"><table class="table">
       <thead><tr><th>Tipo</th><th>Descrição</th><th>Qtd</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
       <tbody>
         ${itens.map(i => `
@@ -599,14 +600,14 @@ const OS = (() => {
             <td>${i.quantidade}</td>
             <td>${Fmt.currency(i.valor_unit)}</td>
             <td>${Fmt.currency(i.valor_total)}</td>
-            <td>
+            <td style="white-space:nowrap">
               <button class="btn btn-sm btn-outline" onclick="OS.openItemForm('${i.id}')">Editar</button>
               <button class="btn btn-sm btn-danger"  onclick="OS.deleteItem('${i.id}')">✕</button>
             </td>
           </tr>
         `).join('')}
       </tbody>
-    </table>`;
+    </table></div>`;
   }
 
   // ─── FORM OS ────────────────────────────────────────────
