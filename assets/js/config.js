@@ -147,6 +147,7 @@ const Config = (() => {
                     <td><span class="badge ${c.tipo==='entrada'?'badge-success':c.tipo==='saida'?'badge-danger':c.tipo==='os'?'badge-info':'badge-secondary'}">${c.tipo}</span></td>
                     <td>${c.ativo !== false && c.ativo !== 'false' ? '✓' : '—'}</td>
                     <td>
+                      <button class="btn btn-sm btn-outline" onclick="Config.openCatForm('${c.id}')">Editar</button>
                       <button class="btn btn-sm btn-danger" onclick="Config.toggleCat('${c.id}', ${c.ativo})">
                         ${c.ativo !== false && c.ativo !== 'false' ? 'Desativar' : 'Ativar'}
                       </button>
@@ -244,9 +245,14 @@ const Config = (() => {
     await loadData(); renderView();
   }
 
-  function openCatForm() {
-    qs('#cat-form-nome').value = '';
-    qs('#cat-form-tipo').value = 'ambos';
+  let _editCatId = '';
+  function openCatForm(id = '') {
+    _editCatId = id;
+    const cat = id ? allCategorias.find(x => x.id === id) : null;
+    qs('#cat-form-nome').value = cat?.nome || '';
+    qs('#cat-form-tipo').value = cat?.tipo || 'ambos';
+    qs('#cat-form-title').textContent = cat ? 'Editar Categoria' : 'Nova Categoria';
+    qs('#cat-save-btn').textContent   = cat ? 'Salvar' : 'Criar';
     Modal.open('modal-categoria');
   }
 
@@ -255,10 +261,15 @@ const Config = (() => {
     const tipo = qs('#cat-form-tipo').value;
     if (!nome) { Toast.warning('Informe o nome'); return; }
     Loading.show();
-    await API.db.create('categorias', { nome, tipo, ativo: true });
+    if (_editCatId) {
+      await API.db.update('categorias', _editCatId, { nome, tipo });
+    } else {
+      await API.db.create('categorias', { nome, tipo, ativo: true });
+    }
     Loading.hide();
-    Toast.success('Categoria criada!');
+    Toast.success(_editCatId ? 'Categoria atualizada!' : 'Categoria criada!');
     Modal.close('modal-categoria');
+    _editCatId = '';
     await loadData();
     await App.loadGlobals();
     renderView();
