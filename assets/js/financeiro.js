@@ -80,22 +80,18 @@ const Financeiro = (() => {
 
   function renderParcelas(tipo) {
     const mesAtual = new Date().toISOString().substring(0, 7);
-    let items = allParcelas.filter(p => p.tipo === tipo);
 
-    // Transferências são movimentações internas — não contam como receita/despesa real
-    const itemsReais    = items.filter(p => p.origem !== 'transferencia');
-    const totalPendente = itemsReais.filter(p => p.status === 'pendente').reduce((s, p) => s + Number(p.valor || 0), 0);
-    const totalPago     = itemsReais.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
-
+    // Os totais dos cards são calculados em _renderTable() com base nos itens
+    // já filtrados por mês/status/regime — não do total geral do sistema.
     qs('#fin-content').innerHTML = `
       <div class="stats-grid mb-4">
         <div class="stat-card stat-${tipo === 'receber' ? 'green' : 'red'}">
           <div class="stat-label">Total Pendente</div>
-          <div class="stat-value">${Fmt.currency(totalPendente)}</div>
+          <div class="stat-value" id="stat-pendente">—</div>
         </div>
         <div class="stat-card stat-blue">
           <div class="stat-label">${tipo === 'receber' ? 'Total Recebido' : 'Total Pago'}</div>
-          <div class="stat-value">${Fmt.currency(totalPago)}</div>
+          <div class="stat-value" id="stat-pago">—</div>
         </div>
       </div>
       ${_filtroVenc7d ? `
@@ -183,6 +179,13 @@ const Financeiro = (() => {
     const tipo  = currentTab;
     const isRec = tipo === 'receber';
     const items = _lastFiltered;
+
+    // Atualiza os cards com os totais do período filtrado (exclui transferências)
+    const reais   = items.filter(p => p.origem !== 'transferencia');
+    const elPend  = qs('#stat-pendente');
+    const elPago  = qs('#stat-pago');
+    if (elPend) elPend.textContent = Fmt.currency(reais.filter(p => p.status === 'pendente').reduce((s, p) => s + Number(p.valor || 0), 0));
+    if (elPago) elPago.textContent = Fmt.currency(reais.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0));
 
     if (items.length === 0) {
       qs('#fin-table').innerHTML = '<div class="entity-empty">Nenhum lançamento encontrado</div>';
