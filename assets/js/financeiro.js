@@ -685,15 +685,83 @@ const Financeiro = (() => {
     qs('#pag-valor').textContent = Fmt.currency(p.valor);
     qs('#pag-data').value        = DateUtil.today();
     qs('#pag-conta').innerHTML   = App.contaOptions(p.conta_id || '', 'Selecione conta...');
+    // Fiado só faz sentido para despesas (tipo=pagar)
+    const quemWrap = qs('#pag-quempagou-wrap');
+    if (quemWrap) quemWrap.style.display = p.tipo === 'pagar' ? '' : 'none';
+    if (qs('#pag-quempagou')) qs('#pag-quempagou').value = '';
+    if (qs('#pag-conta-wrap')) qs('#pag-conta-wrap').style.display = '';
+    if (qs('#pag-fiado-hint')) qs('#pag-fiado-hint').style.display = 'none';
     Modal.open('modal-pagamento');
   }
 
+  function refreshPagQuemPagouVisibility() {
+    const quem     = qs('#pag-quempagou')?.value || '';
+    const contaWrap = qs('#pag-conta-wrap');
+    const hint      = qs('#pag-fiado-hint');
+    if (contaWrap) contaWrap.style.display = quem ? 'none' : '';
+    if (hint)      hint.style.display      = quem ? 'block' : 'none';
+  }
+
   async function confirmarPagamento() {
-    const id     = qs('#pag-parcela-id').value;
-    const data   = qs('#pag-data').value;
-    const conta  = qs('#pag-conta').value;
-    if (!data)  { Toast.warning('Informe a data de pagamento'); return; }
-    if (!conta) { Toast.warning('Selecione a conta'); return; }
+    const id        = qs('#pag-parcela-id').value;
+    const data      = qs('#pag-data').value;
+    const conta     = qs('#pag-conta').value;
+    const quemPagou = qs('#pag-quempagou')?.value || '';
+
+    if (!data) { Toast.warning('Informe a data de pagamento'); return; }
+    if (!quemPagou && !conta) { Toast.warning('Selecione a conta'); return; }
+
+    // ── Caminho fiado: colaborador pagou do bolso ──────────────
+    if (quemPagou) {
+      const p = allParcelas.find(x => x.id === id);
+      if (!p) return;
+      const quemFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
+      const compStr = data.substring(0, 7) + '-01';
+      const catFiado      = App.getCategorias().find(c => c.nome === 'Fiado')?.id
+                         || App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
+      const catFiadoPessoa= App.getCategorias().find(c => c.nome === `Fiado ${quemFmt}`)?.id || '';
+      const grupoId = (crypto?.randomUUID?.() ||
+        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        }));
+
+      Loading.show();
+      // 1. Marca a despesa original como paga (pelo colaborador — sem conta da empresa)
+      await API.db.update('parcelas', id, { status: 'pago', data_pagamento: data, conta_id: '' });
+      // 2. Receita-fiado: dinheiro que "entrou" do bolso do colaborador
+      await API.db.create('parcelas', {
+        tipo: 'receber', origem: 'fiado_pago', origem_id: '', grupo_id: grupoId,
+        cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${p.descricao}`, valor: p.valor,
+        data_competencia: compStr, data_vencimento: data, data_pagamento: data,
+        status: 'pago', categoria_id: catFiado, conta_id: '', observacoes: '',
+      });
+      // 3. Reembolso: empresa deve ao colaborador
+      const reemb = await API.db.create('parcelas', {
+        tipo: 'pagar', origem: 'fiado', origem_id: '', grupo_id: grupoId,
+        cliente_id: '', descricao: `Reembolso ${quemFmt}: ${p.descricao}`, valor: p.valor,
+        data_competencia: compStr, data_vencimento: data, data_pagamento: '',
+        status: 'pendente', categoria_id: catFiadoPessoa, conta_id: '', observacoes: '',
+      });
+      // 4. Registro fiado vinculado ao reembolso
+      if (reemb?.data?.id) {
+        const fia = await API.db.create('fiado', {
+          pessoa: quemPagou, descricao: p.descricao, valor: p.valor, data,
+          parcela_pagar_id: reemb.data.id, status: 'pendente', observacoes: '',
+        });
+        if (fia?.data?.id) {
+          await API.db.update('parcelas', reemb.data.id, { origem_id: fia.data.id });
+        }
+      }
+      Loading.hide();
+      Toast.success(`Fiado ${quemFmt} registrado! Reembolso pendente criado.`);
+      Modal.close('modal-pagamento');
+      await loadData();
+      filtrar();
+      return;
+    }
+
+    // ── Caminho normal ──────────────────────────────────────────
     Loading.show();
     const res = await API.db.pagarParcela({ parcela_id: id, data_pagamento: data, conta_id: conta });
     Loading.hide();
@@ -862,6 +930,7 @@ const Financeiro = (() => {
   return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento,
+           refreshPagQuemPagouVisibility,
            openTransferencia, salvarTransferencia,
            toggleParcelado,
            editarParcela, excluirParcela, tapParcela };
