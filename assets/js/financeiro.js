@@ -10,6 +10,13 @@ const Financeiro = (() => {
   const PAGE_SIZE   = 30;
   let _filtroVenc7d = false; // quando true, mostra só vencendo nos próximos 7 dias
 
+  // Estado dos filtros persistido entre tabs
+  let _filtros = {
+    busca: '', mes: '', status: '', regime: 'competencia',
+    categoria: '', cliente: '', conta: '', sort: 'venc_desc',
+  };
+  let _filterOpen = false;
+
   async function render(params = {}) {
     if (!LocalConfig.getUrl()) {
       const section = qs('#page-financeiro');
@@ -21,9 +28,9 @@ const Financeiro = (() => {
       return;
     }
     // Ao entrar no módulo: reseta filtro especial e volta para aba receber
-    // (evita ficar preso em 'resumo' de uma visita anterior)
     _filtroVenc7d = params.filtro === 'vencendo7d';
     currentTab = 'receber';
+    _filtros.mes = new Date().toISOString().substring(0, 7);
     // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
     await Promise.all([loadData(), App.loadGlobals()]);
     renderView();
@@ -38,7 +45,6 @@ const Financeiro = (() => {
 
   function renderView() {
     const section = qs('#page-financeiro');
-    const mes = new Date().toISOString().substring(0, 7);
 
     section.innerHTML = `
       <div class="section-tabs">
@@ -79,46 +85,108 @@ const Financeiro = (() => {
   }
 
   function renderParcelas(tipo) {
-    const mesAtual = new Date().toISOString().substring(0, 7);
+    const isRec = tipo === 'receber';
 
-    // Os totais dos cards são calculados em _renderTable() com base nos itens
-    // já filtrados por mês/status/regime — não do total geral do sistema.
     qs('#fin-content').innerHTML = `
-      <div class="stats-grid mb-4">
-        <div class="stat-card stat-${tipo === 'receber' ? 'green' : 'red'}">
-          <div class="stat-label">Total Pendente</div>
+      <div class="stats-grid-4">
+        <div class="stat-card stat-${isRec ? 'gold' : 'orange'}">
+          <div class="stat-label">Pendente</div>
           <div class="stat-value" id="stat-pendente">—</div>
+          <div class="stat-sub" id="stat-pendente-ct"></div>
         </div>
-        <div class="stat-card stat-blue">
-          <div class="stat-label">${tipo === 'receber' ? 'Total Recebido' : 'Total Pago'}</div>
+        <div class="stat-card stat-red">
+          <div class="stat-label">Vencido</div>
+          <div class="stat-value" id="stat-vencido">—</div>
+          <div class="stat-sub" id="stat-vencido-ct"></div>
+        </div>
+        <div class="stat-card stat-${isRec ? 'green' : 'blue'}">
+          <div class="stat-label">${isRec ? 'Recebido' : 'Pago'}</div>
           <div class="stat-value" id="stat-pago">—</div>
+          <div class="stat-sub" id="stat-pago-ct"></div>
+        </div>
+        <div class="stat-card stat-navy">
+          <div class="stat-label">7 dias</div>
+          <div class="stat-value" id="stat-7d">—</div>
+          <div class="stat-sub" id="stat-7d-ct"></div>
         </div>
       </div>
+
       ${_filtroVenc7d ? `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0 4px;flex-wrap:wrap">
-        <span style="background:var(--warning-lt,#fff3cd);color:var(--warning,#856404);border:1px solid currentColor;border-radius:20px;padding:4px 12px;font-size:.82rem;font-weight:600;display:flex;align-items:center;gap:6px">
-          ⏰ Vencendo nos próximos 7 dias
-          <button type="button" onclick="Financeiro.limparFiltroVenc7d()"
-            style="background:none;border:none;cursor:pointer;font-size:1rem;line-height:1;padding:0;color:inherit">×</button>
-        </span>
-      </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 0 10px;flex-wrap:wrap">
+          <span style="background:var(--warning-lt);color:var(--warning);border:1px solid currentColor;border-radius:20px;padding:4px 12px;font-size:.82rem;font-weight:600;display:flex;align-items:center;gap:6px">
+            ⏰ Vencendo nos próximos 7 dias
+            <button type="button" onclick="Financeiro.limparFiltroVenc7d()"
+              style="background:none;border:none;cursor:pointer;font-size:1rem;line-height:1;padding:0;color:inherit">×</button>
+          </span>
+        </div>
       ` : `
-      <div class="filters-bar">
-        <input type="month" id="fin-mes" class="input-select" value="${mesAtual}" onchange="Financeiro.filtrar()">
-        <select id="fin-status" class="input-select" onchange="Financeiro.filtrar()">
-          <option value="">Todos</option>
-          <option value="pendente">Pendente</option>
-          <option value="pago">Pago</option>
-          <option value="cancelado">Cancelado</option>
-        </select>
-        <select id="fin-regime" class="input-select" onchange="Financeiro.filtrar()">
-          <option value="competencia">Competência</option>
-          <option value="caixa">Caixa</option>
-        </select>
-      </div>
+        <div class="fin-search-row">
+          <input type="search" id="fin-busca" class="input-search" placeholder="Buscar descrição..."
+            value="${_filtros.busca}" oninput="Financeiro.onBuscaInput(this.value)">
+          <button class="btn-filter-toggle ${_filterOpen ? 'active' : ''}" id="btn-filter-toggle"
+            onclick="Financeiro.toggleFilterPanel()">
+            Filtros <span id="filter-badge-wrap"></span>
+          </button>
+        </div>
+        <div id="fin-filter-panel" class="fin-filter-panel" style="${_filterOpen ? '' : 'display:none'}">
+          <div class="form-group">
+            <label>Mês</label>
+            <input type="month" id="fin-mes" value="${_filtros.mes}" onchange="Financeiro.onFilterChange()">
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="fin-status" onchange="Financeiro.onFilterChange()">
+              <option value="">Todos</option>
+              <option value="pendente" ${_filtros.status==='pendente'?'selected':''}>Pendente</option>
+              <option value="pago"     ${_filtros.status==='pago'?'selected':''}>Pago</option>
+              <option value="cancelado"${_filtros.status==='cancelado'?'selected':''}>Cancelado</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Regime</label>
+            <select id="fin-regime" onchange="Financeiro.onFilterChange()">
+              <option value="competencia" ${_filtros.regime==='competencia'?'selected':''}>Competência</option>
+              <option value="caixa"       ${_filtros.regime==='caixa'?'selected':''}>Caixa</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="fin-categoria" onchange="Financeiro.onFilterChange()">
+              <option value="">Todas</option>
+              ${App.getCategorias().filter(c => c.tipo === (isRec ? 'entrada' : 'saida') || c.tipo === 'ambos')
+                .map(c => `<option value="${c.id}" ${_filtros.categoria===c.id?'selected':''}>${c.nome}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>${isRec ? 'Cliente' : 'Fornecedor'}</label>
+            <select id="fin-cliente" onchange="Financeiro.onFilterChange()">
+              <option value="">Todos</option>
+              ${App.getClientes().map(c => `<option value="${c.id}" ${_filtros.cliente===c.id?'selected':''}>${c.nome}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Conta</label>
+            <select id="fin-conta" onchange="Financeiro.onFilterChange()">
+              <option value="">Todas</option>
+              ${App.getContas().map(c => `<option value="${c.id}" ${_filtros.conta===c.id?'selected':''}>${c.nome}</option>`).join('')}
+            </select>
+          </div>
+          <div class="full-col" style="display:flex;justify-content:flex-end">
+            <button class="btn btn-outline btn-sm" onclick="Financeiro.limparFiltros()">Limpar filtros</button>
+          </div>
+        </div>
+        <div id="fin-active-chips" class="fin-active-chips"></div>
       `}
+
+      <div id="fin-sort-row" class="fin-sort-row">
+        <span class="count-label" id="fin-count"></span>
+        <button class="btn-sort" onclick="Financeiro.toggleSort()" id="btn-sort" title="Ordenar">
+          <span id="sort-label">Data ↓</span>
+        </button>
+      </div>
+
       <div class="card">
-        <div id="fin-table" class="table-responsive"></div>
+        <div id="fin-table"></div>
       </div>
     `;
     filtrar();
@@ -129,44 +197,168 @@ const Financeiro = (() => {
     renderView();
   }
 
-  function filtrar() {
-    const tipo    = currentTab;
-    const mes     = qs('#fin-mes')?.value || '';
-    const status  = qs('#fin-status')?.value || '';
-    const regime  = qs('#fin-regime')?.value || 'competencia';
+  function onBuscaInput(val) {
+    _filtros.busca = val;
+    filtrar();
+  }
 
-    let items = allParcelas.filter(p => p.tipo === tipo);
+  function onFilterChange() {
+    _filtros.mes       = qs('#fin-mes')?.value       || '';
+    _filtros.status    = qs('#fin-status')?.value    || '';
+    _filtros.regime    = qs('#fin-regime')?.value    || 'competencia';
+    _filtros.categoria = qs('#fin-categoria')?.value || '';
+    _filtros.cliente   = qs('#fin-cliente')?.value   || '';
+    _filtros.conta     = qs('#fin-conta')?.value     || '';
+    filtrar();
+  }
+
+  function toggleFilterPanel() {
+    _filterOpen = !_filterOpen;
+    const panel = qs('#fin-filter-panel');
+    const btn   = qs('#btn-filter-toggle');
+    if (panel) panel.style.display = _filterOpen ? '' : 'none';
+    if (btn)   btn.classList.toggle('active', _filterOpen);
+  }
+
+  function limparFiltros() {
+    _filtros.busca = ''; _filtros.status = ''; _filtros.categoria = '';
+    _filtros.cliente = ''; _filtros.conta = '';
+    _filtros.mes = new Date().toISOString().substring(0, 7);
+    _filtros.regime = 'competencia';
+    renderParcelas(currentTab);
+  }
+
+  function toggleSort() {
+    const order = {
+      venc_desc: 'venc_asc', venc_asc: 'valor_desc',
+      valor_desc: 'valor_asc', valor_asc: 'venc_desc',
+    };
+    _filtros.sort = order[_filtros.sort] || 'venc_desc';
+    _renderTable();
+    const labels = {
+      venc_desc: 'Data ↓', venc_asc: 'Data ↑',
+      valor_desc: 'Valor ↓', valor_asc: 'Valor ↑',
+    };
+    const el = qs('#sort-label');
+    if (el) el.textContent = labels[_filtros.sort];
+  }
+
+  function filtrar() {
+    const tipo = currentTab;
+    let items  = allParcelas.filter(p => p.tipo === tipo);
+
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const em7  = new Date(hoje); em7.setDate(em7.getDate() + 7);
+
+    // Sempre atualiza os stat cards com todos os do tipo (sem filtro de período)
+    const todosDoTipo = items.filter(p => p.origem !== 'transferencia');
+    const pendentes   = todosDoTipo.filter(p => p.status === 'pendente');
+    const vencidos    = pendentes.filter(p => new Date(p.data_vencimento + 'T00:00:00') < hoje);
+    const proximos7d  = pendentes.filter(p => {
+      const d = new Date(p.data_vencimento + 'T00:00:00');
+      return d >= hoje && d <= em7;
+    });
+    const pagos = todosDoTipo.filter(p => p.status === 'pago');
+    const sum   = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
+
+    _updateStat('stat-pendente', sum(pendentes), pendentes.length);
+    _updateStat('stat-vencido',  sum(vencidos),  vencidos.length);
+    _updateStat('stat-pago',     sum(pagos),     pagos.length);
+    _updateStat('stat-7d',       sum(proximos7d),proximos7d.length);
 
     if (_filtroVenc7d) {
-      // Filtro especial: pendentes vencendo nos próximos 7 dias
-      const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-      const em7  = new Date(hoje); em7.setDate(em7.getDate() + 7);
-      items = items.filter(p => {
-        if (p.status !== 'pendente') return false;
+      items = pendentes.filter(p => {
         const d = new Date(p.data_vencimento + 'T00:00:00');
         return d >= hoje && d <= em7;
       });
-      // Ordena do mais próximo ao mais distante
       items = [...items].sort((a, b) => (a.data_vencimento < b.data_vencimento ? -1 : 1));
-    } else {
-      if (status) items = items.filter(p => p.status === status);
-      if (mes) {
-        if (regime === 'competencia') {
-          items = items.filter(p => String(p.data_competencia || '').substring(0, 7) === mes);
-        } else {
-          items = items.filter(p => {
-            if (p.status === 'pago') return String(p.data_pagamento || '').substring(0, 7) === mes;
-            return String(p.data_vencimento || '').substring(0, 7) === mes;
-          });
-        }
+      _lastFiltered = items;
+      _visibleCount = PAGE_SIZE;
+      _renderTable();
+      return;
+    }
+
+    // Filtros principais
+    const mes      = _filtros.mes;
+    const status   = _filtros.status;
+    const regime   = _filtros.regime;
+    const busca    = (_filtros.busca || '').toLowerCase().trim();
+    const catId    = _filtros.categoria;
+    const cliId    = _filtros.cliente;
+    const contaId  = _filtros.conta;
+
+    if (status)   items = items.filter(p => p.status === status);
+    if (catId)    items = items.filter(p => p.categoria_id === catId);
+    if (cliId)    items = items.filter(p => p.cliente_id   === cliId);
+    if (contaId)  items = items.filter(p => p.conta_id     === contaId);
+    if (busca)    items = items.filter(p => (p.descricao || '').toLowerCase().includes(busca));
+
+    if (mes) {
+      if (regime === 'competencia') {
+        items = items.filter(p => String(p.data_competencia || '').substring(0, 7) === mes);
+      } else {
+        items = items.filter(p => {
+          if (p.status === 'pago') return String(p.data_pagamento || '').substring(0, 7) === mes;
+          return String(p.data_vencimento || '').substring(0, 7) === mes;
+        });
       }
-      // Mais recente primeiro
-      items = [...items].sort((a, b) => (a.data_vencimento > b.data_vencimento ? -1 : 1));
     }
 
     _lastFiltered = items;
     _visibleCount = PAGE_SIZE;
+    _updateChips();
     _renderTable();
+  }
+
+  function _updateStat(id, valor, count) {
+    const el   = qs('#' + id);
+    const elCt = qs('#' + id + '-ct');
+    if (el)   el.textContent   = Fmt.currency(valor);
+    if (elCt) elCt.textContent = count > 0 ? `${count} lançamento${count > 1 ? 's' : ''}` : '';
+  }
+
+  function _updateChips() {
+    const chips = qs('#fin-active-chips');
+    if (!chips) return;
+    const labels = {
+      status:    { pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado' },
+      regime:    { caixa: 'Caixa' },
+    };
+    const parts = [];
+    if (_filtros.status)    parts.push({ key: 'status',    label: labels.status[_filtros.status] || _filtros.status });
+    if (_filtros.regime === 'caixa') parts.push({ key: 'regime', label: 'Caixa' });
+    if (_filtros.categoria) parts.push({ key: 'categoria', label: App.categoriaNome(_filtros.categoria) });
+    if (_filtros.cliente)   parts.push({ key: 'cliente',   label: App.clienteNome(_filtros.cliente) });
+    if (_filtros.conta)     parts.push({ key: 'conta',     label: (App.getContas().find(c => c.id === _filtros.conta)?.nome || '') });
+    if (_filtros.busca)     parts.push({ key: 'busca',     label: `"${_filtros.busca}"` });
+
+    chips.innerHTML = parts.map(p => `
+      <span class="fin-chip">
+        ${p.label}
+        <button onclick="Financeiro.removeChip('${p.key}')">×</button>
+      </span>
+    `).join('');
+
+    // Badge no botão de filtro
+    const bw = qs('#filter-badge-wrap');
+    const activeCount = parts.filter(p => p.key !== 'busca').length;
+    if (bw) bw.innerHTML = activeCount > 0
+      ? `<span class="filter-badge">${activeCount}</span>` : '';
+    const sortLbl = qs('#sort-label');
+    if (sortLbl) {
+      const labels2 = { venc_desc: 'Data ↓', venc_asc: 'Data ↑', valor_desc: 'Valor ↓', valor_asc: 'Valor ↑' };
+      sortLbl.textContent = labels2[_filtros.sort] || 'Data ↓';
+    }
+  }
+
+  function removeChip(key) {
+    if (key === 'status')    { _filtros.status    = ''; const el = qs('#fin-status');    if (el) el.value = ''; }
+    if (key === 'regime')    { _filtros.regime     = 'competencia'; const el = qs('#fin-regime'); if (el) el.value = 'competencia'; }
+    if (key === 'categoria') { _filtros.categoria  = ''; const el = qs('#fin-categoria'); if (el) el.value = ''; }
+    if (key === 'cliente')   { _filtros.cliente    = ''; const el = qs('#fin-cliente');  if (el) el.value = ''; }
+    if (key === 'conta')     { _filtros.conta      = ''; const el = qs('#fin-conta');    if (el) el.value = ''; }
+    if (key === 'busca')     { _filtros.busca      = ''; const el = qs('#fin-busca');    if (el) el.value = ''; }
+    filtrar();
   }
 
   function verMais() {
@@ -174,24 +366,31 @@ const Financeiro = (() => {
     _renderTable();
   }
 
+  function _sortItems(items) {
+    const s = _filtros.sort;
+    return [...items].sort((a, b) => {
+      if (s === 'venc_asc')   return a.data_vencimento < b.data_vencimento ? -1 : 1;
+      if (s === 'valor_desc') return Number(b.valor) - Number(a.valor);
+      if (s === 'valor_asc')  return Number(a.valor) - Number(b.valor);
+      return a.data_vencimento > b.data_vencimento ? -1 : 1; // venc_desc (default)
+    });
+  }
+
   function _renderTable() {
     if (!qs('#fin-table')) return;
     const tipo  = currentTab;
     const isRec = tipo === 'receber';
-    const items = _lastFiltered;
+    const items = _sortItems(_lastFiltered);
 
-    // Atualiza os cards com os totais do período filtrado (exclui transferências)
-    const reais   = items.filter(p => p.origem !== 'transferencia');
-    const elPend  = qs('#stat-pendente');
-    const elPago  = qs('#stat-pago');
-    if (elPend) elPend.textContent = Fmt.currency(reais.filter(p => p.status === 'pendente').reduce((s, p) => s + Number(p.valor || 0), 0));
-    if (elPago) elPago.textContent = Fmt.currency(reais.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0));
+    const countEl = qs('#fin-count');
+    if (countEl) countEl.textContent = `${items.length} registro${items.length !== 1 ? 's' : ''}`;
 
     if (items.length === 0) {
-      qs('#fin-table').innerHTML = '<div class="entity-empty">Nenhum lançamento encontrado</div>';
+      qs('#fin-table').innerHTML = '<div class="entity-empty" style="padding:24px;text-align:center;color:var(--text-muted)">Nenhum lançamento encontrado</div>';
       return;
     }
 
+    const hoje    = new Date(); hoje.setHours(0, 0, 0, 0);
     const shown   = items.slice(0, _visibleCount);
     const hasMore = items.length > _visibleCount;
     const total   = items.reduce((s, p) => s + Number(p.valor || 0), 0);
@@ -200,15 +399,21 @@ const Financeiro = (() => {
       <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
         ${shown.map(p => {
           const venc    = new Date(p.data_vencimento + 'T00:00:00');
-          const hoje    = new Date();
           const vencido = p.status === 'pendente' && venc < hoje;
           const clienteNome = App.clienteNome(p.cliente_id);
+          const catNome     = p.categoria_id ? App.categoriaNome(p.categoria_id) : '';
+          const sub = [
+            clienteNome && clienteNome !== '—' ? clienteNome : '',
+            catNome     && catNome     !== '—' ? catNome     : '',
+            `Venc. ${Fmt.date(p.data_vencimento)}${vencido ? ' ⚠' : ''}`,
+          ].filter(Boolean).join(' · ');
           return `
-            <div class="entity-item${vencido ? '" style="background:var(--danger-lt)' : ''}" onclick="Financeiro.tapParcela('${p.id}')">
+            <div class="entity-item${vencido ? ' item-vencido' : ''}" onclick="Financeiro.tapParcela('${p.id}')"
+              style="${vencido ? 'background:var(--danger-lt)' : ''}">
               <div class="avatar avatar-sm ${isRec ? 'av-green' : 'av-red'}">${isRec ? '↓' : '↑'}</div>
               <div class="entity-info">
                 <div class="entity-name">${p.descricao}</div>
-                <div class="entity-sub">${clienteNome ? clienteNome + ' · ' : ''}Venc. ${Fmt.date(p.data_vencimento)}${vencido ? ' ⚠' : ''}</div>
+                <div class="entity-sub">${sub}</div>
               </div>
               <div class="entity-right">
                 <span class="entity-value ${isRec ? 'text-green' : 'text-red'}">${Fmt.currency(p.valor)}</span>
@@ -218,7 +423,7 @@ const Financeiro = (() => {
           `;
         }).join('')}
         <div class="entity-item" style="background:var(--bg);cursor:default">
-          <div class="entity-info"><strong>Total (${items.length} registros)</strong></div>
+          <div class="entity-info"><strong>Total filtrado</strong></div>
           <div class="entity-right"><span class="entity-value">${Fmt.currency(total)}</span></div>
         </div>
         ${hasMore ? `
@@ -257,59 +462,89 @@ const Financeiro = (() => {
   function renderResumoMes() {
     const mes = qs('#resumo-mes')?.value || new Date().toISOString().substring(0, 7);
 
-    // Transferências são movimentações internas entre contas — não entram nos resumos de receita/despesa
-    const recComp = allParcelas.filter(p => p.tipo === 'receber' && p.origem !== 'transferencia' && String(p.data_competencia||'').startsWith(mes));
-    const pagComp = allParcelas.filter(p => p.tipo === 'pagar'   && p.origem !== 'transferencia' && String(p.data_competencia||'').startsWith(mes));
-    // Regime de caixa: também exclui transferências (apenas entradas/saídas reais)
-    const recCaixa= allParcelas.filter(p => p.tipo === 'receber' && p.status === 'pago' && p.origem !== 'transferencia' && String(p.data_pagamento||'').startsWith(mes));
-    const pagCaixa= allParcelas.filter(p => p.tipo === 'pagar'   && p.status === 'pago' && p.origem !== 'transferencia' && String(p.data_pagamento||'').startsWith(mes));
+    // Mês anterior para comparativo
+    const [ano, m] = mes.split('-').map(Number);
+    const antDate  = new Date(ano, m - 2, 1);
+    const mesAnt   = antDate.toISOString().substring(0, 7);
+
+    const reais = p => p.origem !== 'transferencia';
+
+    const filterComp  = (tipo, m2) => allParcelas.filter(p => p.tipo === tipo && reais(p) && String(p.data_competencia||'').startsWith(m2));
+    const filterCaixa = (tipo, m2) => allParcelas.filter(p => p.tipo === tipo && p.status === 'pago' && reais(p) && String(p.data_pagamento||'').startsWith(m2));
+
+    const recComp  = filterComp('receber', mes);  const recCompAnt  = filterComp('receber', mesAnt);
+    const pagComp  = filterComp('pagar',   mes);  const pagCompAnt  = filterComp('pagar',   mesAnt);
+    const recCaixa = filterCaixa('receber', mes); const recCaixaAnt = filterCaixa('receber', mesAnt);
+    const pagCaixa = filterCaixa('pagar',   mes); const pagCaixaAnt = filterCaixa('pagar',   mesAnt);
 
     const sum = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
 
-    const recTotalComp = sum(recComp);
-    const pagTotalComp = sum(pagComp);
-    const recTotalCaixa= sum(recCaixa);
-    const pagTotalCaixa= sum(pagCaixa);
+    const recTotalComp  = sum(recComp);  const recTotalCompAnt  = sum(recCompAnt);
+    const pagTotalComp  = sum(pagComp);  const pagTotalCompAnt  = sum(pagCompAnt);
+    const recTotalCaixa = sum(recCaixa); const recTotalCaixaAnt = sum(recCaixaAnt);
+    const pagTotalCaixa = sum(pagCaixa); const pagTotalCaixaAnt = sum(pagCaixaAnt);
 
-    // Saldos por conta — calculados sobre TODAS as parcelas pagas (não só do mês),
-    // pois saldo é cumulativo. saldo_inicial NÃO é receita: só ponto de partida.
+    const varPct = (atual, ant) => {
+      if (!ant) return atual > 0 ? `<span class="text-green">novo</span>` : '';
+      const p = ((atual - ant) / ant * 100).toFixed(0);
+      const cls = p >= 0 ? 'text-green' : 'text-red';
+      return `<span class="${cls}" style="font-size:.7rem">${p >= 0 ? '+' : ''}${p}%</span>`;
+    };
+
     const contas = App.getContas();
     const todasPagas = allParcelas.filter(p => p.status === 'pago');
     const saldosContas = contas.map(c => {
-      const ini  = Number(c.saldo_inicial || 0);
-      const ent  = todasPagas.filter(p => p.tipo === 'receber' && p.conta_id === c.id)
-                             .reduce((s, p) => s + Number(p.valor || 0), 0);
-      const sai  = todasPagas.filter(p => p.tipo === 'pagar'   && p.conta_id === c.id)
-                             .reduce((s, p) => s + Number(p.valor || 0), 0);
+      const ini = Number(c.saldo_inicial || 0);
+      const ent = todasPagas.filter(p => p.tipo === 'receber' && p.conta_id === c.id).reduce((s, p) => s + Number(p.valor || 0), 0);
+      const sai = todasPagas.filter(p => p.tipo === 'pagar'   && p.conta_id === c.id).reduce((s, p) => s + Number(p.valor || 0), 0);
       return { conta: c, inicial: ini, entradas: ent, saidas: sai, saldo: ini + ent - sai };
     });
-    const semConta = todasPagas.filter(p => !p.conta_id).length;
+    const semConta   = todasPagas.filter(p => !p.conta_id).length;
     const saldoTotal = saldosContas.reduce((s, x) => s + x.saldo, 0);
 
-    const resumoByCategoria = (arr) => {
+    const byCategoria = (arr) => {
       const map = {};
       arr.forEach(p => {
         const nome = App.categoriaNome(p.categoria_id);
-        // categoriaNome retorna '—' quando não acha — '—' é truthy e engolia o fallback.
-        // Aqui normalizamos: qualquer coisa sem categoria real vai para 'Sem Categoria'.
         const k = (nome && nome !== '—') ? nome : 'Sem Categoria';
         map[k] = (map[k] || 0) + Number(p.valor || 0);
       });
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     };
 
+    const barCats = (arr, colorClass) => {
+      const entries = byCategoria(arr);
+      if (!entries.length) return '<p class="text-muted" style="font-size:.82rem">Sem dados</p>';
+      const max = entries[0][1];
+      return entries.map(([k, v]) => `
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-size:.8rem;font-weight:600;color:var(--text)">${k}</span>
+            <strong class="${colorClass}" style="font-size:.82rem">${Fmt.currency(v)}</strong>
+          </div>
+          <div class="bar-track">
+            <div class="bar" style="width:${Math.max(6, (v/max*100)).toFixed(1)}%;background:var(--${colorClass === 'text-green' ? 'success' : 'danger'});opacity:.7"></div>
+          </div>
+        </div>
+      `).join('');
+    };
+
+    const resultComp  = recTotalComp  - pagTotalComp;
+    const resultCaixa = recTotalCaixa - pagTotalCaixa;
+    const resultCompAnt  = recTotalCompAnt  - pagTotalCompAnt;
+    const resultCaixaAnt = recTotalCaixaAnt - pagTotalCaixaAnt;
+
     qs('#resumo-content').innerHTML = `
+      <!-- Saldos de contas -->
       <div class="card mt-3">
         <div class="card-header">
-          <h3>💳 Saldos das Contas</h3>
-          <strong class="${saldoTotal >= 0 ? 'text-green' : 'text-red'}" style="font-size:1.1rem">
-            ${Fmt.currency(saldoTotal)}
-          </strong>
+          <h3>Saldos das Contas</h3>
+          <strong class="${saldoTotal >= 0 ? 'text-green' : 'text-red'}" style="font-size:1.1rem">${Fmt.currency(saldoTotal)}</strong>
         </div>
         <div class="card-body">
           ${saldosContas.length === 0 ? `
             <p class="text-muted" style="text-align:center;margin:0">
-              Nenhuma conta cadastrada. <a href="#" onclick="App.navigate('config');return false">Cadastrar em Configurações</a>.
+              Nenhuma conta. <a href="#" onclick="App.navigate('config');return false">Cadastrar em Config</a>.
             </p>
           ` : `
             <div class="stats-grid">
@@ -317,81 +552,80 @@ const Financeiro = (() => {
                 <div class="stat-card ${s.saldo >= 0 ? 'stat-green' : 'stat-red'}">
                   <div class="stat-label">${s.conta.nome}</div>
                   <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(s.saldo)}</div>
-                  <div class="stat-sub" style="font-size:.68rem">
-                    inicial ${Fmt.currency(s.inicial)} · +${Fmt.currency(s.entradas)} −${Fmt.currency(s.saidas)}
-                  </div>
+                  <div class="stat-sub" style="font-size:.68rem">inicial ${Fmt.currency(s.inicial)} · +${Fmt.currency(s.entradas)} −${Fmt.currency(s.saidas)}</div>
                 </div>
               `).join('')}
             </div>
-            ${semConta > 0 ? `
-              <p class="text-muted mt-2" style="font-size:.74rem">
-                ⚠ ${semConta} parcela(s) paga(s) sem conta vinculada — não contam aqui. Edite-as para vincular.
-              </p>
-            ` : ''}
-            <p style="font-size:.72rem;color:var(--text-muted);margin-top:8px;line-height:1.4">
-              Saldo = saldo inicial + entradas pagas − saídas pagas (acumulado). Saldo inicial <strong>não</strong> entra nos resumos abaixo.
-            </p>
+            ${semConta > 0 ? `<p class="text-muted mt-2" style="font-size:.74rem">⚠ ${semConta} parcela(s) paga(s) sem conta vinculada.</p>` : ''}
           `}
         </div>
       </div>
 
+      <!-- Resultado do mês — 2 cards lado a lado -->
       <div class="grid-2col mt-3">
         <div class="card">
-          <div class="card-header"><h3>Regime de Competência</h3><span class="badge badge-info">${mes}</span></div>
+          <div class="card-header"><h3>Competência</h3><span class="badge badge-info">${mes}</span></div>
           <div class="card-body">
             <div class="info-row">
-              <span>Receitas (a receber)</span>
-              <strong class="text-green">${Fmt.currency(recTotalComp)}</strong>
+              <span>Receitas</span>
+              <span style="display:flex;align-items:center;gap:6px">
+                ${varPct(recTotalComp, recTotalCompAnt)}
+                <strong class="text-green">${Fmt.currency(recTotalComp)}</strong>
+              </span>
             </div>
             <div class="info-row">
-              <span>Despesas (a pagar)</span>
-              <strong class="text-red">${Fmt.currency(pagTotalComp)}</strong>
+              <span>Despesas</span>
+              <span style="display:flex;align-items:center;gap:6px">
+                ${varPct(pagTotalComp, pagTotalCompAnt)}
+                <strong class="text-red">${Fmt.currency(pagTotalComp)}</strong>
+              </span>
             </div>
             <div class="info-row total-row">
-              <span><strong>Resultado</strong></span>
-              <strong class="${recTotalComp - pagTotalComp >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(recTotalComp - pagTotalComp)}</strong>
+              <strong>Resultado</strong>
+              <span style="display:flex;align-items:center;gap:6px">
+                ${varPct(resultComp, resultCompAnt)}
+                <strong class="${resultComp >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(resultComp)}</strong>
+              </span>
             </div>
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>Regime de Caixa</h3><span class="badge badge-info">${mes}</span></div>
+          <div class="card-header"><h3>Caixa</h3><span class="badge badge-info">${mes}</span></div>
           <div class="card-body">
             <div class="info-row">
-              <span>Entradas pagas</span>
-              <strong class="text-green">${Fmt.currency(recTotalCaixa)}</strong>
+              <span>Entradas</span>
+              <span style="display:flex;align-items:center;gap:6px">
+                ${varPct(recTotalCaixa, recTotalCaixaAnt)}
+                <strong class="text-green">${Fmt.currency(recTotalCaixa)}</strong>
+              </span>
             </div>
             <div class="info-row">
-              <span>Saídas pagas</span>
-              <strong class="text-red">${Fmt.currency(pagTotalCaixa)}</strong>
+              <span>Saídas</span>
+              <span style="display:flex;align-items:center;gap:6px">
+                ${varPct(pagTotalCaixa, pagTotalCaixaAnt)}
+                <strong class="text-red">${Fmt.currency(pagTotalCaixa)}</strong>
+              </span>
             </div>
             <div class="info-row total-row">
-              <span><strong>Saldo em Caixa</strong></span>
-              <strong class="${recTotalCaixa - pagTotalCaixa >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(recTotalCaixa - pagTotalCaixa)}</strong>
+              <strong>Saldo</strong>
+              <span style="display:flex;align-items:center;gap:6px">
+                ${varPct(resultCaixa, resultCaixaAnt)}
+                <strong class="${resultCaixa >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(resultCaixa)}</strong>
+              </span>
             </div>
           </div>
         </div>
       </div>
 
+      <!-- Categorias com barras -->
       <div class="grid-2col mt-3">
         <div class="card">
-          <div class="card-header"><h3>Receitas por Categoria (competência)</h3></div>
-          <div class="card-body">
-            ${resumoByCategoria(recComp).map(([k, v]) => `
-              <div class="info-row">
-                <span>${k}</span><strong class="text-green">${Fmt.currency(v)}</strong>
-              </div>
-            `).join('') || '<p class="text-muted">Sem dados</p>'}
-          </div>
+          <div class="card-header"><h3>Receitas por Categoria</h3></div>
+          <div class="card-body">${barCats(recComp, 'text-green')}</div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>Despesas por Categoria (competência)</h3></div>
-          <div class="card-body">
-            ${resumoByCategoria(pagComp).map(([k, v]) => `
-              <div class="info-row">
-                <span>${k}</span><strong class="text-red">${Fmt.currency(v)}</strong>
-              </div>
-            `).join('') || '<p class="text-muted">Sem dados</p>'}
-          </div>
+          <div class="card-header"><h3>Despesas por Categoria</h3></div>
+          <div class="card-body">${barCats(pagComp, 'text-red')}</div>
         </div>
       </div>
     `;
@@ -936,5 +1170,7 @@ const Financeiro = (() => {
            refreshPagQuemPagouVisibility,
            openTransferencia, salvarTransferencia,
            toggleParcelado,
-           editarParcela, excluirParcela, tapParcela };
+           editarParcela, excluirParcela, tapParcela,
+           onBuscaInput, onFilterChange, toggleFilterPanel, limparFiltros,
+           toggleSort, removeChip };
 })();

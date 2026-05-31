@@ -41,13 +41,14 @@
 
 /* ─── RESET ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 15px; -webkit-tap-highlight-color: transparent; }
+html { font-size: 15px; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
 body {
   font-family: -apple-system, 'SF Pro Text', BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.55;
   overscroll-behavior: none;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -562,6 +563,96 @@ textarea.input { resize: vertical; min-height: 80px; }
 
 /* ─── FILTROS ─────────────────────────────────────────────── */
 .filters-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
+/* Painel de filtros expansível */
+.fin-search-row {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+}
+.fin-search-row .input-search { flex: 1; min-width: 0; }
+.btn-filter-toggle {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 10px 14px; border-radius: 50px;
+  font-size: .78rem; font-weight: 700;
+  border: 1.5px solid var(--border);
+  background: var(--card); color: var(--text);
+  white-space: nowrap; transition: all .2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.btn-filter-toggle.active {
+  border-color: var(--navy); background: var(--navy); color: #fff;
+}
+.btn-filter-toggle .filter-badge {
+  background: var(--gold); color: var(--navy);
+  font-size: .65rem; font-weight: 800;
+  border-radius: 50px; padding: 1px 6px; line-height: 1.4;
+}
+.fin-filter-panel {
+  background: var(--card); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 12px;
+  box-shadow: var(--shadow);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.fin-filter-panel .form-group { margin-bottom: 0; }
+.fin-filter-panel .form-group label {
+  font-size: .65rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  display: block; margin-bottom: 4px;
+}
+.fin-filter-panel select, .fin-filter-panel input[type="month"] {
+  width: 100%; padding: 8px 10px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--bg); color: var(--text); font-size: .82rem;
+  font-family: inherit; -webkit-appearance: none;
+}
+.fin-filter-panel .full-col { grid-column: 1 / -1; }
+.fin-active-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+}
+.fin-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--info-lt); color: var(--info);
+  border: 1px solid rgba(0,122,255,.2);
+  border-radius: 50px; padding: 3px 10px;
+  font-size: .72rem; font-weight: 600;
+}
+.fin-chip button {
+  background: none; border: none; cursor: pointer;
+  font-size: .8rem; color: inherit; line-height: 1; padding: 0;
+}
+.fin-sort-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.fin-sort-row .count-label {
+  font-size: .72rem; color: var(--text-muted); font-weight: 600;
+}
+.btn-sort {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: .72rem; font-weight: 700; color: var(--text-muted);
+  padding: 4px 10px; border-radius: 50px;
+  border: 1px solid var(--border); background: var(--card);
+  transition: all .15s;
+}
+.btn-sort:active { background: var(--bg); }
+
+/* Grupo de categoria na lista */
+.fin-cat-group-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 18px 6px;
+  background: var(--bg);
+  font-size: .68rem; font-weight: 800;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Stat cards 4-up no financeiro */
+.stats-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
 
 /* ─── GRID ────────────────────────────────────────────────── */
 .grid-2col { display: grid; grid-template-columns: 1fr; gap: 14px; }
