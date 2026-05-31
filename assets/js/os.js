@@ -198,11 +198,9 @@ const OS = (() => {
       <!-- Barra de ações principais -->
       ${currentOS.status !== 'fechado' ? `
         <div style="display:flex;gap:10px;margin-bottom:16px">
-          ${currentOS.tipo === 'diaria' ? `
-            <button class="btn btn-primary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openDiaria()">
-              ＋ Registrar Dia
-            </button>
-          ` : ''}
+          <button class="btn btn-primary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openDiaria()">
+            ${currentOS.tipo === 'diaria' ? '＋ Registrar Dia' : '⏱ Registrar Sessão'}
+          </button>
           <button class="btn btn-gold" style="flex:1;font-size:1rem;padding:13px 8px" onclick="OS.openFechamento()">
             ✓ Fechar OS
           </button>
@@ -252,66 +250,62 @@ const OS = (() => {
         <div id="os-itens-list">${renderItens(itens)}</div>
       </div>
 
-      <!-- Dias (só para diária) -->
-      ${currentOS.tipo === 'diaria' ? `
-        <div class="card mb-3">
-          <div class="card-header">
-            <h3>Dias Trabalhados</h3>
-            <span class="badge badge-info">${diarias.length} dia(s)</span>
-          </div>
-          <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-            ${diarias.length === 0
-              ? '<div class="entity-empty">Nenhum dia registrado ainda</div>'
-              : diarias.map(d => {
-                  const valor = Number(d.valor_manual || d.valor_calculado || 0);
-                  const horas = Number(d.horas_totais || 0);
-
-                  // Periodos normais
-                  const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
-                  const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
-                  const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
-                  const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
-                  const periodos = [manha, tarde].filter(Boolean).join('  ');
-
-                  // Badge de reajuste (se tiver)
-                  let reajusteBadge = '';
-                  if (d.reajuste_json) {
-                    try {
-                      const rj = JSON.parse(d.reajuste_json);
-                      if (rj.horas > 0) {
-                        const nomes = (rj.fatores || []).map(f => f.label?.split(' ')[0] || '').filter(Boolean).join(', ');
-                        reajusteBadge = `<span class="badge badge-danger" style="font-size:.65rem">+${rj.horas}h reajuste${nomes ? ': ' + nomes : ''}</span>`;
-                      }
-                    } catch {}
-                  }
-
-                  return `
-                    <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
-                      <div class="avatar av-navy" style="font-size:.7rem;font-weight:800;flex-direction:column;gap:0;line-height:1.1">
-                        <span>${Fmt.date(d.data).split('/').slice(0,2).join('/')}</span>
-                      </div>
-                      <div class="entity-info">
-                        <div class="entity-name">${periodos || (d.valor_manual ? '💰 Valor manual' : 'Sem horários')}</div>
-                        <div class="entity-sub">${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}</div>
-                        ${reajusteBadge ? `<div class="entity-badges">${reajusteBadge}</div>` : ''}
-                      </div>
-                      <div class="entity-right">
-                        <span class="entity-value">${Fmt.currency(valor)}</span>
-                        ${currentOS.status !== 'fechado' ? '<span class="entity-chevron">›</span>' : ''}
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
-            ${diarias.length > 0 ? `
-              <div class="entity-item" style="background:var(--bg);cursor:default">
-                <div class="entity-info"><strong>Total (${diarias.length} dias)</strong></div>
-                <div class="entity-right">
-                  <span class="entity-value">${Fmt.currency(diarias.reduce((s,d)=>s+Number(d.valor_manual||d.valor_calculado||0),0))}</span>
-                </div>
-              </div>` : ''}
-          </div>
+      <!-- Sessões de trabalho (diária: "Dias Trabalhados"; normal: "Sessões de Trabalho") -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3>${currentOS.tipo === 'diaria' ? 'Dias Trabalhados' : 'Sessões de Trabalho'}</h3>
+          <span class="badge badge-info">${diarias.length} ${currentOS.tipo === 'diaria' ? 'dia(s)' : 'sessão(ões)'}</span>
         </div>
-      ` : ''}
+        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+          ${diarias.length === 0
+            ? `<div class="entity-empty">${currentOS.tipo === 'diaria' ? 'Nenhum dia registrado ainda' : 'Nenhuma sessão registrada ainda'}</div>`
+            : diarias.map(d => {
+                const valor = Number(d.valor_manual || d.valor_calculado || 0);
+                const horas = Number(d.horas_totais || 0);
+                const tmi = Fmt.time(d.manha_inicio), tmf = Fmt.time(d.manha_fim);
+                const tti = Fmt.time(d.tarde_inicio),  ttf = Fmt.time(d.tarde_fim);
+                const manha = (tmi !== '—' && tmf !== '—') ? `☀️ ${tmi}–${tmf}` : '';
+                const tarde = (tti !== '—' && ttf !== '—') ? `🌤 ${tti}–${ttf}` : '';
+                const periodos = [manha, tarde].filter(Boolean).join('  ');
+                let reajusteBadge = '';
+                if (d.reajuste_json) {
+                  try {
+                    const rj = JSON.parse(d.reajuste_json);
+                    if (rj.horas > 0) {
+                      const nomes = (rj.fatores || []).map(f => f.label?.split(' ')[0] || '').filter(Boolean).join(', ');
+                      reajusteBadge = `<span class="badge badge-danger" style="font-size:.65rem">+${rj.horas}h reajuste${nomes ? ': ' + nomes : ''}</span>`;
+                    }
+                  } catch {}
+                }
+                return `
+                  <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
+                    <div class="avatar av-navy" style="font-size:.7rem;font-weight:800;flex-direction:column;gap:0;line-height:1.1">
+                      <span>${Fmt.date(d.data).split('/').slice(0,2).join('/')}</span>
+                    </div>
+                    <div class="entity-info">
+                      <div class="entity-name">${periodos || (d.valor_manual ? '💰 Valor manual' : 'Sem horários')}</div>
+                      <div class="entity-sub">${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}</div>
+                      ${reajusteBadge ? `<div class="entity-badges">${reajusteBadge}</div>` : ''}
+                    </div>
+                    <div class="entity-right">
+                      <span class="entity-value">${Fmt.currency(valor)}</span>
+                      ${currentOS.status !== 'fechado' ? '<span class="entity-chevron">›</span>' : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+          ${diarias.length > 0 ? `
+            <div class="entity-item" style="background:var(--bg);cursor:default">
+              <div class="entity-info">
+                <strong>Total (${diarias.length} ${currentOS.tipo === 'diaria' ? 'dias' : 'sessões'})</strong>
+                ${currentOS.tipo !== 'diaria' ? `<div style="font-size:.78rem;color:var(--text-muted)">${Fmt.hours(diarias.reduce((s,d)=>s+Number(d.horas_totais||0),0))} registradas</div>` : ''}
+              </div>
+              <div class="entity-right">
+                <span class="entity-value">${Fmt.currency(diarias.reduce((s,d)=>s+Number(d.valor_manual||d.valor_calculado||0),0))}</span>
+              </div>
+            </div>` : ''}
+        </div>
+      </div>
     `;
 
     // Renderiza a calculadora de valor (se a OS ainda não foi fechada)
@@ -457,6 +451,12 @@ const OS = (() => {
     const hProj  = Fmt.currency(Number(cfg.valor_hora_projeto)    || 200);
     const vPrx   = Fmt.currency(Number(cfg.valor_chamada_proximo) || 200);
     const vDst   = Fmt.currency(Number(cfg.valor_chamada_distante)|| 250);
+
+    // Pré-preenche com a soma das sessões registradas (se houver)
+    const sessoes      = allDiarias.filter(d => d.os_id === currentOS?.id);
+    const horasSessoes = sessoes.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
+    const horasDefault = horasSessoes > 0 ? horasSessoes : (Number(currentOS?.horas_calculadas) || 1);
+
     return `
       <div class="form-group">
         <label>Tipo de Serviço</label>
@@ -467,7 +467,8 @@ const OS = (() => {
       </div>
       <div class="form-group">
         <label>Horas Trabalhadas</label>
-        <input type="number" id="calc-horas" class="input" step="0.5" value="1" min="0" oninput="OS.calcNormalUpdate()">
+        <input type="number" id="calc-horas" class="input" step="0.5" value="${horasDefault}" min="0" oninput="OS.calcNormalUpdate()">
+        ${horasSessoes > 0 ? `<small style="color:var(--info,#0d6efd);font-size:.72rem">⏱ Preenchido com ${sessoes.length} sessão(ões) registrada(s) · ${Fmt.hours(horasSessoes)}</small>` : ''}
       </div>
       <p style="font-size:.75rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px">Fatores de Ajuste</p>
       <div id="calc-fatores">
@@ -818,6 +819,12 @@ const OS = (() => {
     if (!currentOS) return;
     let d = null;
     if (diariaId) d = allDiarias.find(x => x.id === diariaId);
+    // Título dinâmico: "Registrar Dia" para diária, "Registrar Sessão" para normal
+    const isNormal = currentOS.tipo !== 'diaria';
+    const titleEl  = qs('#modal-diaria-title');
+    if (titleEl) titleEl.textContent = diariaId
+      ? (isNormal ? 'Editar Sessão' : 'Editar Dia')
+      : (isNormal ? 'Registrar Sessão' : 'Registrar Dia');
     const cfg = await Calculator.getConfig();
 
     qs('#modal-diaria-os-id').value     = currentOS.id;
@@ -976,7 +983,8 @@ const OS = (() => {
   }
 
   async function deleteDiaria(id) {
-    Modal.confirm('Excluir este dia?', async () => {
+    const msg = currentOS?.tipo !== 'diaria' ? 'Excluir esta sessão?' : 'Excluir este dia?';
+    Modal.confirm(msg, async () => {
       await API.db.delete('diarias', id);
       Toast.success('Dia excluído');
       await loadData();
@@ -985,7 +993,8 @@ const OS = (() => {
   }
 
   function tapDiaria(id) {
-    ActionSheet.open('Dia registrado', [
+    const titulo = currentOS?.tipo !== 'diaria' ? 'Sessão registrada' : 'Dia registrado';
+    ActionSheet.open(titulo, [
       { icon: '✏️', label: 'Editar', fn: () => openDiaria(id) },
       { icon: '🗑', label: 'Excluir', fn: () => deleteDiaria(id), danger: true },
     ]);
