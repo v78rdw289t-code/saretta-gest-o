@@ -8,10 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=1.9.12">
+  <link rel="stylesheet" href="assets/css/style.css?v=2.0.0">
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=2.0.0">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-icon.svg">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=2.0.0">
 </head>
 <body>
 
@@ -21,7 +22,8 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo">⚙️</div>
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=2.0.0" alt="Saretta"
+      onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
     <div class="boot-splash-bar"><div class="boot-splash-bar-fill" id="boot-splash-bar"></div></div>
@@ -36,7 +38,10 @@
   <!-- SIDEBAR — desktop -->
   <aside id="sidebar">
     <div id="sidebar-header">
-      <div class="sidebar-logo-text">⚙️ SARETTA</div>
+      <div class="sidebar-logo-text">
+        <img src="assets/img/logo-app.png?v=2.0.0" alt="" class="sidebar-logo-img"
+          onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
+      </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
     </div>
     <nav>
@@ -65,7 +70,8 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-icon.svg" alt="Saretta" class="header-icon">
+      <img src="assets/img/logo-app.png?v=2.0.0" alt="Saretta" class="header-icon"
+        onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
         <span class="header-sub">Gestão de Serviços</span>
@@ -821,18 +827,18 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=1.9.12"></script>
-<script src="assets/js/utils.js?v=1.9.12"></script>
-<script src="assets/js/home.js?v=1.9.12"></script>
-<script src="assets/js/os.js?v=1.9.12"></script>
-<script src="assets/js/financeiro.js?v=1.9.12"></script>
-<script src="assets/js/clientes.js?v=1.9.12"></script>
-<script src="assets/js/estoque.js?v=1.9.12"></script>
-<script src="assets/js/compras.js?v=1.9.12"></script>
-<script src="assets/js/fiado.js?v=1.9.12"></script>
-<script src="assets/js/insights.js?v=1.9.12"></script>
-<script src="assets/js/config.js?v=1.9.12"></script>
-<script src="assets/js/app.js?v=1.9.12"></script>
+<script src="assets/js/api.js?v=2.0.0"></script>
+<script src="assets/js/utils.js?v=2.0.0"></script>
+<script src="assets/js/home.js?v=2.0.0"></script>
+<script src="assets/js/os.js?v=2.0.0"></script>
+<script src="assets/js/financeiro.js?v=2.0.0"></script>
+<script src="assets/js/clientes.js?v=2.0.0"></script>
+<script src="assets/js/estoque.js?v=2.0.0"></script>
+<script src="assets/js/compras.js?v=2.0.0"></script>
+<script src="assets/js/fiado.js?v=2.0.0"></script>
+<script src="assets/js/insights.js?v=2.0.0"></script>
+<script src="assets/js/config.js?v=2.0.0"></script>
+<script src="assets/js/app.js?v=2.0.0"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

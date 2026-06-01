@@ -4,44 +4,60 @@
 
 const Home = (() => {
   let _searching = false;
+  let _searchDebounce = null;
+  let _searchSeq = 0; // evita que uma busca antiga sobrescreva uma mais nova
 
   async function render() {
     const section = qs('#page-home');
-    const hoje = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' });
+    const agora = new Date();
+    const hoje = agora.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' });
+    const h = agora.getHours();
+    const saud = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+    const saudIcon = h < 12 ? '☀️' : h < 18 ? '🌤️' : '🌙';
 
     section.innerHTML = `
-      <div class="home-hero" style="background:linear-gradient(160deg,var(--navy-lt) 0%,var(--navy) 100%);margin:-16px -16px 14px;padding:14px 18px 16px">
-        <div style="font-size:.7rem;color:rgba(255,255,255,.55);text-transform:capitalize;margin-bottom:4px;letter-spacing:.3px">${hoje}</div>
-        <div style="font-size:1.5rem;font-weight:800;color:#fff;letter-spacing:-.4px;margin-bottom:12px">Saretta Soluções</div>
+      <div class="home-hero">
+        <div class="home-hero-top">
+          <div>
+            <div class="home-greeting">${saudIcon} ${saud}</div>
+            <div class="home-date">${hoje}</div>
+          </div>
+          <img src="assets/img/logo-app.png?v=2.0.0" alt="Saretta" class="home-hero-logo"
+            onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
+        </div>
+        <div class="home-title">Saretta Soluções</div>
         <div class="home-search-wrap">
-          <input id="home-search" type="text" placeholder="Buscar cliente ou OS..." class="input-search-hero"
-            oninput="Home.onSearchInput()" onkeydown="if(event.key==='Enter') Home.search()">
+          <input id="home-search" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
+            placeholder="Buscar cliente ou OS..." class="input-search-hero"
+            oninput="Home.onSearchInput()"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();Home.search(true);}">
           <button id="home-search-clear" class="home-search-clear-btn hidden" onclick="Home.clearSearch()" title="Limpar busca">✕</button>
         </div>
       </div>
 
       <div id="home-search-results" class="hidden"></div>
 
-      <div id="home-stats" class="stats-grid mb-4">
-        <div class="stat-card loading-pulse" style="grid-column:1/-1"><span>Carregando...</span></div>
+      <div class="quick-row">
+        <button class="quick-action" onclick="App.navigate('os').then(() => OS.openForm())">
+          <span class="quick-action-icon qa-navy">📋</span>
+          <span class="quick-action-label">Nova OS</span>
+        </button>
+        <button class="quick-action" onclick="App.navigate('clientes').then(() => Clientes.openForm())">
+          <span class="quick-action-icon qa-blue">👤</span>
+          <span class="quick-action-label">Cliente</span>
+        </button>
+        <button class="quick-action" onclick="App.navigate('financeiro').then(() => Financeiro.openManual())">
+          <span class="quick-action-icon qa-green">💰</span>
+          <span class="quick-action-label">Lançar</span>
+        </button>
+        <button class="quick-action" onclick="App.navigate('os').then(() => OS.openListaCompras())">
+          <span class="quick-action-icon qa-gold">🛒</span>
+          <span class="quick-action-label">Compras</span>
+        </button>
       </div>
 
-      <div class="card mb-4">
-        <div class="card-header"><h3>Ações Rápidas</h3></div>
-        <div class="quick-actions">
-          <button class="quick-btn" onclick="App.navigate('clientes').then(() => Clientes.openForm())">
-            <span class="qb-icon">👥</span>Novo Cliente
-          </button>
-          <button class="quick-btn" onclick="App.navigate('os').then(() => OS.openForm())">
-            <span class="qb-icon">📋</span>Nova OS
-          </button>
-          <button class="quick-btn" onclick="App.navigate('financeiro').then(() => Financeiro.openManual())">
-            <span class="qb-icon">💰</span>Lançamento
-          </button>
-          <button class="quick-btn gold" onclick="App.navigate('os').then(() => OS.openListaCompras())">
-            <span class="qb-icon">🛒</span>Lista Compras
-          </button>
-        </div>
+      <div id="home-stats" class="home-stats">
+        <div class="home-insights loading-pulse" style="min-height:120px"></div>
       </div>
 
       <div class="card">
@@ -69,38 +85,143 @@ const Home = (() => {
   // Replica a lógica do backend getDashboardStats() — quando OS e parcelas
   // estão em cache, é instantâneo (zero requests).
   function computeStatsLocal(osList, parcelas) {
-    const today = new Date();
-    const mes   = today.toISOString().substring(0, 7);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const em7   = new Date(today); em7.setDate(em7.getDate() + 7);
+    const mes   = new Date().toISOString().substring(0, 7);
+    const reais = parcelas.filter(p => p.origem !== 'transferencia');
+
     const osAndamento = osList.filter(o => o.status === 'andamento').length;
     const osAcerto    = osList.filter(o => o.status === 'acerto').length;
-    const recMes = parcelas.filter(p => p.tipo === 'receber' && String(p.data_competencia || '').startsWith(mes));
-    const pagMes = parcelas.filter(p => p.tipo === 'pagar'   && String(p.data_competencia || '').startsWith(mes));
+
+    const recMes = reais.filter(p => p.tipo === 'receber' && String(p.data_competencia || '').startsWith(mes));
+    const pagMes = reais.filter(p => p.tipo === 'pagar'   && String(p.data_competencia || '').startsWith(mes));
     const sum = (arr) => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
     const recPago  = sum(recMes.filter(p => p.status === 'pago'));
     const recTotal = sum(recMes);
     const pagPago  = sum(pagMes.filter(p => p.status === 'pago'));
     const pagTotal = sum(pagMes);
-    const venc7 = parcelas.filter(p => {
+
+    // Pendentes (de qualquer mês) — para "a receber" e "vencendo"
+    const pendRec = reais.filter(p => p.tipo === 'receber' && p.status === 'pendente');
+    const aReceberTotal = sum(pendRec);
+
+    // Vencendo nos próximos 7 dias — datas zeradas evitam erro de timezone
+    const venc7 = reais.filter(p => {
       if (p.status !== 'pendente') return false;
-      const d = new Date(p.data_vencimento);
+      const d = new Date(p.data_vencimento + 'T00:00:00');
       if (isNaN(d.getTime())) return false;
-      const diff = (d - today) / 86400000;
-      return diff >= 0 && diff <= 7;
+      return d >= today && d <= em7;
     });
+    // Já vencidas (pendentes com vencimento no passado)
+    const vencidas = pendRec.filter(p => {
+      const d = new Date(p.data_vencimento + 'T00:00:00');
+      return !isNaN(d.getTime()) && d < today;
+    });
+
+    // Mês anterior (para tendência) — mesmo critério: competência + pago
+    const mesAntD = new Date(); mesAntD.setDate(1); mesAntD.setMonth(mesAntD.getMonth() - 1);
+    const mesAnt  = mesAntD.toISOString().substring(0, 7);
+    const recPagoAnt = sum(reais.filter(p => p.tipo === 'receber' && p.status === 'pago' && String(p.data_competencia||'').startsWith(mesAnt)));
+    const pagPagoAnt = sum(reais.filter(p => p.tipo === 'pagar'   && p.status === 'pago' && String(p.data_competencia||'').startsWith(mesAnt)));
+
+    // OS em andamento parada há mais tempo (dias desde o início)
+    let osParadaDias = 0;
+    osList.filter(o => o.status === 'andamento').forEach(o => {
+      const d = new Date((o.data_inicio || '') + 'T00:00:00');
+      if (!isNaN(d.getTime())) {
+        const dias = Math.floor((today - d) / 86400000);
+        if (dias > osParadaDias) osParadaDias = dias;
+      }
+    });
+
     return {
       os_andamento: osAndamento, os_acerto: osAcerto,
       rec_total: recTotal, rec_pago: recPago,
       pag_total: pagTotal, pag_pago: pagPago,
       saldo_mes: recPago - pagPago,
+      saldo_ant: recPagoAnt - pagPagoAnt,
+      a_receber_total: aReceberTotal,
+      a_receber_mes: recTotal - recPago,
+      pend_rec_qtd: pendRec.length,
       vencendo_7d: venc7.length,
+      vencidas_qtd: vencidas.length,
+      vencidas_valor: sum(vencidas),
+      os_parada_dias: osParadaDias,
     };
+  }
+
+  // Monta a lista de insights do dashboard — SEM expor valores em R$.
+  // Cada insight: { icon, tone, title, sub, onclick? }
+  function buildInsights(d) {
+    const ins = [];
+
+    // 1. Saúde do mês (status, sem cifras) + tendência vs mês anterior
+    const pos = (d.saldo_mes || 0) >= 0;
+    let trendSub = pos ? 'saldo positivo no mês' : 'saldo negativo no mês';
+    if (typeof d.saldo_ant === 'number' && (d.saldo_ant !== 0 || d.saldo_mes !== 0)) {
+      if (d.saldo_mes > d.saldo_ant)      trendSub = 'melhor que o mês passado';
+      else if (d.saldo_mes < d.saldo_ant) trendSub = 'abaixo do mês passado';
+      else                                trendSub = 'igual ao mês passado';
+    }
+    ins.push({
+      icon: pos ? '📈' : '📉', tone: pos ? 'green' : 'red',
+      title: pos ? 'Mês no azul' : 'Mês no vermelho', sub: trendSub,
+      onclick: "App.navigate('financeiro').then(() => Financeiro.switchTab('resumo'))",
+    });
+
+    // 2. Contas vencidas (alerta)
+    if (d.vencidas_qtd > 0) ins.push({
+      icon: '⚠️', tone: 'red',
+      title: `${d.vencidas_qtd} conta${d.vencidas_qtd > 1 ? 's' : ''} vencida${d.vencidas_qtd > 1 ? 's' : ''}`,
+      sub: d.vencidas_qtd > 1 ? 'precisam de atenção' : 'precisa de atenção',
+      onclick: "App.navigate('financeiro', { filtro: 'vencendo7d' })",
+    });
+
+    // 3. Vencendo nos próximos 7 dias
+    if (d.vencendo_7d > 0) ins.push({
+      icon: '⏰', tone: 'gold',
+      title: `${d.vencendo_7d} vence${d.vencendo_7d > 1 ? 'm' : ''} essa semana`,
+      sub: 'próximos 7 dias',
+      onclick: "App.navigate('financeiro', { filtro: 'vencendo7d' })",
+    });
+
+    // 4. Recebimentos em aberto (contagem, sem valor)
+    if (d.pend_rec_qtd > 0) ins.push({
+      icon: '💵', tone: 'blue',
+      title: `${d.pend_rec_qtd} recebimento${d.pend_rec_qtd > 1 ? 's' : ''} em aberto`,
+      sub: 'aguardando pagamento',
+      onclick: "App.navigate('financeiro')",
+    });
+
+    // 5. Ordens de serviço (contagens)
+    const osParts = [];
+    if (d.os_andamento > 0) osParts.push(`${d.os_andamento} em andamento`);
+    if (d.os_acerto > 0)    osParts.push(`${d.os_acerto} em acerto`);
+    if (osParts.length) ins.push({
+      icon: '🔧', tone: 'navy', title: osParts.join(' · '), sub: 'ordens de serviço',
+      onclick: "App.navigate('os')",
+    });
+
+    // 6. OS parada há muito tempo
+    if (d.os_parada_dias >= 10) ins.push({
+      icon: '🕒', tone: 'orange',
+      title: `OS parada há ${d.os_parada_dias} dias`,
+      sub: 'talvez precise de acerto', onclick: "App.navigate('os')",
+    });
+
+    // 7. Tudo calmo
+    if (d.vencidas_qtd === 0 && d.vencendo_7d === 0) ins.push({
+      icon: '✅', tone: 'green', title: 'Sem contas vencidas', sub: 'tudo em dia por aqui',
+    });
+
+    return ins;
   }
 
   async function loadStats() {
     if (!LocalConfig.getUrl()) {
       qs('#home-stats').innerHTML = `
-        <div class="stat-card" style="grid-column:1/-1">
-          <p class="text-muted">⚙️ Configure a URL do Apps Script em <strong>Configurações</strong></p>
+        <div class="card" style="grid-column:1/-1;padding:16px 18px">
+          <p class="text-muted" style="margin:0">⚙️ Configure a URL do Apps Script em <strong>Configurações</strong></p>
         </div>`;
       return;
     }
@@ -124,26 +245,23 @@ const Home = (() => {
   }
 
   function renderStatsCard(d) {
+    const insights = buildInsights(d);
     qs('#home-stats').innerHTML = `
-      <div class="stat-card stat-blue" onclick="App.navigate('os').then(() => OS.setStatus('andamento'))" style="cursor:pointer">
-        <div class="stat-label">Em Andamento</div>
-        <div class="stat-value">${d.os_andamento}</div>
-        <div class="stat-sub">OS ativas</div>
-      </div>
-      <div class="stat-card stat-orange" onclick="App.navigate('os').then(() => OS.setStatus('acerto'))" style="cursor:pointer">
-        <div class="stat-label">Em Acerto</div>
-        <div class="stat-value">${d.os_acerto}</div>
-        <div class="stat-sub">aguardando pagamento</div>
-      </div>
-      <div class="stat-card stat-green">
-        <div class="stat-label">A Receber</div>
-        <div class="stat-value">${Fmt.currency(d.rec_total - d.rec_pago)}</div>
-        <div class="stat-sub">este mês</div>
-      </div>
-      <div class="stat-card stat-${d.vencendo_7d > 0 ? 'red' : 'navy'}" onclick="App.navigate('financeiro', { filtro: 'vencendo7d' })" style="cursor:pointer">
-        <div class="stat-label">Vencendo</div>
-        <div class="stat-value">${d.vencendo_7d}</div>
-        <div class="stat-sub">próximos 7 dias</div>
+      <div class="home-insights">
+        <div class="home-insights-head">
+          <span>💡 Resumo de hoje</span>
+        </div>
+        ${insights.map(i => `
+          <div class="insight-row tone-${i.tone} ${i.onclick ? 'insight-clickable' : ''}"
+            ${i.onclick ? `onclick="${i.onclick}"` : ''}>
+            <span class="insight-icon">${i.icon}</span>
+            <div class="insight-body">
+              <div class="insight-title">${i.title}</div>
+              <div class="insight-sub">${i.sub}</div>
+            </div>
+            ${i.onclick ? '<span class="insight-chevron">›</span>' : ''}
+          </div>
+        `).join('')}
       </div>
     `;
   }
@@ -184,13 +302,21 @@ const Home = (() => {
   }
 
   function onSearchInput() {
-    const val = qs('#home-search')?.value || '';
+    const val = (qs('#home-search')?.value || '').trim();
     const clearBtn = qs('#home-search-clear');
-    if (clearBtn) clearBtn.classList.toggle('hidden', !val.trim());
-    if (!val.trim() && _searching) clearSearch();
+    if (clearBtn) clearBtn.classList.toggle('hidden', !val);
+
+    clearTimeout(_searchDebounce);
+    if (!val) { if (_searching) clearSearch(); return; }
+    // Busca automática enquanto digita (a partir de 2 caracteres), sem precisar de Enter
+    if (val.length >= 2) {
+      _searchDebounce = setTimeout(() => search(false), 350);
+    }
   }
 
   function clearSearch() {
+    clearTimeout(_searchDebounce);
+    _searchSeq++; // invalida qualquer busca em voo
     const inp = qs('#home-search');
     if (inp) inp.value = '';
     const clearBtn = qs('#home-search-clear');
@@ -200,10 +326,11 @@ const Home = (() => {
     _searching = false;
   }
 
-  async function search() {
+  async function search(autoScroll = true) {
     const q = qs('#home-search')?.value.trim();
     if (!q) return;
     _searching = true;
+    const seq = ++_searchSeq;
 
     const shown = Loading.maybeShow('clientes', 'os');
     const [cliRes, osRes] = await Promise.all([
@@ -211,6 +338,11 @@ const Home = (() => {
       API.db.read('os'),
     ]);
     if (shown) Loading.hide();
+
+    // Se outra busca mais recente começou enquanto esta carregava, aborta.
+    if (seq !== _searchSeq) return;
+    // O usuário pode ter limpado o campo durante o carregamento.
+    if (!qs('#home-search')?.value.trim()) return;
 
     const clientes = filterRecords(cliRes?.data || [], q, ['nome','telefone','endereco']);
     const osList   = filterRecords(osRes?.data  || [], q, ['numero','observacoes']);
@@ -271,7 +403,7 @@ const Home = (() => {
 
     html += '</div>';
     resultsEl.innerHTML = html;
-    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (autoScroll) resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   return { render, search, clearSearch, onSearchInput };

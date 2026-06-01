@@ -5,7 +5,7 @@
 // Atualizar CACHE_NAME a cada deploy para invalidar arquivos antigos.
 // ============================================================
 
-const CACHE_NAME = 'saretta-shell-v1.9.12';
+const CACHE_NAME = 'saretta-shell-v2.0.0';
 
 // Todos os arquivos que formam o "app shell" — carregados uma vez
 // e servidos do cache daí em diante, mesmo sem internet.
@@ -15,19 +15,20 @@ const SHELL = [
   'manifest.json',
   'assets/img/logo-icon.svg',
   'assets/img/logo.svg',
-  'assets/css/style.css?v=1.9.6',
-  'assets/js/api.js?v=1.9.6',
-  'assets/js/utils.js?v=1.9.6',
-  'assets/js/home.js?v=1.9.6',
-  'assets/js/os.js?v=1.9.6',
-  'assets/js/financeiro.js?v=1.9.6',
-  'assets/js/clientes.js?v=1.9.6',
-  'assets/js/estoque.js?v=1.9.6',
-  'assets/js/compras.js?v=1.9.6',
-  'assets/js/fiado.js?v=1.9.6',
-  'assets/js/insights.js?v=1.9.6',
-  'assets/js/config.js?v=1.9.6',
-  'assets/js/app.js?v=1.9.6',
+  'assets/img/logo-app.png?v=2.0.0',
+  'assets/css/style.css?v=2.0.0',
+  'assets/js/api.js?v=2.0.0',
+  'assets/js/utils.js?v=2.0.0',
+  'assets/js/home.js?v=2.0.0',
+  'assets/js/os.js?v=2.0.0',
+  'assets/js/financeiro.js?v=2.0.0',
+  'assets/js/clientes.js?v=2.0.0',
+  'assets/js/estoque.js?v=2.0.0',
+  'assets/js/compras.js?v=2.0.0',
+  'assets/js/fiado.js?v=2.0.0',
+  'assets/js/insights.js?v=2.0.0',
+  'assets/js/config.js?v=2.0.0',
+  'assets/js/app.js?v=2.0.0',
 ];
 
 // ─── INSTALL: cacheia o shell completo ───────────────────────

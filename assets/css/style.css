@@ -79,6 +79,13 @@ img { max-width: 100%; }
 }
 .sidebar-logo-text {
   font-size: 1.1rem; font-weight: 800; color: #fff; letter-spacing: .3px;
+  display: flex; align-items: center; gap: 9px;
+}
+.sidebar-logo-img {
+  width: 34px; height: 34px; flex-shrink: 0;
+  border-radius: 9px; background: #fff;
+  object-fit: cover;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
 }
 .sidebar-logo-sub {
   font-size: .68rem; color: var(--gold); font-weight: 700;
@@ -122,9 +129,15 @@ img { max-width: 100%; }
   padding: 20px; max-width: 320px;
 }
 .boot-splash-logo {
-  font-size: 4rem; margin-bottom: 16px;
-  animation: boot-spin 2.5s ease-in-out infinite;
+  margin-bottom: 18px;
+  animation: boot-pulse 2s ease-in-out infinite;
   display: inline-block;
+}
+.boot-splash-logo img {
+  width: 92px; height: 92px;
+  border-radius: 24px; background: #fff;
+  object-fit: cover;
+  box-shadow: 0 8px 28px rgba(0,0,0,.28);
 }
 .boot-splash-title {
   font-size: 1.5rem; font-weight: 800;
@@ -147,9 +160,9 @@ img { max-width: 100%; }
 }
 @keyframes boot-fade-in  { from { opacity: 0 } to { opacity: 1 } }
 @keyframes boot-fade-out { to { opacity: 0; visibility: hidden } }
-@keyframes boot-spin {
-  0%, 100% { transform: rotate(0deg) }
-  50%      { transform: rotate(180deg) }
+@keyframes boot-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1 }
+  50%      { transform: scale(1.06); opacity: .88 }
 }
 
 /* HEADER */
@@ -166,8 +179,9 @@ img { max-width: 100%; }
 #top-header .header-sub  { font-size: .64rem; color: var(--gold); font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; display: block; }
 #top-header .header-icon {
   width: 38px; height: 38px; flex: 0 0 auto;
-  background: rgba(255,255,255,.08); border-radius: 10px;
-  padding: 3px;
+  background: #fff; border-radius: 10px;
+  padding: 0; object-fit: cover;
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
 }
 #btn-menu { display: none; }
 #btn-settings {
@@ -371,28 +385,99 @@ img { max-width: 100%; }
 .btn-full { width: 100%; }
 .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* ─── AÇÕES RÁPIDAS ───────────────────────────────────────── */
-.quick-actions {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 10px; padding: 14px;
+/* ─── HOME DASHBOARD ──────────────────────────────────────── */
+.home-hero {
+  background: linear-gradient(160deg, var(--navy-lt) 0%, var(--navy) 100%);
+  margin: -16px -16px 16px;
+  padding: 16px 18px 18px;
+  border-radius: 0 0 26px 26px;
+  box-shadow: 0 8px 24px rgba(26,43,74,.18);
 }
-.quick-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 7px;
-  background: var(--bg);
+.home-hero-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.home-hero-logo {
+  width: 46px; height: 46px; flex-shrink: 0;
+  border-radius: 13px; background: #fff;
+  object-fit: cover;
+  box-shadow: 0 2px 10px rgba(0,0,0,.2);
+}
+.home-greeting { font-size: .92rem; font-weight: 700; color: #fff; letter-spacing: -.2px; }
+.home-date { font-size: .7rem; color: rgba(255,255,255,.55); text-transform: capitalize; margin-top: 1px; letter-spacing: .2px; }
+.home-title { font-size: 1.4rem; font-weight: 800; color: #fff; letter-spacing: -.4px; margin-bottom: 14px; }
+
+/* Ações rápidas — linha compacta de ícones circulares */
+.quick-row { display: flex; gap: 6px; margin-bottom: 18px; }
+.quick-action {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px;
+  background: none; border: none; padding: 0;
+  transition: transform .15s;
+}
+.quick-action:active { transform: scale(.92); }
+.quick-action-icon {
+  width: 56px; height: 56px; border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem;
+  box-shadow: var(--shadow);
+}
+.qa-navy  { background: linear-gradient(135deg, var(--navy-lt), var(--navy)); }
+.qa-blue  { background: linear-gradient(135deg, #5FB0FF, var(--info)); }
+.qa-green { background: linear-gradient(135deg, #44D66B, #20A53F); }
+.qa-gold  { background: linear-gradient(135deg, #FFCB6B, var(--gold-dk)); }
+.quick-action-label { font-size: .72rem; font-weight: 700; color: var(--text); }
+
+/* Container dos stats/insights da home */
+.home-stats { margin-bottom: 16px; }
+
+/* Faixa de insights — destaque do dashboard (sem valores em R$) */
+.home-insights {
+  background: var(--card);
   border-radius: var(--radius);
-  padding: 18px 10px;
-  color: var(--text); font-size: .78rem; font-weight: 700;
-  text-align: center;
-  transition: all .2s;
-  border: 1.5px solid transparent;
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
-.quick-btn:active { transform: scale(.95); background: var(--gold-lt); border-color: var(--gold); }
-.quick-btn .qb-icon { font-size: 1.7rem; }
-.quick-btn.gold {
-  background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dk) 100%);
-  color: var(--navy); border: none;
-  box-shadow: 0 4px 14px rgba(245,166,35,.28);
+.home-insights-head {
+  padding: 14px 18px 10px;
+  font-size: .8rem; font-weight: 800; color: var(--text);
+  letter-spacing: -.2px;
 }
+.insight-row {
+  display: flex; align-items: center; gap: 13px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  position: relative;
+}
+.insight-row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+}
+.insight-clickable { cursor: pointer; transition: background .15s; -webkit-tap-highlight-color: transparent; }
+.insight-clickable:active { background: var(--bg); }
+.insight-icon {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+}
+.insight-body { flex: 1; min-width: 0; }
+.insight-title {
+  font-size: .92rem; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.insight-sub { font-size: .74rem; color: var(--text-muted); margin-top: 1px; }
+.insight-chevron {
+  color: var(--text-light); font-size: .95rem; flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 50%; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+/* Cores por tom */
+.tone-green  .insight-icon { background: var(--success-lt); }
+.tone-green::before  { background: var(--success); }
+.tone-red    .insight-icon { background: var(--danger-lt); }
+.tone-red::before    { background: var(--danger); }
+.tone-gold   .insight-icon { background: var(--gold-lt); }
+.tone-gold::before   { background: var(--gold); }
+.tone-blue   .insight-icon { background: var(--info-lt); }
+.tone-blue::before   { background: var(--info); }
+.tone-orange .insight-icon { background: var(--warning-lt); }
+.tone-orange::before { background: var(--warning); }
+.tone-navy   .insight-icon { background: var(--bg); }
+.tone-navy::before   { background: var(--navy); }
 
 /* ─── FORMULÁRIOS ─────────────────────────────────────────── */
 .form-group { margin-bottom: 16px; }
@@ -654,6 +739,24 @@ textarea.input { resize: vertical; min-height: 80px; }
   margin-bottom: 16px;
 }
 
+/* Barra de período acima dos cards */
+.fin-periodo-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 10px;
+}
+.fin-periodo-label {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: .85rem; font-weight: 800; color: var(--navy);
+  letter-spacing: -.2px;
+}
+.fin-periodo-edit {
+  font-size: .72rem; font-weight: 700; color: var(--info);
+  background: var(--info-lt); border: none;
+  padding: 4px 12px; border-radius: 50px;
+  transition: all .15s;
+}
+.fin-periodo-edit:active { transform: scale(.94); }
+
 /* ─── GRID ────────────────────────────────────────────────── */
 .grid-2col { display: grid; grid-template-columns: 1fr; gap: 14px; }
 
@@ -889,7 +992,9 @@ textarea.input { resize: vertical; min-height: 80px; }
   .grid-2col { grid-template-columns: 1fr 1fr; }
   .stats-grid { grid-template-columns: repeat(3, 1fr); }
   #toast-container { bottom: 24px; }
-  .quick-actions { grid-template-columns: repeat(3, 1fr); }
+  /* Ações rápidas agrupadas à esquerda no desktop (não esticam) */
+  .quick-row { justify-content: flex-start; gap: 20px; }
+  .quick-action { flex: 0 0 84px; }
 }
 @media (min-width: 1024px) {
   .stats-grid { grid-template-columns: repeat(4, 1fr); }

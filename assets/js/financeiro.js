@@ -12,7 +12,8 @@ const Financeiro = (() => {
 
   // Estado dos filtros persistido entre tabs
   let _filtros = {
-    busca: '', mes: '', status: '', regime: 'competencia',
+    busca: '', periodoTipo: 'mes', mes: '', dataIni: '', dataFim: '',
+    status: '', regime: 'competencia',
     categoria: '', cliente: '', conta: '', sort: 'venc_desc',
   };
   let _filterOpen = false;
@@ -30,7 +31,9 @@ const Financeiro = (() => {
     // Ao entrar no módulo: reseta filtro especial e volta para aba receber
     _filtroVenc7d = params.filtro === 'vencendo7d';
     currentTab = 'receber';
+    _filtros.periodoTipo = 'mes';
     _filtros.mes = new Date().toISOString().substring(0, 7);
+    _filtros.dataIni = ''; _filtros.dataFim = '';
     // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
     await Promise.all([loadData(), App.loadGlobals()]);
     renderView();
@@ -88,6 +91,10 @@ const Financeiro = (() => {
     const isRec = tipo === 'receber';
 
     qs('#fin-content').innerHTML = `
+      <div class="fin-periodo-bar">
+        <span id="fin-periodo-label" class="fin-periodo-label"></span>
+        ${_filtroVenc7d ? '' : `<button class="fin-periodo-edit" onclick="Financeiro.openPeriodo()">alterar</button>`}
+      </div>
       <div class="stats-grid-4">
         <div class="stat-card stat-${isRec ? 'gold' : 'orange'}">
           <div class="stat-label">Pendente</div>
@@ -129,10 +136,28 @@ const Financeiro = (() => {
           </button>
         </div>
         <div id="fin-filter-panel" class="fin-filter-panel" style="${_filterOpen ? '' : 'display:none'}">
-          <div class="form-group">
-            <label>Mês</label>
-            <input type="month" id="fin-mes" value="${_filtros.mes}" onchange="Financeiro.onFilterChange()">
+          <div class="form-group ${_filtros.periodoTipo === 'intervalo' ? 'full-col' : ''}">
+            <label>Período</label>
+            <select id="fin-periodo-tipo" onchange="Financeiro.onPeriodoTipoChange()">
+              <option value="mes"       ${_filtros.periodoTipo!=='intervalo'?'selected':''}>Por mês</option>
+              <option value="intervalo" ${_filtros.periodoTipo==='intervalo'?'selected':''}>Intervalo de datas</option>
+            </select>
           </div>
+          ${_filtros.periodoTipo === 'intervalo' ? `
+            <div class="form-group">
+              <label>De</label>
+              <input type="date" id="fin-data-ini" value="${_filtros.dataIni}" onchange="Financeiro.onFilterChange()">
+            </div>
+            <div class="form-group">
+              <label>Até</label>
+              <input type="date" id="fin-data-fim" value="${_filtros.dataFim}" onchange="Financeiro.onFilterChange()">
+            </div>
+          ` : `
+            <div class="form-group">
+              <label>Mês</label>
+              <input type="month" id="fin-mes" value="${_filtros.mes}" onchange="Financeiro.onFilterChange()">
+            </div>
+          `}
           <div class="form-group">
             <label>Status</label>
             <select id="fin-status" onchange="Financeiro.onFilterChange()">
@@ -203,13 +228,33 @@ const Financeiro = (() => {
   }
 
   function onFilterChange() {
-    _filtros.mes       = qs('#fin-mes')?.value       || '';
+    // ?? mantém o valor quando o input não está no DOM (modo mês vs intervalo)
+    _filtros.mes       = qs('#fin-mes')?.value       ?? _filtros.mes;
+    _filtros.dataIni   = qs('#fin-data-ini')?.value  ?? _filtros.dataIni;
+    _filtros.dataFim   = qs('#fin-data-fim')?.value  ?? _filtros.dataFim;
     _filtros.status    = qs('#fin-status')?.value    || '';
     _filtros.regime    = qs('#fin-regime')?.value    || 'competencia';
     _filtros.categoria = qs('#fin-categoria')?.value || '';
     _filtros.cliente   = qs('#fin-cliente')?.value   || '';
     _filtros.conta     = qs('#fin-conta')?.value     || '';
     filtrar();
+  }
+
+  function onPeriodoTipoChange() {
+    _filtros.periodoTipo = qs('#fin-periodo-tipo')?.value || 'mes';
+    // Ao entrar em "intervalo" sem datas, pré-preenche com o mês selecionado
+    if (_filtros.periodoTipo === 'intervalo' && !_filtros.dataIni && !_filtros.dataFim) {
+      const p = _periodoFromMes(_filtros.mes);
+      _filtros.dataIni = p.ini;
+      _filtros.dataFim = p.fim;
+    }
+    renderParcelas(currentTab); // re-render mantém o painel aberto
+  }
+
+  // Abre o painel de filtros já com o foco no período
+  function openPeriodo() {
+    if (!_filterOpen) toggleFilterPanel();
+    qs('#fin-filter-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function toggleFilterPanel() {
@@ -220,10 +265,60 @@ const Financeiro = (() => {
     if (btn)   btn.classList.toggle('active', _filterOpen);
   }
 
+  // ─── PERÍODO ────────────────────────────────────────────────
+  // Converte 'YYYY-MM' no range [primeiro dia, último dia] do mês
+  function _periodoFromMes(mes) {
+    if (!mes) return { ini: '', fim: '' };
+    const [y, m] = mes.split('-').map(Number);
+    const last   = new Date(y, m, 0).getDate();
+    return { ini: `${mes}-01`, fim: `${mes}-${String(last).padStart(2, '0')}` };
+  }
+
+  // Período ativo: {ini, fim, label} conforme modo (mês ou intervalo)
+  function getPeriodo() {
+    if (_filtros.periodoTipo === 'intervalo') {
+      const ini = _filtros.dataIni || '';
+      const fim = _filtros.dataFim || '';
+      let label;
+      if (ini && fim)   label = `${Fmt.date(ini)} – ${Fmt.date(fim)}`;
+      else if (ini)     label = `de ${Fmt.date(ini)}`;
+      else if (fim)     label = `até ${Fmt.date(fim)}`;
+      else              label = 'Todo o período';
+      return { ini, fim, label };
+    }
+    const mes = _filtros.mes;
+    if (!mes) return { ini: '', fim: '', label: 'Todo o período' };
+    const { ini, fim } = _periodoFromMes(mes);
+    const [y, m] = mes.split('-').map(Number);
+    const nome = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    return { ini, fim, label: nome.charAt(0).toUpperCase() + nome.slice(1) };
+  }
+
+  // Uma parcela cai no período? Competência compara por mês; caixa por dia real.
+  function _noPeriodo(p, per, regime) {
+    const { ini, fim } = per;
+    if (!ini && !fim) return true; // período aberto = tudo
+    if (regime === 'competencia') {
+      const m = String(p.data_competencia || '').substring(0, 7);
+      if (!m) return false;
+      if (ini && m < ini.substring(0, 7)) return false;
+      if (fim && m > fim.substring(0, 7)) return false;
+      return true;
+    }
+    // caixa: usa data real (pagamento se pago, senão vencimento)
+    const d = String(p.status === 'pago' ? p.data_pagamento : p.data_vencimento || '').substring(0, 10);
+    if (!d) return false;
+    if (ini && d < ini) return false;
+    if (fim && d > fim) return false;
+    return true;
+  }
+
   function limparFiltros() {
     _filtros.busca = ''; _filtros.status = ''; _filtros.categoria = '';
     _filtros.cliente = ''; _filtros.conta = '';
+    _filtros.periodoTipo = 'mes';
     _filtros.mes = new Date().toISOString().substring(0, 7);
+    _filtros.dataIni = ''; _filtros.dataFim = '';
     _filtros.regime = 'competencia';
     renderParcelas(currentTab);
   }
@@ -244,65 +339,60 @@ const Financeiro = (() => {
   }
 
   function filtrar() {
-    const tipo = currentTab;
-    let items  = allParcelas.filter(p => p.tipo === tipo);
+    const tipo   = currentTab;
+    const regime = _filtros.regime;
+    const per    = getPeriodo();
+    const sum    = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
 
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     const em7  = new Date(hoje); em7.setDate(em7.getDate() + 7);
 
-    // Sempre atualiza os stat cards com todos os do tipo (sem filtro de período)
-    const todosDoTipo = items.filter(p => p.origem !== 'transferencia');
-    const pendentes   = todosDoTipo.filter(p => p.status === 'pendente');
-    const vencidos    = pendentes.filter(p => new Date(p.data_vencimento + 'T00:00:00') < hoje);
-    const proximos7d  = pendentes.filter(p => {
+    const baseTipo = allParcelas.filter(p => p.tipo === tipo && p.origem !== 'transferencia');
+
+    // ── STAT CARDS ──
+    // No modo normal seguem o período selecionado; no modo venc7d (visão de
+    // alerta) são gerais, pois ali não há painel de período visível.
+    const cardBase   = _filtroVenc7d ? baseTipo : baseTipo.filter(p => _noPeriodo(p, per, regime));
+    const pendentes  = cardBase.filter(p => p.status === 'pendente');
+    const vencidos   = pendentes.filter(p => new Date(p.data_vencimento + 'T00:00:00') < hoje);
+    const proximos7d = pendentes.filter(p => {
       const d = new Date(p.data_vencimento + 'T00:00:00');
       return d >= hoje && d <= em7;
     });
-    const pagos = todosDoTipo.filter(p => p.status === 'pago');
-    const sum   = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const pagos = cardBase.filter(p => p.status === 'pago');
 
     _updateStat('stat-pendente', sum(pendentes), pendentes.length);
     _updateStat('stat-vencido',  sum(vencidos),  vencidos.length);
     _updateStat('stat-pago',     sum(pagos),     pagos.length);
     _updateStat('stat-7d',       sum(proximos7d),proximos7d.length);
 
+    // Label do período acima dos cards
+    const lbl = qs('#fin-periodo-label');
+    if (lbl) lbl.innerHTML = `📅 ${_filtroVenc7d ? 'Geral' : per.label}`;
+
+    // ── MODO ESPECIAL: vencendo em 7 dias ──
     if (_filtroVenc7d) {
-      items = pendentes.filter(p => {
-        const d = new Date(p.data_vencimento + 'T00:00:00');
-        return d >= hoje && d <= em7;
-      });
-      items = [...items].sort((a, b) => (a.data_vencimento < b.data_vencimento ? -1 : 1));
+      const items = [...proximos7d].sort((a, b) => (a.data_vencimento < b.data_vencimento ? -1 : 1));
       _lastFiltered = items;
       _visibleCount = PAGE_SIZE;
       _renderTable();
       return;
     }
 
-    // Filtros principais
-    const mes      = _filtros.mes;
-    const status   = _filtros.status;
-    const regime   = _filtros.regime;
-    const busca    = (_filtros.busca || '').toLowerCase().trim();
-    const catId    = _filtros.categoria;
-    const cliId    = _filtros.cliente;
-    const contaId  = _filtros.conta;
+    // ── LISTA (modo normal) ──
+    let items = allParcelas.filter(p => p.tipo === tipo);
+    const status  = _filtros.status;
+    const busca   = (_filtros.busca || '').toLowerCase().trim();
+    const catId   = _filtros.categoria;
+    const cliId   = _filtros.cliente;
+    const contaId = _filtros.conta;
 
-    if (status)   items = items.filter(p => p.status === status);
-    if (catId)    items = items.filter(p => p.categoria_id === catId);
-    if (cliId)    items = items.filter(p => p.cliente_id   === cliId);
-    if (contaId)  items = items.filter(p => p.conta_id     === contaId);
-    if (busca)    items = items.filter(p => (p.descricao || '').toLowerCase().includes(busca));
-
-    if (mes) {
-      if (regime === 'competencia') {
-        items = items.filter(p => String(p.data_competencia || '').substring(0, 7) === mes);
-      } else {
-        items = items.filter(p => {
-          if (p.status === 'pago') return String(p.data_pagamento || '').substring(0, 7) === mes;
-          return String(p.data_vencimento || '').substring(0, 7) === mes;
-        });
-      }
-    }
+    if (status)  items = items.filter(p => p.status === status);
+    if (catId)   items = items.filter(p => p.categoria_id === catId);
+    if (cliId)   items = items.filter(p => p.cliente_id   === cliId);
+    if (contaId) items = items.filter(p => p.conta_id     === contaId);
+    if (busca)   items = items.filter(p => (p.descricao || '').toLowerCase().includes(busca));
+    items = items.filter(p => _noPeriodo(p, per, regime));
 
     _lastFiltered = items;
     _visibleCount = PAGE_SIZE;
@@ -1172,5 +1262,6 @@ const Financeiro = (() => {
            toggleParcelado,
            editarParcela, excluirParcela, tapParcela,
            onBuscaInput, onFilterChange, toggleFilterPanel, limparFiltros,
+           onPeriodoTipoChange, openPeriodo,
            toggleSort, removeChip };
 })();
