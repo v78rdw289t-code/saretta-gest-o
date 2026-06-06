@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=2.0.0">
+  <link rel="stylesheet" href="assets/css/style.css?v=2.0.7">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=2.0.0">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=2.0.7">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=2.0.0">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=2.0.7">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=2.0.0" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=2.0.7" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=2.0.0" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=2.0.7" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=2.0.0" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=2.0.7" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -205,47 +205,14 @@
         </div>
       </div>
 
-      <!-- MANHÃ -->
-      <div class="periodo-block periodo-manha">
-        <div class="periodo-title">☀️ Manhã</div>
-        <div class="form-row" style="gap:10px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Entrada</label>
-            <input type="time" id="modal-diaria-manha-in" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>Saída</label>
-            <input type="time" id="modal-diaria-manha-fim" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-        </div>
+      <!-- PERÍODOS TRABALHADOS (blocos de horário) -->
+      <div style="margin-top:12px">
+        <div class="periodo-title" style="margin-bottom:6px">⏱ Períodos trabalhados</div>
+        <div id="diaria-blocos"></div>
+        <button type="button" class="btn btn-outline btn-full"
+          style="margin-top:8px;border-style:dashed;font-size:.85rem"
+          onclick="OS.addBloco()">+ Adicionar período</button>
       </div>
-
-      <!-- TARDE -->
-      <div class="periodo-block periodo-tarde">
-        <div class="periodo-title">🌤 Tarde / Extra</div>
-        <div class="form-row" style="gap:10px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>Entrada</label>
-            <input type="time" id="modal-diaria-tarde-in" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>Saída</label>
-            <input type="time" id="modal-diaria-tarde-fim" class="input"
-              oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
-          </div>
-        </div>
-      </div>
-
-      <!-- PAINEL DE REAJUSTE (opcional) -->
-      <button id="reajuste-toggle-btn" type="button" class="btn btn-outline btn-full"
-        style="margin-top:6px;border-style:dashed;font-size:.85rem"
-        onclick="OS.toggleReajuste()">
-        + Adicionar horas com reajuste
-      </button>
-      <div id="reajuste-panel" style="display:none"></div>
 
       <!-- RESUMO CALCULADO -->
       <div class="calc-preview" style="margin-top:14px">
@@ -271,7 +238,7 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-primary btn-lg" onclick="OS.saveDiaria()">Salvar Dia</button>
+      <button id="modal-diaria-save-btn" class="btn btn-primary btn-lg" onclick="OS.saveDiaria()">Salvar Dia</button>
       <button class="btn btn-outline"        onclick="Modal.close('modal-diaria')">Cancelar</button>
     </div>
   </div>
@@ -827,18 +794,19 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=2.0.0"></script>
-<script src="assets/js/utils.js?v=2.0.0"></script>
-<script src="assets/js/home.js?v=2.0.0"></script>
-<script src="assets/js/os.js?v=2.0.0"></script>
-<script src="assets/js/financeiro.js?v=2.0.0"></script>
-<script src="assets/js/clientes.js?v=2.0.0"></script>
-<script src="assets/js/estoque.js?v=2.0.0"></script>
-<script src="assets/js/compras.js?v=2.0.0"></script>
-<script src="assets/js/fiado.js?v=2.0.0"></script>
-<script src="assets/js/insights.js?v=2.0.0"></script>
-<script src="assets/js/config.js?v=2.0.0"></script>
-<script src="assets/js/app.js?v=2.0.0"></script>
+<script src="assets/js/api.js?v=2.0.7"></script>
+<script src="assets/js/utils.js?v=2.0.7"></script>
+<script src="assets/js/home.js?v=2.0.7"></script>
+<script src="assets/js/os.js?v=2.0.7"></script>
+<script src="assets/js/financeiro.js?v=2.0.7"></script>
+<script src="assets/js/clientes.js?v=2.0.7"></script>
+<script src="assets/js/estoque.js?v=2.0.7"></script>
+<script src="assets/js/compras.js?v=2.0.7"></script>
+<script src="assets/js/fiado.js?v=2.0.7"></script>
+<script src="assets/js/insights.js?v=2.0.7"></script>
+<script src="assets/js/config.js?v=2.0.7"></script>
+<script src="assets/js/pdf.js?v=2.0.7"></script>
+<script src="assets/js/app.js?v=2.0.7"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

@@ -292,6 +292,55 @@ const Calculator = {
     return { hNormal, hRisco, hTotal: hNormal + hRisco };
   },
 
+  // ─── BLOCOS DE HORÁRIO COM REAJUSTE (modelo v2) ──────────────
+  // Cada bloco: { inicio:'HH:MM', fim:'HH:MM', reajuste:bool, fatores:[{percentual}] }
+  // Bloco avulso (retrocompat reajuste antigo): { avulso:true, horas:Number, reajuste:true, fatores }
+  // Retorna breakdown completo — total = soma dos blocos (reajuste DIVIDE o dia, não soma por fora).
+  calcBlocos(blocos, baseRate) {
+    let hNormal = 0, hReajuste = 0, valorNormal = 0, valorReajuste = 0;
+    for (const b of (blocos || [])) {
+      const h = b.avulso ? Number(b.horas || 0)
+                         : ((b.inicio && b.fim) ? DateUtil.diffHours(b.inicio, b.fim) : 0);
+      if (!(h > 0)) continue;
+      if (b.reajuste) {
+        const perc = (b.fatores || []).reduce((s, f) => s + Number(f.percentual || 0), 0);
+        hReajuste     += h;
+        valorReajuste += h * baseRate * (1 + perc / 100);
+      } else {
+        hNormal     += h;
+        valorNormal += h * baseRate;
+      }
+    }
+    const round2 = (n) => Math.round(n * 100) / 100;
+    return {
+      horas: hNormal + hReajuste,
+      valor: round2(valorNormal + valorReajuste),
+      hNormal, hReajuste,
+      valorNormal: round2(valorNormal), valorReajuste: round2(valorReajuste),
+    };
+  },
+
+  // Converte um registro de diária no array de blocos.
+  // Registros novos têm blocos_json; antigos são derivados de manhã/tarde + reajuste_json.
+  blocosFromDiaria(d) {
+    if (!d) return [];
+    if (d.blocos_json) {
+      try { const b = JSON.parse(d.blocos_json); if (Array.isArray(b) && b.length) return b; } catch {}
+    }
+    const blocos = [];
+    // Horários antigos eram gravados com prefixo '@' (evitar interpretação do Sheets) — limpar
+    const hhmm = (t) => String(t || '').replace('@', '').slice(0, 5);
+    if (d.manha_inicio && d.manha_fim) blocos.push({ inicio: hhmm(d.manha_inicio), fim: hhmm(d.manha_fim), reajuste: false, fatores: [] });
+    if (d.tarde_inicio && d.tarde_fim) blocos.push({ inicio: hhmm(d.tarde_inicio), fim: hhmm(d.tarde_fim), reajuste: false, fatores: [] });
+    if (d.reajuste_json) {
+      try {
+        const rj = JSON.parse(d.reajuste_json);
+        if (Number(rj.horas) > 0) blocos.push({ avulso: true, horas: Number(rj.horas), reajuste: true, fatores: rj.fatores || [] });
+      } catch {}
+    }
+    return blocos;
+  },
+
   // Cálculo completo (usado no fechamento)
   // params: { tipoServico, horaBase, horas, material, taxaAdminMaterial,
   //           fatoresAtivos, chamadaTecnica, tipoChamada, desconto, simples }

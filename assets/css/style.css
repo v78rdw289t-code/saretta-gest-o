@@ -41,14 +41,13 @@
 
 /* ─── RESET ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 15px; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+html { font-size: 15px; -webkit-tap-highlight-color: transparent; }
 body {
   font-family: -apple-system, 'SF Pro Text', BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.55;
   overscroll-behavior: none;
-  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -109,11 +108,18 @@ img { max-width: 100%; }
 /* MAIN */
 #main {
   flex: 1;
+  /* min-width:0 é ESSENCIAL: sem isso, este flex item não encolhe abaixo
+     do seu conteúdo (min-width:auto padrão). Se alguma página tiver um
+     elemento mais largo que a viewport, o #main estica e estoura a tela
+     inteira — o que no mobile faz a página "abrir com zoom-out". */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   padding-bottom: var(--nav-h);
 }
+/* #content também precisa poder encolher (é flex item em coluna) */
+#content { min-width: 0; }
 
 /* SPLASH inicial — mostrado só na primeira sessão (sem cache localStorage) */
 #boot-splash {
@@ -818,6 +824,33 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 .periodo-manha .periodo-title { color: var(--gold-dk); }
 .periodo-tarde  .periodo-title { color: var(--info); }
+
+/* ─── BLOCOS DE HORÁRIO (registro de dia/sessão v2) ────────── */
+.bloco-row {
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; margin-bottom: 10px;
+  transition: border-color .15s, background .15s;
+}
+.bloco-row.bloco-reajuste { background: var(--danger-lt); border-color: rgba(255,59,48,.35); }
+.bloco-times { display: flex; align-items: center; gap: 8px; }
+.bloco-times .input { flex: 1; min-width: 0; text-align: center; }
+.bloco-sep { color: var(--text-muted); font-weight: 700; flex: 0 0 auto; }
+.bloco-del {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
+  background: var(--card); border: 1.5px solid var(--border);
+  font-size: .95rem; line-height: 1; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+}
+.bloco-del:active { transform: scale(.92); background: var(--danger-lt); }
+.bloco-reaj-check { margin: 10px 0 0; font-size: .82rem; }
+.bloco-fatores { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip-fator {
+  font-size: .72rem; font-weight: 700; cursor: pointer;
+  padding: 5px 11px; border-radius: 50px;
+  background: var(--card); border: 1.5px solid var(--border); color: var(--text-muted);
+  transition: all .15s; user-select: none;
+}
+.chip-fator.on { background: var(--danger); border-color: var(--danger); color: #fff; }
 .calc-preview {
   background: var(--success-lt); border: 1.5px solid rgba(48,209,88,.3);
   border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 14px;
@@ -825,6 +858,16 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 .calc-item label { font-size: .7rem; color: var(--navy); font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 3px; }
 .calc-item span  { font-size: 1.15rem; font-weight: 800; color: var(--navy); }
+/* Calculadora OS normal v2 — mão de obra (das sessões) + seções */
+.calc-maoobra {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--bg); border-radius: var(--radius-sm);
+  padding: 12px 14px; margin-bottom: 6px;
+}
+.calc-section-label {
+  font-size: .75rem; color: var(--text-muted); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 8px;
+}
 #modal-diaria-info { font-size: .75rem; color: var(--text-muted); margin-top: 10px; background: var(--bg); padding: 8px 12px; border-radius: var(--radius-xs); }
 
 /* ─── BAR CHART ───────────────────────────────────────────── */
@@ -1157,3 +1200,82 @@ textarea.input { resize: vertical; min-height: 80px; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ════════════════════════════════════════════════════════════
+   DOCUMENTOS / PDF (OS e Orçamento) — overlay + impressão
+   ════════════════════════════════════════════════════════════ */
+#doc-overlay { display: none; position: fixed; inset: 0; z-index: 600; background: var(--bg); flex-direction: column; }
+#doc-overlay.open { display: flex; }
+.doc-bar {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+  background: var(--navy); color: #fff;
+  box-shadow: 0 2px 12px rgba(0,0,0,.25);
+}
+.doc-bar-title { font-size: .85rem; font-weight: 700; color: rgba(255,255,255,.85); }
+#doc-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+
+/* Folha do documento (proporção ~A4) */
+.doc-page {
+  background: #fff; color: #1a2b4a;
+  max-width: 720px; margin: 0 auto; padding: 26px 30px 24px;
+  border-radius: 6px; box-shadow: var(--shadow-md);
+  border-top: 5px solid var(--gold);   /* faixa da marca */
+  font-size: 13px; line-height: 1.5;
+}
+.doc-head { display: flex; align-items: flex-start; gap: 14px; border-bottom: 2px solid var(--navy); padding-bottom: 14px; margin-bottom: 18px; }
+.doc-logo { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex-shrink: 0; }
+.doc-emp { flex: 1; min-width: 0; }
+.doc-emp-nome { font-size: 1.15rem; font-weight: 800; letter-spacing: -.2px; }
+.doc-emp-sub { font-size: .72rem; color: var(--gold-dk); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.doc-emp-contato { font-size: .72rem; color: #6b7a92; margin-top: 4px; }
+.doc-meta { text-align: right; flex-shrink: 0; }
+.doc-tipo { font-size: .68rem; font-weight: 800; color: var(--gold-dk); text-transform: uppercase; letter-spacing: 1px; }
+.doc-num { font-size: 1.2rem; font-weight: 800; color: var(--navy); }
+.doc-data { font-size: .72rem; color: #6b7a92; }
+.doc-bloco { margin-bottom: 16px; }
+.doc-bloco-titulo {
+  font-size: .66rem; font-weight: 800; color: var(--navy);
+  text-transform: uppercase; letter-spacing: .8px;
+  margin-bottom: 6px; padding-left: 9px; position: relative;
+}
+.doc-bloco-titulo::before {
+  content: ''; position: absolute; left: 0; top: 1px; bottom: 1px;
+  width: 3px; border-radius: 2px; background: var(--gold);
+}
+.doc-cli-nome, .doc-serv-nome { font-size: .95rem; font-weight: 700; }
+.doc-cli-info { font-size: .8rem; color: #6b7a92; }
+.doc-obs { font-size: .82rem; color: #45526b; margin-top: 4px; }
+.doc-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.doc-table th { text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: .5px; color: #fff; background: var(--navy); padding: 6px 10px; }
+.doc-table td { font-size: .82rem; padding: 7px 10px; border-bottom: 1px solid #eef2f9; vertical-align: top; }
+.doc-table .r { text-align: right; white-space: nowrap; }
+.doc-table .doc-tr-total td { font-weight: 800; color: var(--navy); background: var(--gold-lt); border-bottom: none; }
+.doc-resumo { margin-top: 18px; }
+.doc-row { display: flex; justify-content: space-between; font-size: .85rem; padding: 5px 2px; }
+.doc-total {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--navy); color: #fff; border-radius: 12px;
+  padding: 13px 18px; margin-top: 10px; font-size: 1.05rem; font-weight: 800;
+}
+.doc-total span:last-child { color: var(--gold); font-size: 1.25rem; }
+.doc-validade { font-size: .74rem; color: #6b7a92; margin-top: 14px; font-style: italic; }
+.doc-foot { margin-top: 24px; padding-top: 14px; border-top: 2px solid var(--gold); text-align: center; font-size: .72rem; color: #6b7a92; }
+.doc-foot-slogan { font-weight: 800; color: var(--navy); font-size: .95rem; margin-bottom: 3px; letter-spacing: -.2px; }
+
+@media print {
+  #app, #top-header, #bottom-nav, #more-drawer, #toast-container, #global-loading, #boot-splash { display: none !important; }
+  #doc-overlay { position: static !important; display: block !important; background: #fff; }
+  #doc-overlay .doc-bar { display: none !important; }
+  #doc-scroll { overflow: visible !important; padding: 0 !important; }
+  .doc-page { box-shadow: none !important; border-radius: 0 !important; margin: 0 auto !important; max-width: none !important; padding: 0 !important; border-top: none !important; }
+  @page { margin: 14mm; size: A4; }
+
+  /* ─── Quebra de página automática (multi-folha) ───
+     O navegador cria a 2ª/3ª folha sozinho; estas regras deixam a quebra limpa. */
+  .doc-table thead { display: table-header-group; }   /* cabeçalho da tabela repete em cada folha */
+  .doc-table tr    { break-inside: avoid; page-break-inside: avoid; }  /* não corta uma linha no meio */
+  .doc-row, .doc-resumo, .doc-foot, .doc-head { break-inside: avoid; page-break-inside: avoid; }
+  .doc-bloco-titulo { break-after: avoid; page-break-after: avoid; }   /* título não fica sozinho no fim da folha */
+  .doc-total { break-inside: avoid; page-break-inside: avoid; }        /* total nunca separado */
+}
