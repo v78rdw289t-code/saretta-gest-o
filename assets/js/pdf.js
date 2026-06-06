@@ -155,19 +155,27 @@ const Doc = (() => {
     _abrir(html, `${titulo.toLowerCase()} ${os.numero || ''}`.trim());
   }
 
-  // Mostra o documento em overlay com ações (Imprimir/PDF, Fechar)
-  function _abrir(html, _titulo) {
+  let _nomeArquivo = 'documento';
+
+  // Mostra o documento em overlay com ações (Baixar / Enviar / Fechar)
+  function _abrir(html, nome) {
+    _nomeArquivo = (nome || 'documento').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
     let ov = qs('#doc-overlay');
     if (!ov) {
       ov = document.createElement('div');
       ov.id = 'doc-overlay';
       document.body.appendChild(ov);
     }
+    // Mostra "Enviar" só onde o aparelho suporta compartilhar arquivos (celular)
+    const podeCompartilhar = !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.pdf', { type: 'application/pdf' })] }));
     ov.innerHTML = `
       <div class="doc-bar">
-        <button class="btn btn-outline btn-sm" onclick="Doc.fechar()">✕ Fechar</button>
-        <span class="doc-bar-title">Pré-visualização</span>
-        <button class="btn btn-primary btn-sm" onclick="Doc.imprimir()">📄 Imprimir / PDF</button>
+        <button class="btn btn-outline btn-sm" onclick="Doc.fechar()">✕</button>
+        <span class="doc-bar-title">Documento</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" onclick="Doc.baixar()">⬇ Baixar</button>
+          ${podeCompartilhar ? `<button class="btn btn-primary btn-sm" onclick="Doc.compartilhar()">📤 Enviar</button>` : ''}
+        </div>
       </div>
       <div id="doc-scroll">${html}</div>
     `;
@@ -175,7 +183,51 @@ const Doc = (() => {
     document.body.classList.add('doc-open');
   }
 
-  function imprimir() { window.print(); }
+  // Gera o PDF (Blob) a partir do HTML do documento — funciona em PC e celular
+  async function _gerarBlob() {
+    const el = qs('#doc-scroll .doc-page');
+    if (!el || typeof html2pdf === 'undefined') throw new Error('PDF indisponível');
+    const opt = {
+      margin:      [10, 10, 12, 10],
+      filename:    _nomeArquivo + '.pdf',
+      image:       { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }, // não corta linhas; cria folhas extras sozinho
+    };
+    return await html2pdf().set(opt).from(el).outputPdf('blob');
+  }
+
+  async function baixar() {
+    try {
+      Loading.show();
+      const blob = await _gerarBlob();
+      Loading.hide();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = _nomeArquivo + '.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { Loading.hide(); Toast.error('Não foi possível gerar o PDF'); }
+  }
+
+  async function compartilhar() {
+    try {
+      Loading.show();
+      const blob = await _gerarBlob();
+      const file = new File([blob], _nomeArquivo + '.pdf', { type: 'application/pdf' });
+      Loading.hide();
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: _nomeArquivo });
+      } else {
+        baixar(); // fallback
+      }
+    } catch (e) {
+      Loading.hide();
+      if (e && e.name === 'AbortError') return; // usuário cancelou
+      Toast.error('Não foi possível compartilhar o PDF');
+    }
+  }
 
   function fechar() {
     const ov = qs('#doc-overlay');
@@ -183,5 +235,5 @@ const Doc = (() => {
     document.body.classList.remove('doc-open');
   }
 
-  return { gerar, imprimir, fechar };
+  return { gerar, baixar, compartilhar, fechar };
 })();

@@ -144,6 +144,24 @@ const App = (() => {
       btn.addEventListener('click', () => navigate(btn.dataset.page));
     });
 
+    // Botão "voltar" do Android/navegador: em vez de sair do app, volta de tela.
+    // Se houver um modal/overlay aberto, o voltar fecha ele e mantém a tela atual.
+    window.addEventListener('hashchange', () => {
+      const aberto = document.querySelector('.modal.open, .modal-center.open, #action-sheet.open, #doc-overlay.open');
+      if (aberto) {
+        if (typeof Modal !== 'undefined')       Modal.closeAll();
+        if (typeof ActionSheet !== 'undefined') ActionSheet.close?.();
+        if (typeof Doc !== 'undefined')          Doc.fechar();
+        // re-sincroniza o hash com a tela atual sem disparar nova navegação
+        if ((location.hash || '').replace(/^#/, '') !== currentPage) {
+          history.replaceState(null, '', '#' + currentPage);
+        }
+        return;
+      }
+      const page = (location.hash || '').replace(/^#/, '') || 'home';
+      if (pages.includes(page) && page !== currentPage) navigate(page);
+    });
+
     // Boot decide se mostra splash ou entra direto
     await bootApp();
   }

@@ -4,6 +4,19 @@
 // ============================================================
 
 const SPREADSHEET_ID = ''; // <- PREENCHA COM O ID DA PLANILHA
+
+// ─── SEGURANÇA ───────────────────────────────────────────────
+// Defina um token secreto (qualquer texto difícil de adivinhar) e cadastre
+// o MESMO valor em Configurações no app. Enquanto ficar vazio, o acesso
+// continua aberto (compatível com versões antigas). Assim que preencher,
+// só requisições com o token correto são aceitas.
+const API_TOKEN = ''; // <- ex: 'saretta-7f3a9c2e...' (e cole o mesmo no app)
+
+function checkAuth(token) {
+  if (!API_TOKEN) return;                  // token não configurado → acesso aberto (retrocompat)
+  if (token !== API_TOKEN) throw new Error('Não autorizado (token inválido)');
+}
+
 const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
 const SHEET_HEADERS = {
@@ -28,6 +41,7 @@ const SHEET_HEADERS = {
 function doGet(e) {
   const params = e.parameter;
   try {
+    checkAuth(params.token);
     const action = params.action;
     let result;
     if (action === 'read')           result = read(params.sheet, params.id || null, parseFilters(params));
@@ -44,6 +58,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
+    checkAuth(data.token);
     const action = data.action;
     let result;
     switch (action) {

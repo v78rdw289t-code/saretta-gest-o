@@ -147,6 +147,8 @@ const OS = (() => {
     const o = allOS.find(x => x.id === id) || currentOS;
     const actions = [
       { icon: '✏️', label: 'Editar OS', fn: () => openForm(id) },
+      { icon: '📋', label: 'Gerar OS (PDF)',       fn: () => Doc.gerar(id, 'os') },
+      { icon: '💰', label: 'Gerar Orçamento (PDF)', fn: () => Doc.gerar(id, 'orcamento') },
     ];
     if (o && o.status !== 'fechado') {
       actions.push({ icon: '✓', label: 'Fechar OS', fn: () => openFechamento() });

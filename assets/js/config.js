@@ -32,6 +32,7 @@ const Config = (() => {
   function renderView() {
     const section = qs('#page-config');
     const urlAtual = LocalConfig.getUrl();
+    const tokenAtual = LocalConfig.getToken();
 
     section.innerHTML = `
       <div class="page-header"><h1>Configurações</h1></div>
@@ -45,7 +46,12 @@ const Config = (() => {
               <input type="url" id="cfg-url" class="input" value="${urlAtual}"
                 placeholder="https://script.google.com/macros/s/...">
             </div>
-            <button class="btn btn-primary" onclick="Config.saveUrl()">Salvar URL</button>
+            <div class="form-group">
+              <label>Token de acesso <small style="color:var(--text-muted);font-weight:400">(segurança — deixe igual ao do Apps Script)</small></label>
+              <input type="text" id="cfg-token" class="input" value="${tokenAtual}"
+                placeholder="cole aqui o mesmo token do backend" autocomplete="off">
+            </div>
+            <button class="btn btn-primary" onclick="Config.saveUrl()">Salvar conexão</button>
             ${urlAtual ? `<button class="btn btn-outline ml-2" onclick="Config.testarConexao()">Testar Conexão</button>` : ''}
             <div id="cfg-status" class="mt-2"></div>
             ${!urlAtual ? `
@@ -209,9 +215,11 @@ const Config = (() => {
   function saveUrl() {
     const url = qs('#cfg-url').value.trim();
     LocalConfig.setUrl(url);
+    LocalConfig.setToken(qs('#cfg-token')?.value || '');
+    API.clearCache();              // token novo → cache antigo pode ser inválido
     Calculator.invalidateConfig();
-    Toast.success('URL salva!');
-    qs('#cfg-status').innerHTML = '<span class="badge badge-success">URL configurada</span>';
+    Toast.success('Conexão salva!');
+    qs('#cfg-status').innerHTML = '<span class="badge badge-success">Conexão configurada</span>';
     render();
   }
 

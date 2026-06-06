@@ -97,15 +97,46 @@ const API = (() => {
 
   function cacheKey(url) { return url; }
 
-  function isCached(action, params = {}) {
+  // Monta a URL do GET incluindo o token de acesso (se configurado).
+  // Centralizado para get() e isCached() usarem EXATAMENTE a mesma chave de cache.
+  function buildUrl(action, params = {}) {
     const base = window.APPS_SCRIPT_URL;
-    if (!base) return false;
+    if (!base) return null;
     const url = new URL(base);
     url.searchParams.set('action', action);
     Object.entries(params).forEach(([k, v]) => {
       if (v !== null && v !== undefined) url.searchParams.set(k, v);
     });
-    const entry = cache.get(url.toString());
+    const token = (typeof LocalConfig !== 'undefined') ? LocalConfig.getToken() : '';
+    if (token) url.searchParams.set('token', token);
+    return url.toString();
+  }
+
+  // fetch com timeout (AbortController) — evita travar o app em sinal ruim
+  const NET_TIMEOUT = 15000; // 15s
+  async function fetchWithTimeout(url, opts = {}) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), NET_TIMEOUT);
+    try {
+      return await fetch(url, { ...opts, redirect: 'follow', signal: ctrl.signal });
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  // Aviso de "sem conexão" — no máximo 1x a cada 8s para não spammar
+  let _offlineShown = false;
+  function showOfflineWarning(msg) {
+    if (_offlineShown) return;
+    _offlineShown = true;
+    if (typeof Toast !== 'undefined') Toast.warning(msg || 'Sem conexão — verifique a internet');
+    setTimeout(() => { _offlineShown = false; }, 8000);
+  }
+
+  function isCached(action, params = {}) {
+    const urlStr = buildUrl(action, params);
+    if (!urlStr) return false;
+    const entry = cache.get(urlStr);
     return !!(entry && Date.now() - entry.ts < CACHE_TTL);
   }
 
@@ -115,7 +146,7 @@ const API = (() => {
   function backgroundRefetch(url, key) {
     if (_backgroundFetches.has(key)) return;
     _backgroundFetches.add(key);
-    fetch(url, { redirect: 'follow' })
+    fetchWithTimeout(url)
       .then(r => r.json())
       .then(json => {
         if (json && json.success) {
@@ -123,39 +154,44 @@ const API = (() => {
           persistCache();
         }
       })
-      .catch(() => {})
+      .catch(() => {})  // refetch silencioso — falha não incomoda o usuário
       .finally(() => _backgroundFetches.delete(key));
   }
 
   async function get(action, params = {}, useCache = true) {
     const base = window.APPS_SCRIPT_URL;
     if (!base) { showConfigWarning(); return null; }
-    const url = new URL(base);
-    url.searchParams.set('action', action);
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== null && v !== undefined) url.searchParams.set(k, v);
-    });
-    const urlStr = url.toString();
+    const urlStr = buildUrl(action, params);
     const key    = cacheKey(urlStr);
 
     if (useCache && cache.has(key)) {
       const { data, ts } = cache.get(key);
       const age = Date.now() - ts;
       if (age < CACHE_TTL) {
-        // Cache fresco o suficiente para retornar de imediato.
-        // Se passou do "refresh window" (1min), dispara refetch silencioso
-        // para o cache estar atualizado na PRÓXIMA chamada.
         if (age > REFRESH_AFTER) backgroundRefetch(urlStr, key);
         return data;
       }
     }
-    const res  = await fetch(urlStr, { redirect: 'follow' });
-    const json = await res.json();
-    if (useCache && json && json.success) {
-      cache.set(key, { data: json, ts: Date.now() });
-      persistCache();
+    try {
+      const res  = await fetchWithTimeout(urlStr);
+      const json = await res.json();
+      if (json && json.error && /autoriz|token/i.test(json.error)) {
+        Toast.error('Acesso negado — confira o token em Configurações');
+      }
+      if (useCache && json && json.success) {
+        cache.set(key, { data: json, ts: Date.now() });
+        persistCache();
+      }
+      return json;
+    } catch (e) {
+      // Rede falhou ou timeout. Se tem cache (mesmo velho), usa — melhor que travar.
+      if (cache.has(key)) {
+        showOfflineWarning('Sem conexão — mostrando dados salvos');
+        return cache.get(key).data;
+      }
+      showOfflineWarning('Sem conexão. Verifique a internet e tente de novo.');
+      return { success: false, error: 'offline', offline: true };
     }
-    return json;
   }
 
   async function post(action, body = {}) {
@@ -171,12 +207,21 @@ const API = (() => {
       persistCache();
     }
 
-    const res = await fetch(base, {
-      method: 'POST',
-      body: JSON.stringify({ action, ...body }),
-      redirect: 'follow',
-    });
-    return res.json();
+    const token = (typeof LocalConfig !== 'undefined') ? LocalConfig.getToken() : '';
+    try {
+      const res = await fetchWithTimeout(base, {
+        method: 'POST',
+        body: JSON.stringify({ action, token, ...body }),
+      });
+      const json = await res.json();
+      if (json && json.error && /autoriz|token/i.test(json.error)) {
+        Toast.error('Acesso negado — confira o token em Configurações');
+      }
+      return json;
+    } catch (e) {
+      showOfflineWarning('Sem conexão — não foi possível salvar. Tente de novo.');
+      return { success: false, error: 'offline', offline: true };
+    }
   }
 
   let _warnShown = false;
@@ -250,7 +295,9 @@ const LocalConfig = {
     localStorage.setItem(this.KEY, JSON.stringify(cfg));
   },
   getUrl() { return this.get().apps_script_url || ''; },
-  setUrl(url) { this.set('apps_script_url', url); window.APPS_SCRIPT_URL = url; }
+  setUrl(url) { this.set('apps_script_url', url); window.APPS_SCRIPT_URL = url; },
+  getToken() { return this.get().api_token || ''; },
+  setToken(t) { this.set('api_token', (t || '').trim()); },
 };
 
 window.APPS_SCRIPT_URL = LocalConfig.getUrl();
