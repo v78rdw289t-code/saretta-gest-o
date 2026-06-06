@@ -30,10 +30,22 @@ const Financeiro = (() => {
     }
     // Ao entrar no módulo: reseta filtro especial e volta para aba receber
     _filtroVenc7d = params.filtro === 'vencendo7d';
-    currentTab = 'receber';
+    currentTab = (params.tab === 'pagar' || params.tab === 'resumo') ? params.tab : 'receber';
     _filtros.periodoTipo = 'mes';
-    _filtros.mes = new Date().toISOString().substring(0, 7);
     _filtros.dataIni = ''; _filtros.dataFim = '';
+    // Demais filtros começam limpos a cada entrada
+    _filtros.categoria = ''; _filtros.cliente = ''; _filtros.conta = ''; _filtros.busca = '';
+    if (params.status) {
+      // Veio de um atalho (ex: "recebimentos em aberto" do dashboard):
+      // filtra pelo status e mostra TODOS os meses (pendentes acumulam de meses anteriores)
+      _filtros.status = params.status;
+      _filtros.mes = '';
+      _filterOpen = true;
+    } else {
+      _filtros.status = '';
+      _filtros.mes = new Date().toISOString().substring(0, 7);
+      _filterOpen = false;
+    }
     // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
     await Promise.all([loadData(), App.loadGlobals()]);
     renderView();

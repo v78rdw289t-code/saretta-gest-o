@@ -185,21 +185,26 @@ const Home = (() => {
       onclick: "App.navigate('financeiro', { filtro: 'vencendo7d' })",
     });
 
-    // 4. Recebimentos em aberto (contagem, sem valor)
+    // 4. Recebimentos em aberto → abre o financeiro já nas parcelas a receber pendentes
     if (d.pend_rec_qtd > 0) ins.push({
       icon: '💵', tone: 'blue',
       title: `${d.pend_rec_qtd} recebimento${d.pend_rec_qtd > 1 ? 's' : ''} em aberto`,
-      sub: 'aguardando pagamento',
-      onclick: "App.navigate('financeiro')",
+      sub: 'ver parcelas a receber',
+      onclick: "App.navigate('financeiro', { tab: 'receber', status: 'pendente' })",
     });
 
-    // 5. Ordens de serviço (contagens)
-    const osParts = [];
-    if (d.os_andamento > 0) osParts.push(`${d.os_andamento} em andamento`);
-    if (d.os_acerto > 0)    osParts.push(`${d.os_acerto} em acerto`);
-    if (osParts.length) ins.push({
-      icon: '🔧', tone: 'navy', title: osParts.join(' · '), sub: 'ordens de serviço',
-      onclick: "App.navigate('os')",
+    // 5. Ordens de serviço — uma linha por status, cada uma abre a lista já filtrada
+    if (d.os_andamento > 0) ins.push({
+      icon: '🔧', tone: 'navy',
+      title: `${d.os_andamento} OS em andamento`,
+      sub: 'ver ordens ativas',
+      onclick: "App.navigate('os').then(() => OS.setStatus('andamento'))",
+    });
+    if (d.os_acerto > 0) ins.push({
+      icon: '🤝', tone: 'orange',
+      title: `${d.os_acerto} OS em acerto`,
+      sub: 'aguardando acerto',
+      onclick: "App.navigate('os').then(() => OS.setStatus('acerto'))",
     });
 
     // 6. OS parada há muito tempo
@@ -345,7 +350,7 @@ const Home = (() => {
     if (!qs('#home-search')?.value.trim()) return;
 
     const clientes = filterRecords(cliRes?.data || [], q, ['nome','telefone','endereco']);
-    const osList   = filterRecords(osRes?.data  || [], q, ['numero','observacoes']);
+    const osList   = filterRecords(osRes?.data  || [], q, ['numero','nome','observacoes']);
 
     const resultsEl = qs('#home-search-results');
     resultsEl.classList.remove('hidden');
@@ -388,8 +393,8 @@ const Home = (() => {
             <div class="entity-item" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
               <div class="avatar av-navy"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
               <div class="entity-info">
-                <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
-                <div class="entity-sub">${o.numero} · ${Fmt.date(o.data_inicio)}</div>
+                <div class="entity-name">${o.nome || App.clienteNome(o.cliente_id)}</div>
+                <div class="entity-sub">${o.numero} · ${App.clienteNome(o.cliente_id)} · ${Fmt.date(o.data_inicio)}</div>
               </div>
               ${statusBadge(o.status)}
             </div>`).join('')}
