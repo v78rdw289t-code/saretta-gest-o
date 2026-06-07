@@ -743,6 +743,13 @@ const Financeiro = (() => {
     qs('#manual-categoria').innerHTML = App.categoriaOptions(tipoCategoria, curCategoria);
   }
 
+  // Quick add do lançamento: cadastra como CLIENTE se for receita, FORNECEDOR se for despesa
+  // (antes era fixo 'cliente' — por isso o fornecedor recém-criado não aparecia em despesas)
+  function quickAddContato() {
+    const tipo = (qs('#manual-tipo')?.value === 'receber') ? 'cliente' : 'fornecedor';
+    App.quickAdd('manual-cliente', tipo);
+  }
+
   function calcNetValor() {
     const bruto     = Number(qs('#manual-valor')?.value) || 0;
     const desc      = Number(qs('#manual-desconto')?.value) || 0;
@@ -1268,7 +1275,7 @@ const Financeiro = (() => {
 
   return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor,
            renderResumo, renderResumoMes,
-           openManual, saveManual, openPagamento, confirmarPagamento,
+           openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
            refreshPagQuemPagouVisibility,
            openTransferencia, salvarTransferencia,
            toggleParcelado,

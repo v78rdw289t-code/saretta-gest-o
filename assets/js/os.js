@@ -147,6 +147,7 @@ const OS = (() => {
     const o = allOS.find(x => x.id === id) || currentOS;
     const actions = [
       { icon: '✏️', label: 'Editar OS', fn: () => openForm(id) },
+      { icon: '🔄', label: 'Alterar status', fn: () => _menuStatus() },
       { icon: '📋', label: 'Gerar OS (PDF)',       fn: () => Doc.gerar(id, 'os') },
       { icon: '💰', label: 'Gerar Orçamento (PDF)', fn: () => Doc.gerar(id, 'orcamento') },
     ];
@@ -155,6 +156,19 @@ const OS = (() => {
     }
     actions.push({ icon: '🗑', label: 'Excluir OS', fn: () => confirmDelete(id), danger: true });
     ActionSheet.open(o ? o.numero : 'OS', actions);
+  }
+
+  // Submenu de status (aberto pelo "Alterar status" no menu ⋯) — só os diferentes do atual
+  function _menuStatus() {
+    if (!currentOS) return;
+    const opts = [
+      { v: 'andamento', icon: '🔧', label: 'Em Andamento' },
+      { v: 'acerto',    icon: '🤝', label: 'Em Acerto' },
+      { v: 'fechado',   icon: '✓',  label: 'Fechado (sem gerar conta)' },
+    ].filter(o => o.v !== currentOS.status);
+    ActionSheet.open('Alterar status', opts.map(o => ({
+      icon: o.icon, label: o.label, fn: () => mudarStatus(o.v),
+    })));
   }
 
   function tapCard(id) {
@@ -217,19 +231,10 @@ const OS = (() => {
           <div><div class="info-label">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
           <div><div class="info-label">Início</div><strong>${Fmt.date(currentOS.data_inicio)}</strong></div>
           ${currentOS.data_fim ? `<div><div class="info-label">Fim</div><strong>${Fmt.date(currentOS.data_fim)}</strong></div>` : ''}
-          <!-- Status em linha inteira para não ficar apertado no mobile -->
+          <!-- Status (alterar via menu ⋯ no topo) -->
           <div style="grid-column:1/-1">
             <div class="info-label">Status</div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              ${statusBadge(currentOS.status)}
-              <select onchange="OS.mudarStatus(this.value)"
-                style="padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;min-width:140px">
-                <option value="" disabled selected>alterar status…</option>
-                <option value="andamento">Em Andamento</option>
-                <option value="acerto">Em Acerto</option>
-                <option value="fechado">Fechado</option>
-              </select>
-            </div>
+            ${statusBadge(currentOS.status)}
           </div>
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
