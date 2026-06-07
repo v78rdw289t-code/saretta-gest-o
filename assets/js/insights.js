@@ -32,6 +32,10 @@ const Insights = (() => {
   let _periodo = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
   let _regime  = 'competencia'; // competencia | caixa — controla faturamento/lucro/margem
   let _cache   = null;          // { parcelas, osList, diarias }
+  // Estado de cards abertos/fechados (por título) — persiste entre re-renders
+  let _abertos = {};
+  // Cards abertos por padrão (os demais começam minimizados → tela limpa)
+  const _ABERTOS_DEFAULT = ['🧠 Resumo inteligente', '📊 Evolução (6 meses)'];
 
   // ─── Helpers de período ─────────────────────────────────
   // Retorna { start, end, label } no formato YYYY-MM-DD
@@ -93,6 +97,156 @@ const Insights = (() => {
     // competência (default)
     const d = String(p.data_competencia || '').substring(0, 10);
     return d && d >= periodo.start && d <= periodo.end;
+  }
+
+  // Período imediatamente anterior, de mesma duração (para comparar)
+  function calcPeriodoAnterior(key) {
+    const hoje = new Date(); const y = hoje.getFullYear(); const m = hoje.getMonth();
+    const ymd = d => d.toISOString().substring(0, 10);
+    if (key === 'mes_anterior') return { start: ymd(new Date(y, m-2, 1)), end: ymd(new Date(y, m-1, 0)) };
+    if (key === 'ultimos_3m')   return { start: ymd(new Date(y, m-5, 1)), end: ymd(new Date(y, m-2, 0)) };
+    if (key === 'ultimos_6m')   return { start: ymd(new Date(y, m-11, 1)), end: ymd(new Date(y, m-5, 0)) };
+    if (key === 'ano')          return { start: ymd(new Date(y-1, 0, 1)), end: ymd(new Date(y-1, 11, 31)) };
+    return { start: ymd(new Date(y, m-1, 1)), end: ymd(new Date(y, m, 0)) }; // mes_atual → mês anterior
+  }
+
+  function _horasNoPeriodo(periodo) {
+    const hd = _cache.diarias.filter(d => {
+      const data = String(d.data || '').substring(0, 10);
+      return data >= periodo.start && data <= periodo.end;
+    }).reduce((s, d) => s + Number(d.horas_totais || 0), 0);
+    const ho = _cache.osList.filter(o => {
+      if (o.tipo !== 'normal') return false;
+      const ref = String(o.data_atualizacao || o.data_inicio || '').substring(0, 10);
+      return ref >= periodo.start && ref <= periodo.end;
+    }).reduce((s, o) => s + Number(o.horas_calculadas || 0), 0);
+    return hd + ho;
+  }
+
+  function _osFechadasNoPeriodo(periodo) {
+    return _cache.osList.filter(o => {
+      if (o.status !== 'fechado') return false;
+      const ref = String(o.data_atualizacao || o.data_fim || o.data_inicio || '').substring(0, 10);
+      return ref >= periodo.start && ref <= periodo.end;
+    });
+  }
+
+  // Snapshot de métricas de um período — base da comparação do mega insight
+  function _calcSnapshot(periodo) {
+    const parc = _cache.parcelas.filter(p => noPeriodo(p, periodo));
+    const receitas = parc.filter(p => p.tipo === 'receber');
+    const despesas = parc.filter(p => p.tipo === 'pagar');
+    const faturamento = sumValor(receitas);
+    const totalDesp   = sumValor(despesas);
+    const horas = _horasNoPeriodo(periodo);
+    const osFech = _osFechadasNoPeriodo(periodo);
+    const valorOS = osFech.reduce((s, o) => s + Number(o.valor_fechamento || o.valor_calculado || 0), 0);
+    return {
+      faturamento, totalDesp, lucro: faturamento - totalDesp, horas,
+      nOS: osFech.length,
+      ticket: osFech.length > 0 ? valorOS / osFech.length : 0,
+      receitaHora: horas > 0 ? faturamento / horas : 0,
+      despPorCat: Object.fromEntries(agruparPorCategoria(despesas)),
+      recPorCat:  Object.fromEntries(agruparPorCategoria(receitas)),
+    };
+  }
+
+  // ─── MEGA INSIGHT — narrativa comparando atual × anterior ────
+  function _pct(cur, prev) { return prev > 0 ? ((cur - prev) / prev * 100) : (cur > 0 ? 100 : 0); }
+  function _sinalPct(cur, prev) {
+    if (prev <= 0) return cur > 0 ? 'novo' : '—';
+    const p = _pct(cur, prev);
+    return (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(0) + '%';
+  }
+  function _hf(h) { const v = Math.abs(h); const hh = Math.floor(v); const mm = Math.round((v - hh) * 60); return mm ? `${hh}h${String(mm).padStart(2,'0')}` : `${hh}h`; }
+
+  function buildMegaInsight(a, b) {
+    const semBase = !(b.faturamento || b.totalDesp || b.horas);
+    let resumo;
+    if (semBase) {
+      resumo = { tone: 'navy', texto: 'Ainda não tenho um período anterior pra comparar. A partir do próximo, eu te mostro aqui o que mudou e por quê. 📊' };
+    } else {
+      const dl = a.lucro - b.lucro;
+      const lucroPct   = _sinalPct(a.lucro, b.lucro);
+      const horasCaiu  = a.horas > 0 && a.horas < b.horas * 0.95;
+      const horasSubiu = a.horas > b.horas * 1.05;
+      const recHoraSubiu = a.receitaHora > b.receitaHora * 1.03;
+      if (dl >= 0) {
+        if (horasCaiu && recHoraSubiu) {
+          resumo = { tone: 'green', texto: `Mês mais eficiente 💪 Você trabalhou ${_hf(b.horas - a.horas)} a menos e ainda assim sobrou mais (lucro ${lucroPct}). Cada hora rendeu ${Fmt.currency(a.receitaHora)} — melhor que o período anterior.` };
+        } else if (a.faturamento > b.faturamento && (a.faturamento - b.faturamento) >= Math.abs(a.totalDesp - b.totalDesp)) {
+          resumo = { tone: 'green', texto: `Você faturou mais (${_sinalPct(a.faturamento, b.faturamento)}) e o lucro acompanhou (${lucroPct}). Bom ritmo!` };
+        } else if (a.totalDesp < b.totalDesp) {
+          resumo = { tone: 'green', texto: `Você segurou os gastos (${_sinalPct(a.totalDesp, b.totalDesp)} em despesas) e o lucro melhorou (${lucroPct}), mesmo faturando parecido.` };
+        } else {
+          resumo = { tone: 'green', texto: `O lucro do período melhorou (${lucroPct}) em relação ao anterior.` };
+        }
+      } else {
+        if (horasSubiu && a.lucro < b.lucro) {
+          resumo = { tone: 'red', texto: `Atenção: você trabalhou mais (${_hf(a.horas - b.horas)} a mais) mas sobrou menos (lucro ${lucroPct}). Vale revisar preço e custos.` };
+        } else if (a.faturamento < b.faturamento) {
+          resumo = { tone: 'red', texto: `Faturou menos (${_sinalPct(a.faturamento, b.faturamento)}) e o lucro recuou (${lucroPct}).` };
+        } else if (a.totalDesp > b.totalDesp) {
+          resumo = { tone: 'red', texto: `Os gastos subiram (${_sinalPct(a.totalDesp, b.totalDesp)}) e comeram parte do lucro (${lucroPct}).` };
+        } else {
+          resumo = { tone: 'orange', texto: `O lucro recuou (${lucroPct}) frente ao período anterior.` };
+        }
+      }
+    }
+
+    // Achados secundários, ordenados por relevância (magnitude)
+    const achados = [];
+    if (!semBase) {
+      // Ticket médio
+      if (a.nOS > 0 && b.nOS > 0) {
+        const tp = _pct(a.ticket, b.ticket);
+        if (Math.abs(tp) >= 5) achados.push({ prio: Math.abs(tp), icon: tp >= 0 ? '🎟️' : '🎟️', tone: tp >= 0 ? 'green' : 'orange',
+          text: `Ticket médio por OS: <strong>${Fmt.currency(a.ticket)}</strong> (${_sinalPct(a.ticket, b.ticket)} vs período anterior).` });
+      }
+      // Maior variação de despesa por categoria
+      const cats = new Set([...Object.keys(a.despPorCat), ...Object.keys(b.despPorCat)]);
+      let maiorVar = null;
+      cats.forEach(c => {
+        const va = a.despPorCat[c] || 0, vb = b.despPorCat[c] || 0;
+        const delta = va - vb;
+        if (Math.abs(delta) >= 50 && Math.abs(delta) > Math.abs(maiorVar?.delta || 0)) maiorVar = { c, va, vb, delta };
+      });
+      if (maiorVar) {
+        const subiu = maiorVar.delta > 0;
+        achados.push({ prio: Math.abs(maiorVar.delta), icon: subiu ? '🔺' : '🔻', tone: subiu ? 'red' : 'green',
+          text: `${subiu ? 'Aumentou' : 'Reduziu'} os gastos com <strong>${maiorVar.c}</strong> em ${Fmt.currency(Math.abs(maiorVar.delta))}${maiorVar.vb > 0 ? ` (${_sinalPct(maiorVar.va, maiorVar.vb)})` : ''}.` });
+      }
+      // Receita/hora (se não destacada no resumo)
+      if (b.receitaHora > 0 && Math.abs(_pct(a.receitaHora, b.receitaHora)) >= 8) {
+        const rp = _pct(a.receitaHora, b.receitaHora);
+        achados.push({ prio: Math.abs(rp) - 1, icon: '⚡', tone: rp >= 0 ? 'green' : 'orange',
+          text: `Cada hora trabalhada rendeu <strong>${Fmt.currency(a.receitaHora)}</strong> (${_sinalPct(a.receitaHora, b.receitaHora)}).` });
+      }
+      // Volume de OS
+      if (a.nOS !== b.nOS && (a.nOS || b.nOS)) {
+        achados.push({ prio: 4, icon: '🔧', tone: 'navy',
+          text: `Você fechou <strong>${a.nOS} OS</strong> no período (${b.nOS} no anterior).` });
+      }
+    }
+    achados.sort((x, y) => y.prio - x.prio);
+    return { resumo, achados: achados.slice(0, 4) };
+  }
+
+  // Evolução mês a mês (últimos N meses) — reaproveita o snapshot por mês
+  function _calcEvolucao(nMeses) {
+    const hoje = new Date(); const y = hoje.getFullYear(); const m = hoje.getMonth();
+    const ymd = d => d.toISOString().substring(0, 10);
+    const out = [];
+    for (let i = nMeses - 1; i >= 0; i--) {
+      const ini = new Date(y, m - i, 1);
+      const periodo = { start: ymd(ini), end: ymd(new Date(y, m - i + 1, 0)) };
+      const s = _calcSnapshot(periodo);
+      out.push({
+        label: ini.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
+        receita: s.faturamento, despesa: s.totalDesp, lucro: s.lucro, horas: s.horas,
+      });
+    }
+    return out;
   }
 
   // ─── RENDER PRINCIPAL ───────────────────────────────────
@@ -229,18 +383,48 @@ const Insights = (() => {
     });
 
     const regimeLabel = _regime === 'caixa' ? 'regime de Caixa' : 'regime de Competência';
+    // Mega insight: compara o período atual com o anterior de mesma duração
+    const snapAtual = _calcSnapshot(periodo);
+    const snapAnt   = _calcSnapshot(calcPeriodoAnterior(_periodo));
+    const mega      = buildMegaInsight(snapAtual, snapAnt);
+    const evol      = _calcEvolucao(6);
     qs('#insights-content').innerHTML = `
       <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
         ${periodo.label} · <strong>${regimeLabel}</strong>
       </p>
 
-      ${_renderDicas(tips)}
+      ${_renderMegaInsight(mega)}
+      ${_renderEvolucao(evol)}
       ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora })}
       ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
       ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
       ${semanas ? _renderFluxoCaixa(semanas) : ''}
+      ${_renderDicas(tips)}
     `;
+    _setupCollapse();
+  }
+
+  // Torna todos os cards de insights expansíveis/minimizáveis (clica no título)
+  function _setupCollapse() {
+    qsa('#insights-content .card').forEach((card) => {
+      const head = card.querySelector('.card-header');
+      const body = card.querySelector('.card-body');
+      if (!head || !body) return;
+      const key = (head.querySelector('h3')?.textContent || '').trim();
+      const aberto = (key in _abertos) ? _abertos[key] : _ABERTOS_DEFAULT.includes(key);
+      body.style.display = aberto ? '' : 'none';
+      head.classList.add('ins-collapse-head');
+      let arr = head.querySelector('.ins-arrow');
+      if (!arr) { arr = document.createElement('span'); arr.className = 'ins-arrow'; head.appendChild(arr); }
+      arr.textContent = aberto ? '▾' : '▸';
+      head.onclick = () => {
+        const open = body.style.display === 'none';
+        body.style.display = open ? '' : 'none';
+        arr.textContent = open ? '▾' : '▸';
+        _abertos[key] = open;
+      };
+    });
   }
 
   // ─── HELPERS ─────────────────────────────────────────────
@@ -284,6 +468,61 @@ const Insights = (() => {
   }
 
   // ─── RENDERERS ───────────────────────────────────────────
+  function _renderMegaInsight(mega) {
+    const tc = { green: 'var(--success)', red: 'var(--danger)', orange: 'var(--warning)', navy: 'var(--navy)' };
+    const c = tc[mega.resumo.tone] || 'var(--navy)';
+    return `
+      <div class="card mb-4" style="border-left:5px solid ${c}">
+        <div class="card-header"><h3>🧠 Resumo inteligente</h3></div>
+        <div class="card-body">
+          <p style="font-size:.95rem;line-height:1.5;font-weight:600;color:var(--text);margin:0 0 ${mega.achados.length ? '10px' : '0'}">${mega.resumo.texto}</p>
+          ${mega.achados.map(a => `
+            <div style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:1rem;flex-shrink:0;line-height:1.3">${a.icon}</span>
+              <span style="font-size:.85rem;color:var(--text-muted);line-height:1.45">${a.text}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function _renderEvolucao(evol) {
+    const temDados = evol.some(m => m.receita || m.despesa || m.horas);
+    const maxRD    = Math.max(1, ...evol.flatMap(m => [m.receita, m.despesa]));
+    const maxLucro = Math.max(1, ...evol.map(m => Math.abs(m.lucro)));
+    const maxH     = Math.max(1, ...evol.map(m => m.horas));
+    const col = (mes, bars) => `<div class="evo-col"><div class="evo-barwrap">${bars}</div><div class="evo-lbl">${mes.label}</div></div>`;
+    const hfmt = (h) => (typeof Fmt.hours === 'function') ? Fmt.hours(h) : `${Math.round(h)}h`;
+    return `
+      <div class="card mb-3">
+        <div class="card-header"><h3>📊 Evolução (6 meses)</h3></div>
+        <div class="card-body">
+          ${!temDados ? '<p class="text-muted" style="margin:0;font-size:.85rem">Sem dados suficientes nos últimos meses.</p>' : `
+            <div class="evo-leg-row">
+              <span class="evo-leg"><i style="background:var(--success)"></i>Receita</span>
+              <span class="evo-leg"><i style="background:var(--danger)"></i>Despesa</span>
+            </div>
+            <div class="evo-row">
+              ${evol.map(m => col(m, `
+                <div class="evo-bar" style="height:${Math.max(2, m.receita / maxRD * 100)}%;background:var(--success)" title="${m.label}: receita ${Fmt.currency(m.receita)}"></div>
+                <div class="evo-bar" style="height:${Math.max(2, m.despesa / maxRD * 100)}%;background:var(--danger)" title="${m.label}: despesa ${Fmt.currency(m.despesa)}"></div>
+              `)).join('')}
+            </div>
+
+            <div class="evo-title">Lucro por mês</div>
+            <div class="evo-row">
+              ${evol.map(m => col(m, `<div class="evo-bar evo-bar-wide" style="height:${Math.max(2, Math.abs(m.lucro) / maxLucro * 100)}%;background:${m.lucro >= 0 ? 'var(--navy)' : 'var(--danger)'}" title="${m.label}: lucro ${Fmt.currency(m.lucro)}"></div>`)).join('')}
+            </div>
+
+            <div class="evo-title">Horas trabalhadas</div>
+            <div class="evo-row">
+              ${evol.map(m => col(m, `<div class="evo-bar evo-bar-wide" style="height:${Math.max(2, m.horas / maxH * 100)}%;background:var(--gold)" title="${m.label}: ${hfmt(m.horas)}"></div>`)).join('')}
+            </div>
+          `}
+        </div>
+      </div>`;
+  }
+
   function _renderDicas(tips) {
     return `
       <div class="card mb-4">
@@ -373,6 +612,30 @@ const Insights = (() => {
     `;
   }
 
+  // Gráfico de rosca (donut) em SVG — proporção de cada categoria
+  function _donut(entries) {
+    const total = entries.reduce((s, [, v]) => s + v, 0);
+    if (!total) return '';
+    const cores = ['#1A2B4A', '#F5A623', '#30D158', '#FF3B30', '#007AFF', '#A680F0', '#FF9500', '#2AC9D5'];
+    const top = entries.slice(0, 7);
+    const restoVal = entries.slice(7).reduce((s, [, v]) => s + v, 0);
+    const data = restoVal > 0 ? [...top, ['Outros', restoVal]] : top;
+    const r = 42, cx = 54, cy = 54, sw = 16, circ = 2 * Math.PI * r;
+    let off = 0;
+    const segs = data.map(([, val], i) => {
+      const len = val / total * circ;
+      const s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${cores[i % cores.length]}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(circ - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+      off += len; return s;
+    }).join('');
+    const legend = data.map(([nome, val], i) =>
+      `<div class="donut-leg"><i style="background:${cores[i % cores.length]}"></i>${nome}<span class="donut-leg-pct">${(val / total * 100).toFixed(0)}%</span></div>`
+    ).join('');
+    return `<div class="donut-wrap">
+      <svg viewBox="0 0 108 108" width="104" height="104" style="flex-shrink:0">${segs}</svg>
+      <div class="donut-legend">${legend}</div>
+    </div>`;
+  }
+
   function _renderCategorias(porRec, porDesp) {
     const maxRec  = Math.max(...porRec.map(c  => c[1]), 1);
     const maxDesp = Math.max(...porDesp.map(c => c[1]), 1);
@@ -395,7 +658,7 @@ const Insights = (() => {
           <div class="card-header"><h3>🟢 Receitas por Categoria</h3></div>
           <div class="card-body">
             ${porRec.length === 0 ? '<p class="text-muted">Sem receitas no período</p>' :
-              porRec.map(([nome, val]) => linha(nome, val, maxRec, 'bar-green')).join('')}
+              _donut(porRec) + porRec.map(([nome, val]) => linha(nome, val, maxRec, 'bar-green')).join('')}
           </div>
         </div>
 
@@ -403,7 +666,7 @@ const Insights = (() => {
           <div class="card-header"><h3>🔴 Despesas por Categoria</h3></div>
           <div class="card-body">
             ${porDesp.length === 0 ? '<p class="text-muted">Sem despesas no período</p>' :
-              porDesp.map(([nome, val]) => linha(nome, val, maxDesp, 'bar-red')).join('')}
+              _donut(porDesp) + porDesp.map(([nome, val]) => linha(nome, val, maxDesp, 'bar-red')).join('')}
           </div>
         </div>
       </div>

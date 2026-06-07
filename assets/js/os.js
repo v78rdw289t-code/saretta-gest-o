@@ -211,10 +211,6 @@ const OS = (() => {
         <div style="text-align:center;margin-bottom:16px">${statusBadge('fechado')}</div>
       `}
 
-      <!-- Gerar documento (OS / Orçamento em PDF) -->
-      <button class="btn btn-outline btn-full" style="margin-bottom:16px;border-style:dashed"
-        onclick="OS.gerarDoc()">📄 Gerar PDF (OS / Orçamento)</button>
-
       <!-- Info resumida -->
       <div class="card mb-3">
         <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -1103,15 +1099,6 @@ const OS = (() => {
   }
 
   // ─── FECHAMENTO ──────────────────────────────────────────────
-  // Abre menu para gerar o documento em PDF (OS ou Orçamento)
-  function gerarDoc() {
-    if (!currentOS) return;
-    ActionSheet.open('Gerar documento', [
-      { icon: '📋', label: 'Ordem de Serviço (PDF)', fn: () => Doc.gerar(currentOS.id, 'os') },
-      { icon: '💰', label: 'Orçamento (PDF)',         fn: () => Doc.gerar(currentOS.id, 'orcamento') },
-    ]);
-  }
-
   function openFechamento() {
     if (!currentOS) return;
 
@@ -1647,7 +1634,7 @@ const OS = (() => {
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
-    openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento, mudarStatus, gerarDoc,
+    openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento, mudarStatus,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
     openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
     addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado,
