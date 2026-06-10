@@ -269,6 +269,34 @@ const Home = (() => {
         `).join('')}
       </div>
     `;
+    maybeLembrete(d);
+  }
+
+  // Lembrete local de contas: aparece no máximo 1x por dia, ao abrir o app,
+  // quando há contas vencidas ou vencendo nos próximos 7 dias. Toast clicável
+  // que leva ao Financeiro já filtrado. Os mesmos números ficam nos insights
+  // acima — aqui é só o "empurrão" ativo na abertura.
+  function maybeLembrete(d) {
+    const vencidas = Number(d.vencidas_qtd || 0);
+    const vencendo = Number(d.vencendo_7d || 0);
+    if (vencidas === 0 && vencendo === 0) return;
+
+    // Chave do dia em horário LOCAL (evita o off-by-one do toISOString em UTC)
+    const n = new Date();
+    const hoje = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    if (localStorage.getItem('lembrete_contas_dia') === hoje) return;
+    localStorage.setItem('lembrete_contas_dia', hoje);
+
+    const partes = [];
+    if (vencidas > 0) partes.push(`${vencidas} vencida${vencidas > 1 ? 's' : ''}`);
+    if (vencendo > 0) partes.push(`${vencendo} vencendo essa semana`);
+    const msg = `Contas: ${partes.join(' e ')} · toque para ver`;
+
+    // Espera a home assentar (e o splash sair) antes de aparecer
+    setTimeout(() => {
+      Toast.show(msg, 'warning', 8000,
+        () => App.navigate('financeiro', { filtro: 'vencendo7d' }));
+    }, 900);
   }
 
   async function loadOSAndamento() {

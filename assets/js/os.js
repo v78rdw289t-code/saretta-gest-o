@@ -193,7 +193,7 @@ const OS = (() => {
     currentOS = novoOS;
     currentView = 'detail';
     const diarias = allDiarias.filter(d => d.os_id === id)
-                               .sort((a, b) => a.data > b.data ? 1 : -1);
+                               .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === id);
     const section = qs('#page-os');
     const cliente = App.clienteNome(currentOS.cliente_id);
@@ -388,7 +388,7 @@ const OS = (() => {
     _calcExpanded = !_calcExpanded;
     if (!currentOS) return;
     const diarias = allDiarias.filter(d => d.os_id === currentOS.id)
-                              .sort((a, b) => a.data > b.data ? 1 : -1);
+                              .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === currentOS.id);
     await renderCalculadora(diarias, itens);
   }

@@ -116,19 +116,25 @@ const Toast = {
       this._container = document.getElementById('toast-container');
     }
   },
-  show(msg, type = 'info', duration = 3500) {
+  show(msg, type = 'info', duration = 3500, onClick = null) {
     this._init();
     if (!this._container) return;
     const el = document.createElement('div');
     el.className = `toast toast-${type}`;
     const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
     el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
-    this._container.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('visible'));
-    setTimeout(() => {
+    const dismiss = () => {
       el.classList.remove('visible');
       setTimeout(() => el.remove(), 350);
-    }, duration);
+    };
+    // Toast clicável (usado no lembrete de contas): executa a ação e fecha ao tocar
+    if (onClick) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => { dismiss(); try { onClick(); } catch (e) {} });
+    }
+    this._container.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('visible'));
+    setTimeout(dismiss, duration);
   },
   success(msg) { this.show(msg, 'success'); },
   error(msg)   { this.show(msg, 'error', 5000); },

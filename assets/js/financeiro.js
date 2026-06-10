@@ -651,9 +651,9 @@ const Financeiro = (() => {
           ` : `
             <div class="stats-grid">
               ${saldosContas.map(s => `
-                <div class="stat-card ${s.saldo >= 0 ? 'stat-green' : 'stat-red'}">
+                <div class="stat-card saldo-card ${s.saldo >= 0 ? 'stat-green' : 'stat-red'}" onclick="this.classList.toggle('mov-aberta')" title="Toque para ver a movimentação">
                   <div class="stat-label">${s.conta.nome}</div>
-                  <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(s.saldo)}</div>
+                  <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(s.saldo)}<span class="saldo-chevron">›</span></div>
                   <div class="stat-sub" style="font-size:.68rem">inicial ${Fmt.currency(s.inicial)} · +${Fmt.currency(s.entradas)} −${Fmt.currency(s.saidas)}</div>
                 </div>
               `).join('')}

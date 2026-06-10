@@ -352,6 +352,17 @@ img { max-width: 100%; }
 .stat-value { font-size: 1.35rem; font-weight: 800; color: var(--text); letter-spacing: -.5px; }
 .stat-sub   { font-size: .7rem; color: var(--text-muted); margin-top: 4px; }
 
+/* Cards de saldo de conta (Resumo Financeiro): número colorido conforme o
+   sinal (verde positivo / vermelho negativo) e a movimentação
+   (inicial · +entradas −saídas) que fica oculta e abre ao tocar no card. */
+.saldo-card { cursor: pointer; }
+.saldo-card.stat-green .stat-value { color: var(--success); }
+.saldo-card.stat-red   .stat-value { color: var(--danger); }
+.saldo-card .stat-sub { display: none; }
+.saldo-card.mov-aberta .stat-sub { display: block; }
+.saldo-chevron { display: inline-block; margin-left: 6px; font-size: .85em; font-weight: 700; color: var(--text-muted); transform: rotate(90deg); transition: transform .2s; }
+.saldo-card.mov-aberta .saldo-chevron { transform: rotate(270deg); }
+
 /* ─── BOTÕES ──────────────────────────────────────────────── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
