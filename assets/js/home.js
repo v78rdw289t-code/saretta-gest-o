@@ -6,6 +6,27 @@ const Home = (() => {
   let _searching = false;
   let _searchDebounce = null;
   let _searchSeq = 0; // evita que uma busca antiga sobrescreva uma mais nova
+  let _osAndamento = []; // OS em andamento (cache p/ o seletor "Registrar o dia")
+
+  // ─── Privacidade dos valores (R$) ───────────────────────────
+  // Default = OCULTO (o app costuma abrir na frente de cliente). O dono toca
+  // no olho p/ revelar. Usamos sessionStorage de propósito: a revelação vale
+  // só enquanto o app está aberto — fechou e abriu de novo, volta escondido.
+  function valoresVisiveis() { return sessionStorage.getItem('home_valores_visiveis') === '1'; }
+  function applyValoresVis() {
+    const vis = valoresVisiveis();
+    const wrap = qs('#home-saldo');
+    if (wrap) wrap.classList.toggle('valores-ocultos', !vis);
+    const btn = qs('#home-saldo-eye');
+    if (btn) {
+      btn.textContent = vis ? '🙈' : '👁';
+      btn.setAttribute('aria-label', vis ? 'Ocultar valores' : 'Mostrar valores');
+    }
+  }
+  function toggleValores() {
+    sessionStorage.setItem('home_valores_visiveis', valoresVisiveis() ? '0' : '1');
+    applyValoresVis();
+  }
 
   async function render() {
     const section = qs('#page-home');
@@ -22,10 +43,15 @@ const Home = (() => {
             <div class="home-greeting">${saudIcon} ${saud}</div>
             <div class="home-date">${hoje}</div>
           </div>
-          <img src="assets/img/logo-app.png?v=2.0.0" alt="Saretta" class="home-hero-logo"
+          <img src="assets/img/logo-app.png?v=2.0.20" alt="Saretta" class="home-hero-logo"
             onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
         </div>
-        <div class="home-title">Saretta Soluções</div>
+
+        <!-- Saldo do mês — oculto por padrão, revela no olho -->
+        <div id="home-saldo" class="home-saldo valores-ocultos">
+          <div class="home-saldo-skeleton loading-pulse"></div>
+        </div>
+
         <div class="home-search-wrap">
           <input id="home-search" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
             placeholder="Buscar cliente ou OS..." class="input-search-hero"
@@ -36,6 +62,20 @@ const Home = (() => {
       </div>
 
       <div id="home-search-results" class="hidden"></div>
+
+      <!-- Registrar o dia — atalho direto pro registro de horas de uma OS -->
+      <div id="home-registrar" class="card registrar-card">
+        <div class="registrar-head">
+          <span class="registrar-icon">⏱</span>
+          <div>
+            <div class="registrar-title">Registrar o dia</div>
+            <div class="registrar-sub">Escolha uma OS e lance as horas de hoje</div>
+          </div>
+        </div>
+        <div id="home-registrar-body">
+          <div class="loading-pulse" style="height:46px;border-radius:12px"></div>
+        </div>
+      </div>
 
       <div class="quick-row">
         <button class="quick-action" onclick="App.navigate('os').then(() => OS.openForm())">
@@ -71,11 +111,14 @@ const Home = (() => {
       </div>
     `;
 
+    applyValoresVis();
+
     // Dispara em paralelo, SEM await — Home aparece imediato com skeleton
     // e cada bloco se preenche sozinho assim que os dados chegam.
     loadStats();
     if (!LocalConfig.getUrl()) {
       qs('#home-os-andamento').innerHTML = '<p class="text-muted p-3">Configure a conexão em Configurações</p>';
+      qs('#home-registrar-body').innerHTML = '<p class="text-muted" style="font-size:.82rem;margin:0">Configure a conexão para registrar.</p>';
       return;
     }
     loadOSAndamento();
@@ -228,6 +271,8 @@ const Home = (() => {
         <div class="card" style="grid-column:1/-1;padding:16px 18px">
           <p class="text-muted" style="margin:0">⚙️ Configure a URL do Apps Script em <strong>Configurações</strong></p>
         </div>`;
+      const saldo = qs('#home-saldo');
+      if (saldo) saldo.innerHTML = '<div class="home-saldo-config">⚙️ Configure a conexão</div>';
       return;
     }
 
@@ -238,7 +283,7 @@ const Home = (() => {
         API.db.read('parcelas'),
       ]);
       if (osRes?.success && parRes?.success) {
-        renderStatsCard(computeStatsLocal(osRes.data || [], parRes.data || []));
+        renderDash(computeStatsLocal(osRes.data || [], parRes.data || []));
         return;
       }
     }
@@ -246,7 +291,44 @@ const Home = (() => {
     // Fallback: chama o backend stats() — usado na primeira vez
     const res = await API.db.stats();
     if (!res?.success) return;
-    renderStatsCard(res.data);
+    renderDash(res.data);
+  }
+
+  function renderDash(d) {
+    renderSaldo(d);
+    renderStatsCard(d);
+  }
+
+  // Resumo financeiro do mês (caixa) no topo — valores maskáveis.
+  function renderSaldo(d) {
+    const el = qs('#home-saldo');
+    if (!el) return;
+    const saldo = Number(d.saldo_mes || 0);
+    const pos = saldo >= 0;
+    const v = (n) => `<span class="val-sensivel">${Fmt.currency(n)}</span>`;
+
+    el.innerHTML = `
+      <div class="home-saldo-head">
+        <span class="home-saldo-label">Saldo do mês</span>
+        <button id="home-saldo-eye" class="home-saldo-eye" onclick="Home.toggleValores()" aria-label="Mostrar valores">👁</button>
+      </div>
+      <div class="home-saldo-value ${pos ? 'is-pos' : 'is-neg'}">${v(saldo)}</div>
+      <div class="home-saldo-grid">
+        <div class="home-saldo-mini">
+          <span class="hsm-label">Recebido</span>
+          <span class="hsm-value pos">${v(d.rec_pago || 0)}</span>
+        </div>
+        <div class="home-saldo-mini">
+          <span class="hsm-label">Pago</span>
+          <span class="hsm-value neg">${v(d.pag_pago || 0)}</span>
+        </div>
+        <div class="home-saldo-mini">
+          <span class="hsm-label">A receber</span>
+          <span class="hsm-value gold">${v(d.a_receber_total || 0)}</span>
+        </div>
+      </div>
+    `;
+    applyValoresVis();
   }
 
   function renderStatsCard(d) {
@@ -304,10 +386,47 @@ const Home = (() => {
     if (API.db.isCached('os')) {
       const res = await API.db.read('os');
       const items = (res?.data || []).filter(o => o.status === 'andamento');
+      _osAndamento = items;
+      renderRegistrarDia(items);
       return renderOSAndamento(items);
     }
     const res = await API.db.read('os', null, { status: 'andamento' });
-    renderOSAndamento(res?.data || []);
+    _osAndamento = res?.data || [];
+    renderRegistrarDia(_osAndamento);
+    renderOSAndamento(_osAndamento);
+  }
+
+  // Card "Registrar o dia": seletor das OS em andamento + botão que entra
+  // direto na OS e abre o registro de horas (OS.registrarDiaEm).
+  function renderRegistrarDia(items) {
+    const body = qs('#home-registrar-body');
+    if (!body) return;
+    if (!items || items.length === 0) {
+      body.innerHTML = `
+        <p class="registrar-empty">Nenhuma OS em andamento.</p>
+        <button class="btn btn-outline btn-full" onclick="App.navigate('os').then(() => OS.openForm())">＋ Abrir nova OS</button>`;
+      return;
+    }
+    const ordenadas = [...items].sort((a, b) => (a.data_criacao > b.data_criacao ? -1 : 1));
+    body.innerHTML = `
+      <div class="registrar-row">
+        <select id="reg-dia-os" class="input registrar-select">
+          ${ordenadas.map(o => {
+            const titulo = o.nome || App.clienteNome(o.cliente_id);
+            const num = (o.numero || '').replace('OS-', '');
+            return `<option value="${o.id}">#${num} · ${titulo}</option>`;
+          }).join('')}
+        </select>
+        <button class="btn btn-primary registrar-go" onclick="Home.irRegistrar()">Lançar →</button>
+      </div>
+    `;
+  }
+
+  function irRegistrar() {
+    const sel = qs('#reg-dia-os');
+    const id = sel?.value;
+    if (!id) { Toast.warning('Selecione uma OS'); return; }
+    OS.registrarDiaEm(id);
   }
 
   function renderOSAndamento(items) {
@@ -322,7 +441,7 @@ const Home = (() => {
           <div class="entity-item" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
             <div class="avatar av-blue"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
             <div class="entity-info">
-              <div class="entity-name">${App.clienteNome(o.cliente_id)}</div>
+              <div class="entity-name">${o.nome || App.clienteNome(o.cliente_id)}</div>
               <div class="entity-sub">Início ${Fmt.date(o.data_inicio)} · ${o.tipo === 'diaria' ? 'Diária' : 'Normal'}</div>
             </div>
             <div class="entity-right">
@@ -439,5 +558,5 @@ const Home = (() => {
     if (autoScroll) resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  return { render, search, clearSearch, onSearchInput };
+  return { render, search, clearSearch, onSearchInput, toggleValores, irRegistrar };
 })();

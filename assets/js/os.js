@@ -282,7 +282,7 @@ const OS = (() => {
                   const nomes = [...new Set(blocos.filter(b => b.reajuste)
                     .flatMap(b => (b.fatores || []).map(f => (f.label || '').split(' ')[0]))
                     .filter(Boolean))].join(', ');
-                  reajusteBadge = `<span class="badge badge-danger" style="font-size:.65rem">⚡ ${Fmt.hours(bk.hReajuste)} reajuste${nomes ? ': ' + nomes : ''}</span>`;
+                  reajusteBadge = `<span class="badge badge-gold" style="font-size:.65rem">⚡ ${Fmt.hours(bk.hReajuste)} reajuste${nomes ? ': ' + nomes : ''}</span>`;
                 }
                 return `
                   <div class="entity-item" onclick="${currentOS.status !== 'fechado' ? `OS.tapDiaria('${d.id}')` : ''}">
@@ -293,6 +293,7 @@ const OS = (() => {
                       <div class="entity-name">${periodos || (d.valor_manual ? '💰 Valor manual' : 'Sem horários')}</div>
                       <div class="entity-sub">${horas > 0 ? Fmt.hours(horas) : ''}${d.valor_manual ? ' · valor fixo' : ''}</div>
                       ${reajusteBadge ? `<div class="entity-badges">${reajusteBadge}</div>` : ''}
+                      ${d.observacoes ? `<div class="diaria-obs">📝 ${d.observacoes}</div>` : ''}
                     </div>
                     <div class="entity-right">
                       <span class="entity-value">${Fmt.currency(valor)}</span>
@@ -732,6 +733,20 @@ const OS = (() => {
   // ─── FORM DIÁRIA / SESSÃO — modelo de blocos de horário (v2) ──
   // (render/add/remove/toggle dos blocos ficam logo após openDiaria)
 
+  // Atalho da home "Registrar o dia": entra na OS e já abre o registro de horas.
+  async function registrarDiaEm(osId) {
+    if (!osId) return;
+    // Sincroniza o hash para 'os' ANTES de navegar (via replaceState, que NÃO
+    // dispara hashchange). Assim o navigate('os') não muda o hash e o listener
+    // de "voltar" (hashchange) não fecha o modal recém-aberto. Ver app.js ~149.
+    if ((location.hash || '').replace(/^#/, '') !== 'os') {
+      history.replaceState(null, '', '#os');
+    }
+    await App.navigate('os');   // hash já é 'os' → sem novo hashchange
+    await openDetail(osId);     // seta currentOS + renderiza o detalhe
+    await openDiaria();         // abre o modal usando currentOS
+  }
+
   async function openDiaria(diariaId = null) {
     if (!currentOS) return;
     let d = null;
@@ -752,6 +767,7 @@ const OS = (() => {
     const catPadrao = d?.categoria_id ?? currentOS.categoria_id ?? '';
     qs('#modal-diaria-categoria').innerHTML = App.categoriaOptions('os', catPadrao);
     qs('#modal-diaria-manual').value    = d?.valor_manual || '';
+    if (qs('#modal-diaria-obs')) qs('#modal-diaria-obs').value = d?.observacoes || '';
 
     // Fatores disponíveis (config) — usados ao marcar reajuste num período
     _diariaFatores = Calculator.getFatores(cfg);
@@ -788,19 +804,23 @@ const OS = (() => {
     }
     wrap.innerHTML = _blocos.map((b, i) => {
       const fatoresAtivos = (b.fatores || []).reduce((s, f) => s + Number(f.percentual || 0), 0);
+      const dur = (b.inicio && b.fim) ? DateUtil.diffHours(b.inicio, b.fim) : 0;
       return `
       <div class="bloco-row ${b.reajuste ? 'bloco-reajuste' : ''}">
+        <div class="bloco-head">
+          <span class="bloco-num">${b.reajuste ? '⚡' : '🕐'} Período ${i + 1}${dur > 0 ? ` <small>· ${Fmt.hours(dur)}</small>` : ''}</span>
+          <button type="button" class="bloco-del" title="Remover período" onclick="OS.removeBloco(${i})">🗑</button>
+        </div>
         <div class="bloco-times">
           <input type="time" class="input" value="${b.inicio || ''}"
             oninput="OS.setBloco(${i},'inicio',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Início">
           <span class="bloco-sep">→</span>
           <input type="time" class="input" value="${b.fim || ''}"
             oninput="OS.setBloco(${i},'fim',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Fim">
-          <button type="button" class="bloco-del" title="Remover período" onclick="OS.removeBloco(${i})">🗑</button>
         </div>
         <label class="checkbox-item bloco-reaj-check">
           <input type="checkbox" ${b.reajuste ? 'checked' : ''} onchange="OS.toggleBlocoReajuste(${i})">
-          <span>Aplicar fatores de risco${b.reajuste && fatoresAtivos > 0 ? ` <small style="color:var(--danger);font-weight:800">+${fatoresAtivos}%</small>` : ''}</span>
+          <span>Reajuste / fatores de risco${b.reajuste && fatoresAtivos > 0 ? ` <small class="bloco-pct">+${fatoresAtivos}%</small>` : ''}</span>
         </label>
         ${b.reajuste ? `
           <div class="bloco-fatores">
@@ -872,7 +892,7 @@ const OS = (() => {
     if (breakdown) {
       if (bk.hReajuste > 0 && !manual) {
         breakdown.style.display = '';
-        breakdown.innerHTML = `${Fmt.hours(bk.hNormal)} normal (${Fmt.currency(bk.valorNormal)}) + <span style="color:var(--danger)">${Fmt.hours(bk.hReajuste)} reajuste (${Fmt.currency(bk.valorReajuste)})</span>`;
+        breakdown.innerHTML = `${Fmt.hours(bk.hNormal)} normal (${Fmt.currency(bk.valorNormal)}) + <span style="color:var(--gold-dk);font-weight:700">⚡ ${Fmt.hours(bk.hReajuste)} reajuste (${Fmt.currency(bk.valorReajuste)})</span>`;
       } else {
         breakdown.style.display = 'none';
       }
@@ -920,7 +940,7 @@ const OS = (() => {
       valor_manual:    manual || '',
       reajuste_json:   '',
       blocos_json:     JSON.stringify(blocosClean),
-      observacoes:     '',
+      observacoes:     qs('#modal-diaria-obs')?.value.trim() || '',
     };
 
     Loading.show();
@@ -1634,7 +1654,7 @@ const OS = (() => {
 
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
-    openDiaria, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
+    openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado

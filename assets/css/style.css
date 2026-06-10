@@ -496,6 +496,63 @@ img { max-width: 100%; }
 .tone-navy   .insight-icon { background: var(--bg); }
 .tone-navy::before   { background: var(--navy); }
 
+/* ─── SALDO DO MÊS no hero (valores maskáveis) ─────────────── */
+.home-saldo {
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: var(--radius-sm);
+  padding: 13px 15px; margin: 4px 0 14px;
+}
+.home-saldo-skeleton { height: 80px; border-radius: var(--radius-xs); background: rgba(255,255,255,.12); }
+.home-saldo-config { color: rgba(255,255,255,.7); font-size: .82rem; text-align: center; padding: 14px 0; }
+.home-saldo-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.home-saldo-label {
+  font-size: .72rem; font-weight: 700; color: rgba(255,255,255,.6);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.home-saldo-eye {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(255,255,255,.12); color: #fff; font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .12s, background .15s; flex-shrink: 0;
+}
+.home-saldo-eye:active { transform: scale(.9); background: rgba(255,255,255,.22); }
+.home-saldo-value { font-size: 1.7rem; font-weight: 800; letter-spacing: -.6px; line-height: 1.2; }
+.home-saldo-value.is-pos { color: #5CE08A; }
+.home-saldo-value.is-neg { color: #FF8A80; }
+.home-saldo-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin-top: 12px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,.1);
+}
+.home-saldo-mini { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hsm-label { font-size: .66rem; color: rgba(255,255,255,.55); font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.hsm-value { font-size: .9rem; font-weight: 800; letter-spacing: -.2px; white-space: nowrap; }
+.hsm-value.pos  { color: #5CE08A; }
+.hsm-value.neg  { color: #FF8A80; }
+.hsm-value.gold { color: var(--gold); }
+
+/* Máscara dos valores sensíveis — blur que some no toque do olho */
+.val-sensivel { transition: filter .2s; }
+.valores-ocultos .val-sensivel {
+  filter: blur(9px); user-select: none; pointer-events: none;
+}
+
+/* ─── REGISTRAR O DIA (atalho da home) ─────────────────────── */
+.registrar-card { padding: 15px 16px; margin-bottom: 16px; }
+.registrar-head { display: flex; align-items: center; gap: 12px; margin-bottom: 13px; }
+.registrar-icon {
+  width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0;
+  background: linear-gradient(135deg, #FFCB6B, var(--gold-dk));
+  display: flex; align-items: center; justify-content: center; font-size: 1.3rem;
+  box-shadow: 0 3px 10px rgba(245,166,35,.3);
+}
+.registrar-title { font-size: 1rem; font-weight: 800; color: var(--text); letter-spacing: -.2px; }
+.registrar-sub { font-size: .76rem; color: var(--text-muted); margin-top: 1px; }
+.registrar-row { display: flex; gap: 9px; }
+.registrar-select { flex: 1; min-width: 0; }
+.registrar-go { flex: 0 0 auto; white-space: nowrap; padding-left: 16px; padding-right: 16px; }
+.registrar-empty { font-size: .82rem; color: var(--text-muted); margin: 0 0 10px; }
+
 /* ─── FORMULÁRIOS ─────────────────────────────────────────── */
 .form-group { margin-bottom: 16px; }
 .form-group label {
@@ -838,30 +895,61 @@ textarea.input { resize: vertical; min-height: 80px; }
 
 /* ─── BLOCOS DE HORÁRIO (registro de dia/sessão v2) ────────── */
 .bloco-row {
-  background: var(--bg); border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm); padding: 12px; margin-bottom: 10px;
-  transition: border-color .15s, background .15s;
-}
-.bloco-row.bloco-reajuste { background: var(--danger-lt); border-color: rgba(255,59,48,.35); }
-.bloco-times { display: flex; align-items: center; gap: 8px; }
-.bloco-times .input { flex: 1; min-width: 0; text-align: center; }
-.bloco-sep { color: var(--text-muted); font-weight: 700; flex: 0 0 auto; }
-.bloco-del {
-  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
   background: var(--card); border: 1.5px solid var(--border);
-  font-size: .95rem; line-height: 1; color: var(--text-muted);
-  display: flex; align-items: center; justify-content: center;
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 10px;
+  box-shadow: 0 1px 3px rgba(26,43,74,.05);
+  transition: border-color .15s, background .15s, box-shadow .15s;
 }
-.bloco-del:active { transform: scale(.92); background: var(--danger-lt); }
-.bloco-reaj-check { margin: 10px 0 0; font-size: .82rem; }
-.bloco-fatores { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* Reajuste = ouro da marca (premium / acréscimo), não vermelho de alerta */
+.bloco-row.bloco-reajuste {
+  background: var(--gold-lt); border-color: rgba(245,166,35,.4);
+  border-left-color: var(--gold);
+}
+.bloco-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 9px;
+}
+.bloco-num { font-size: .82rem; font-weight: 800; color: var(--text); letter-spacing: -.1px; }
+.bloco-num small { font-weight: 600; color: var(--text-muted); }
+.bloco-row.bloco-reajuste .bloco-num { color: var(--gold-dk); }
+.bloco-times { display: flex; align-items: center; gap: 8px; }
+.bloco-times .input { flex: 1; min-width: 0; text-align: center; background: var(--card); }
+.bloco-sep { color: var(--text-light); font-weight: 700; flex: 0 0 auto; }
+.bloco-del {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
+  background: transparent; border: none;
+  font-size: .9rem; line-height: 1; color: var(--text-light);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, transform .12s;
+}
+.bloco-del:active { transform: scale(.9); background: var(--danger-lt); }
+.bloco-reaj-check { margin: 11px 0 0; font-size: .82rem; }
+.bloco-pct { color: var(--gold-dk); font-weight: 800; }
+.bloco-fatores { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .chip-fator {
   font-size: .72rem; font-weight: 700; cursor: pointer;
-  padding: 5px 11px; border-radius: 50px;
+  padding: 6px 11px; border-radius: 50px;
   background: var(--card); border: 1.5px solid var(--border); color: var(--text-muted);
   transition: all .15s; user-select: none;
 }
-.chip-fator.on { background: var(--danger); border-color: var(--danger); color: #fff; }
+.chip-fator:active { transform: scale(.95); }
+.chip-fator.on { background: var(--gold); border-color: var(--gold-dk); color: var(--navy); }
+.chip-fator.on b { color: var(--navy); }
+/* Botão "+ Adicionar período" — tracejado em ouro, convidativo */
+.btn-add-bloco {
+  width: 100%; margin-top: 4px;
+  padding: 11px; border-radius: var(--radius-sm);
+  border: 1.5px dashed rgba(245,166,35,.6); background: var(--gold-lt);
+  color: var(--gold-dk); font-weight: 800; font-size: .85rem;
+  transition: transform .12s, background .15s;
+}
+.btn-add-bloco:active { transform: scale(.98); background: #FFEFCB; }
+/* Observação da diária na lista do detalhe */
+.diaria-obs {
+  font-size: .74rem; color: var(--text-muted); margin-top: 4px;
+  font-style: italic; line-height: 1.35;
+}
 .calc-preview {
   background: var(--success-lt); border: 1.5px solid rgba(48,209,88,.3);
   border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 14px;
