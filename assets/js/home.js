@@ -43,7 +43,7 @@ const Home = (() => {
             <div class="home-greeting">${saudIcon} ${saud}</div>
             <div class="home-date">${hoje}</div>
           </div>
-          <img src="assets/img/logo-app.png?v=2.0.20" alt="Saretta" class="home-hero-logo"
+          <img src="assets/img/logo-app.png?v=2.0.21" alt="Saretta" class="home-hero-logo"
             onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
         </div>
 

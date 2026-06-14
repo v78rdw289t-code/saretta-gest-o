@@ -355,13 +355,38 @@ img { max-width: 100%; }
 /* Cards de saldo de conta (Resumo Financeiro): número colorido conforme o
    sinal (verde positivo / vermelho negativo) e a movimentação
    (inicial · +entradas −saídas) que fica oculta e abre ao tocar no card. */
-.saldo-card { cursor: pointer; }
+.saldo-card { cursor: pointer; transition: transform .12s; }
+.saldo-card:active { transform: scale(.97); }
 .saldo-card.stat-green .stat-value { color: var(--success); }
 .saldo-card.stat-red   .stat-value { color: var(--danger); }
-.saldo-card .stat-sub { display: none; }
-.saldo-card.mov-aberta .stat-sub { display: block; }
-.saldo-chevron { display: inline-block; margin-left: 6px; font-size: .85em; font-weight: 700; color: var(--text-muted); transform: rotate(90deg); transition: transform .2s; }
-.saldo-card.mov-aberta .saldo-chevron { transform: rotate(270deg); }
+.saldo-card .stat-sub { display: block; }
+.saldo-chevron { display: inline-block; margin-left: 4px; font-size: .9em; font-weight: 800; color: var(--text-light); }
+
+/* ─── EXTRATO DA CONTA (modal) ───────────────────────────── */
+.extrato-saldo-head {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 4px 0 14px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
+}
+.extrato-saldo-label { font-size: .72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+.extrato-saldo-val { font-size: 1.6rem; font-weight: 800; letter-spacing: -.5px; }
+.extrato-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 2px; border-bottom: 1px solid var(--border);
+}
+.extrato-row:last-child { border-bottom: none; }
+.extrato-icon {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .95rem; font-weight: 800; color: #fff;
+}
+.extrato-main { flex: 1; min-width: 0; }
+.extrato-desc { font-size: .88rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.extrato-meta { font-size: .72rem; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.extrato-right { text-align: right; flex-shrink: 0; }
+.extrato-val { font-size: .9rem; font-weight: 800; letter-spacing: -.2px; }
+.extrato-saldo-acc { font-size: .7rem; color: var(--text-muted); margin-top: 1px; font-weight: 600; }
+.extrato-inicial { background: var(--bg); border-radius: var(--radius-xs); padding: 11px 12px; margin-top: 6px; }
+.extrato-inicial .extrato-desc { color: var(--text-muted); }
 
 /* ─── BOTÕES ──────────────────────────────────────────────── */
 .btn {

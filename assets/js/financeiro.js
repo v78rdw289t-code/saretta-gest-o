@@ -651,7 +651,7 @@ const Financeiro = (() => {
           ` : `
             <div class="stats-grid">
               ${saldosContas.map(s => `
-                <div class="stat-card saldo-card ${s.saldo >= 0 ? 'stat-green' : 'stat-red'}" onclick="this.classList.toggle('mov-aberta')" title="Toque para ver a movimentação">
+                <div class="stat-card saldo-card ${s.saldo >= 0 ? 'stat-green' : 'stat-red'}" onclick="Financeiro.openExtrato('${s.conta.id}')" title="Toque para ver o extrato">
                   <div class="stat-label">${s.conta.nome}</div>
                   <div class="stat-value" style="font-size:1.05rem">${Fmt.currency(s.saldo)}<span class="saldo-chevron">›</span></div>
                   <div class="stat-sub" style="font-size:.68rem">inicial ${Fmt.currency(s.inicial)} · +${Fmt.currency(s.entradas)} −${Fmt.currency(s.saidas)}</div>
@@ -1273,7 +1273,77 @@ const Financeiro = (() => {
     }
   }
 
-  return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor,
+  // Extrato (histórico) de uma conta: todos os lançamentos PAGOS vinculados,
+  // ordenados no tempo, com o saldo acumulado após cada um. Reconcilia exatamente
+  // com o saldo do card (saldo_inicial + entradas − saídas pagas). Inclui
+  // transferências — elas mexem no saldo da conta.
+  function openExtrato(contaId) {
+    const conta = App.getContas().find(c => c.id === contaId);
+    if (!conta) { Toast.error('Conta não encontrada'); return; }
+    const inicial = Number(conta.saldo_inicial || 0);
+
+    const movs = allParcelas
+      .filter(p => p.status === 'pago' && p.conta_id === contaId)
+      .map(p => ({
+        p,
+        sign:  p.tipo === 'receber' ? 1 : -1,
+        valor: Number(p.valor || 0),
+        // data do caixa (quando foi pago); fallbacks só p/ ordenar
+        data:  String(p.data_pagamento || p.data_competencia || p.data_vencimento || '').substring(0, 10),
+      }));
+
+    // Acumula do mais antigo p/ o mais novo
+    movs.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+    let saldo = inicial;
+    movs.forEach(m => { m.saldoApos = (saldo += m.sign * m.valor); });
+    const saldoFinal = saldo;
+
+    qs('#modal-extrato-title').textContent = `Extrato · ${conta.nome}`;
+    qs('#modal-extrato-saldo').innerHTML =
+      `<div class="extrato-saldo-label">Saldo atual</div>
+       <div class="extrato-saldo-val ${saldoFinal >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(saldoFinal)}</div>`;
+
+    const linhaInicial = `
+      <div class="extrato-row extrato-inicial">
+        <div class="extrato-main"><div class="extrato-desc">Saldo inicial</div></div>
+        <div class="extrato-right"><div class="extrato-saldo-acc">${Fmt.currency(inicial)}</div></div>
+      </div>`;
+
+    const body = qs('#modal-extrato-body');
+    if (movs.length === 0) {
+      body.innerHTML = `<p class="text-muted" style="text-align:center;padding:18px 0 14px;margin:0">Nenhuma movimentação paga nesta conta ainda.</p>${linhaInicial}`;
+      Modal.open('modal-extrato');
+      return;
+    }
+
+    // Exibe do mais novo p/ o mais antigo (extrato bancário) + saldo inicial no fim
+    body.innerHTML = [...movs].reverse().map(m => {
+      const isRec = m.sign > 0;
+      const cli = App.clienteNome(m.p.cliente_id);
+      const cat = m.p.categoria_id ? App.categoriaNome(m.p.categoria_id) : '';
+      const tags = [
+        m.p.origem === 'transferencia' ? '↔ Transferência' : '',
+        cli && cli !== '—' ? cli : '',
+        cat && cat !== '—' ? cat : '',
+      ].filter(Boolean).join(' · ');
+      return `
+        <div class="extrato-row">
+          <div class="extrato-icon ${isRec ? 'av-green' : 'av-red'}">${isRec ? '↓' : '↑'}</div>
+          <div class="extrato-main">
+            <div class="extrato-desc">${m.p.descricao || (isRec ? 'Entrada' : 'Saída')}</div>
+            <div class="extrato-meta">${Fmt.date(m.data)}${tags ? ' · ' + tags : ''}</div>
+          </div>
+          <div class="extrato-right">
+            <div class="extrato-val ${isRec ? 'text-green' : 'text-red'}">${isRec ? '+' : '−'}${Fmt.currency(m.valor)}</div>
+            <div class="extrato-saldo-acc">saldo ${Fmt.currency(m.saldoApos)}</div>
+          </div>
+        </div>`;
+    }).join('') + linhaInicial;
+
+    Modal.open('modal-extrato');
+  }
+
+  return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor, openExtrato,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
            refreshPagQuemPagouVisibility,
