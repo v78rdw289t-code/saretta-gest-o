@@ -1273,14 +1273,20 @@ const Financeiro = (() => {
     }
   }
 
-  // Extrato (histórico) de uma conta: todos os lançamentos PAGOS vinculados,
-  // ordenados no tempo, com o saldo acumulado após cada um. Reconcilia exatamente
-  // com o saldo do card (saldo_inicial + entradas − saídas pagas). Inclui
-  // transferências — elas mexem no saldo da conta.
+  // ─── EXTRATO DA CONTA (histórico com saldo acumulado) ───────
+  // Estado do extrato aberto. Paginação por lotes: o CÁLCULO do saldo roda
+  // sobre TODOS os movimentos (preciso, e barato mesmo com milhares), mas a
+  // RENDERIZAÇÃO vai em lotes — é injetar milhares de linhas no DOM de uma vez
+  // que travaria. Cada "Ver mais" ANEXA o próximo lote (não re-renderiza).
+  let _extLinhas  = [];  // movimentos já com saldoApos, do mais novo p/ o mais antigo
+  let _extShown   = 0;   // quantos já estão no DOM
+  let _extInicial = 0;   // saldo inicial da conta (linha-âncora no fim)
+  const EXT_PAGE  = 60;
+
   function openExtrato(contaId) {
     const conta = App.getContas().find(c => c.id === contaId);
     if (!conta) { Toast.error('Conta não encontrada'); return; }
-    const inicial = Number(conta.saldo_inicial || 0);
+    _extInicial = Number(conta.saldo_inicial || 0);
 
     const movs = allParcelas
       .filter(p => p.status === 'pago' && p.conta_id === contaId)
@@ -1292,58 +1298,80 @@ const Financeiro = (() => {
         data:  String(p.data_pagamento || p.data_competencia || p.data_vencimento || '').substring(0, 10),
       }));
 
-    // Acumula do mais antigo p/ o mais novo
+    // Acumula do mais antigo p/ o mais novo, depois inverte p/ exibir (extrato)
     movs.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
-    let saldo = inicial;
+    let saldo = _extInicial;
     movs.forEach(m => { m.saldoApos = (saldo += m.sign * m.valor); });
     const saldoFinal = saldo;
+    _extLinhas = movs.reverse();
+    _extShown  = 0;
 
+    const n = _extLinhas.length;
     qs('#modal-extrato-title').textContent = `Extrato · ${conta.nome}`;
     qs('#modal-extrato-saldo').innerHTML =
-      `<div class="extrato-saldo-label">Saldo atual</div>
+      `<div class="extrato-saldo-label">Saldo atual${n ? ` · ${n} lançamento${n > 1 ? 's' : ''}` : ''}</div>
        <div class="extrato-saldo-val ${saldoFinal >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(saldoFinal)}</div>`;
 
-    const linhaInicial = `
-      <div class="extrato-row extrato-inicial">
-        <div class="extrato-main"><div class="extrato-desc">Saldo inicial</div></div>
-        <div class="extrato-right"><div class="extrato-saldo-acc">${Fmt.currency(inicial)}</div></div>
-      </div>`;
-
     const body = qs('#modal-extrato-body');
-    if (movs.length === 0) {
-      body.innerHTML = `<p class="text-muted" style="text-align:center;padding:18px 0 14px;margin:0">Nenhuma movimentação paga nesta conta ainda.</p>${linhaInicial}`;
-      Modal.open('modal-extrato');
-      return;
+    body.innerHTML = '';
+    if (n === 0) {
+      body.innerHTML = `<p class="text-muted" style="text-align:center;padding:18px 0 14px;margin:0">Nenhuma movimentação paga nesta conta ainda.</p>${_extInicialHtml()}`;
+    } else {
+      _appendExtrato(); // primeiro lote + rodapé
     }
-
-    // Exibe do mais novo p/ o mais antigo (extrato bancário) + saldo inicial no fim
-    body.innerHTML = [...movs].reverse().map(m => {
-      const isRec = m.sign > 0;
-      const cli = App.clienteNome(m.p.cliente_id);
-      const cat = m.p.categoria_id ? App.categoriaNome(m.p.categoria_id) : '';
-      const tags = [
-        m.p.origem === 'transferencia' ? '↔ Transferência' : '',
-        cli && cli !== '—' ? cli : '',
-        cat && cat !== '—' ? cat : '',
-      ].filter(Boolean).join(' · ');
-      return `
-        <div class="extrato-row">
-          <div class="extrato-icon ${isRec ? 'av-green' : 'av-red'}">${isRec ? '↓' : '↑'}</div>
-          <div class="extrato-main">
-            <div class="extrato-desc">${m.p.descricao || (isRec ? 'Entrada' : 'Saída')}</div>
-            <div class="extrato-meta">${Fmt.date(m.data)}${tags ? ' · ' + tags : ''}</div>
-          </div>
-          <div class="extrato-right">
-            <div class="extrato-val ${isRec ? 'text-green' : 'text-red'}">${isRec ? '+' : '−'}${Fmt.currency(m.valor)}</div>
-            <div class="extrato-saldo-acc">saldo ${Fmt.currency(m.saldoApos)}</div>
-          </div>
-        </div>`;
-    }).join('') + linhaInicial;
-
+    body.scrollTop = 0;
     Modal.open('modal-extrato');
   }
 
-  return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor, openExtrato,
+  function _extratoRowHtml(m) {
+    const isRec = m.sign > 0;
+    const cli = App.clienteNome(m.p.cliente_id);
+    const cat = m.p.categoria_id ? App.categoriaNome(m.p.categoria_id) : '';
+    const tags = [
+      m.p.origem === 'transferencia' ? '↔ Transferência' : '',
+      cli && cli !== '—' ? cli : '',
+      cat && cat !== '—' ? cat : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="extrato-row">
+        <div class="extrato-icon ${isRec ? 'av-green' : 'av-red'}">${isRec ? '↓' : '↑'}</div>
+        <div class="extrato-main">
+          <div class="extrato-desc">${m.p.descricao || (isRec ? 'Entrada' : 'Saída')}</div>
+          <div class="extrato-meta">${Fmt.date(m.data)}${tags ? ' · ' + tags : ''}</div>
+        </div>
+        <div class="extrato-right">
+          <div class="extrato-val ${isRec ? 'text-green' : 'text-red'}">${isRec ? '+' : '−'}${Fmt.currency(m.valor)}</div>
+          <div class="extrato-saldo-acc">saldo ${Fmt.currency(m.saldoApos)}</div>
+        </div>
+      </div>`;
+  }
+
+  function _extInicialHtml() {
+    return `
+      <div id="extrato-footer" class="extrato-row extrato-inicial">
+        <div class="extrato-main"><div class="extrato-desc">Saldo inicial</div></div>
+        <div class="extrato-right"><div class="extrato-saldo-acc">${Fmt.currency(_extInicial)}</div></div>
+      </div>`;
+  }
+
+  // Anexa o próximo lote ao fim (sem mexer no que já está) e recoloca o rodapé:
+  // botão "Ver mais" enquanto sobra, ou a linha de saldo inicial no fim.
+  function _appendExtrato() {
+    const body = qs('#modal-extrato-body');
+    if (!body) return;
+    qs('#extrato-footer')?.remove();
+    const slice = _extLinhas.slice(_extShown, _extShown + EXT_PAGE);
+    _extShown += slice.length;
+    body.insertAdjacentHTML('beforeend', slice.map(_extratoRowHtml).join(''));
+    const restantes = _extLinhas.length - _extShown;
+    body.insertAdjacentHTML('beforeend', restantes > 0
+      ? `<button id="extrato-footer" class="btn btn-outline btn-full extrato-vermais" onclick="Financeiro.verMaisExtrato()">Ver mais ${restantes} lançamento${restantes > 1 ? 's' : ''}</button>`
+      : _extInicialHtml());
+  }
+
+  function verMaisExtrato() { _appendExtrato(); }
+
+  return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor, openExtrato, verMaisExtrato,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
            refreshPagQuemPagouVisibility,

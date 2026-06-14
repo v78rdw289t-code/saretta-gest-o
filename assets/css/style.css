@@ -387,6 +387,7 @@ img { max-width: 100%; }
 .extrato-saldo-acc { font-size: .7rem; color: var(--text-muted); margin-top: 1px; font-weight: 600; }
 .extrato-inicial { background: var(--bg); border-radius: var(--radius-xs); padding: 11px 12px; margin-top: 6px; }
 .extrato-inicial .extrato-desc { color: var(--text-muted); }
+.extrato-vermais { margin-top: 12px; }
 
 /* ─── BOTÕES ──────────────────────────────────────────────── */
 .btn {
