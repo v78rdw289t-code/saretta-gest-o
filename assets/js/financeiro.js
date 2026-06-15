@@ -17,6 +17,7 @@ const Financeiro = (() => {
     categoria: '', cliente: '', conta: '', sort: 'venc_desc',
   };
   let _filterOpen = false;
+  let _filtroAbertos = null; // null | 'pendente' | 'vencido'
 
   async function render(params = {}) {
     if (!LocalConfig.getUrl()) {
@@ -30,6 +31,7 @@ const Financeiro = (() => {
     }
     // Ao entrar no módulo: reseta filtro especial e volta para aba receber
     _filtroVenc7d = params.filtro === 'vencendo7d';
+    _filtroAbertos = null;
     currentTab = (params.tab === 'pagar' || params.tab === 'resumo') ? params.tab : 'receber';
     _filtros.periodoTipo = 'mes';
     _filtros.dataIni = ''; _filtros.dataFim = '';
@@ -85,6 +87,7 @@ const Financeiro = (() => {
 
   function switchTab(tab) {
     currentTab = tab;
+    _filtroAbertos = null;
     // Re-renderiza tudo para que as section-tabs reflitam o estado ativo.
     // Para o resumo, recarrega os dados antes de renderizar (garante saldos atualizados).
     if (tab === 'resumo') {
@@ -108,12 +111,12 @@ const Financeiro = (() => {
         ${_filtroVenc7d ? '' : `<button class="fin-periodo-edit" onclick="Financeiro.openPeriodo()">alterar</button>`}
       </div>
       <div class="stats-grid-4">
-        <div class="stat-card stat-${isRec ? 'gold' : 'orange'}">
+        <div class="stat-card stat-${isRec ? 'gold' : 'orange'}" onclick="Financeiro.verAbertos('pendente')" style="cursor:pointer">
           <div class="stat-label">Pendente</div>
           <div class="stat-value" id="stat-pendente">—</div>
           <div class="stat-sub" id="stat-pendente-ct"></div>
         </div>
-        <div class="stat-card stat-red">
+        <div class="stat-card stat-red" onclick="Financeiro.verAbertos('vencido')" style="cursor:pointer">
           <div class="stat-label">Vencido</div>
           <div class="stat-value" id="stat-vencido">—</div>
           <div class="stat-sub" id="stat-vencido-ct"></div>
@@ -332,7 +335,13 @@ const Financeiro = (() => {
     _filtros.mes = new Date().toISOString().substring(0, 7);
     _filtros.dataIni = ''; _filtros.dataFim = '';
     _filtros.regime = 'competencia';
+    _filtroAbertos = null;
     renderParcelas(currentTab);
+  }
+
+  function verAbertos(tipo) {
+    _filtroAbertos = tipo;
+    filtrar();
   }
 
   function toggleSort() {
@@ -362,16 +371,17 @@ const Financeiro = (() => {
     const baseTipo = allParcelas.filter(p => p.tipo === tipo && p.origem !== 'transferencia');
 
     // ── STAT CARDS ──
-    // No modo normal seguem o período selecionado; no modo venc7d (visão de
-    // alerta) são gerais, pois ali não há painel de período visível.
-    const cardBase   = _filtroVenc7d ? baseTipo : baseTipo.filter(p => _noPeriodo(p, per, regime));
-    const pendentes  = cardBase.filter(p => p.status === 'pendente');
+    // Pendente e Vencido: sempre totais gerais (ignoram o filtro de período —
+    // contas em aberto acumulam de meses anteriores e o dono precisa ver o total real).
+    // Recebido/Pago e 7 dias: seguem o período selecionado normalmente.
+    const cardBasePago = _filtroVenc7d ? baseTipo : baseTipo.filter(p => _noPeriodo(p, per, regime));
+    const pendentes  = baseTipo.filter(p => p.status === 'pendente');
     const vencidos   = pendentes.filter(p => new Date(p.data_vencimento + 'T00:00:00') < hoje);
     const proximos7d = pendentes.filter(p => {
       const d = new Date(p.data_vencimento + 'T00:00:00');
       return d >= hoje && d <= em7;
     });
-    const pagos = cardBase.filter(p => p.status === 'pago');
+    const pagos = cardBasePago.filter(p => p.status === 'pago');
 
     _updateStat('stat-pendente', sum(pendentes), pendentes.length);
     _updateStat('stat-vencido',  sum(vencidos),  vencidos.length);
@@ -387,6 +397,17 @@ const Financeiro = (() => {
       const items = [...proximos7d].sort((a, b) => (a.data_vencimento < b.data_vencimento ? -1 : 1));
       _lastFiltered = items;
       _visibleCount = PAGE_SIZE;
+      _renderTable();
+      return;
+    }
+
+    // ── MODO ABERTOS: pendentes ou vencidos de todos os períodos ──
+    if (_filtroAbertos) {
+      let items = baseTipo.filter(p => p.status === 'pendente');
+      if (_filtroAbertos === 'vencido') items = items.filter(p => new Date(p.data_vencimento + 'T00:00:00') < hoje);
+      _lastFiltered = items;
+      _visibleCount = PAGE_SIZE;
+      _updateChips();
       _renderTable();
       return;
     }
@@ -427,6 +448,7 @@ const Financeiro = (() => {
       regime:    { caixa: 'Caixa' },
     };
     const parts = [];
+    if (_filtroAbertos) parts.push({ key: 'abertos', label: _filtroAbertos === 'vencido' ? '⚠ Vencidos (todos os períodos)' : '📋 Pendentes (todos os períodos)' });
     if (_filtros.status)    parts.push({ key: 'status',    label: labels.status[_filtros.status] || _filtros.status });
     if (_filtros.regime === 'caixa') parts.push({ key: 'regime', label: 'Caixa' });
     if (_filtros.categoria) parts.push({ key: 'categoria', label: App.categoriaNome(_filtros.categoria) });
@@ -454,6 +476,7 @@ const Financeiro = (() => {
   }
 
   function removeChip(key) {
+    if (key === 'abertos')   { _filtroAbertos = null; }
     if (key === 'status')    { _filtros.status    = ''; const el = qs('#fin-status');    if (el) el.value = ''; }
     if (key === 'regime')    { _filtros.regime     = 'competencia'; const el = qs('#fin-regime'); if (el) el.value = 'competencia'; }
     if (key === 'categoria') { _filtros.categoria  = ''; const el = qs('#fin-categoria'); if (el) el.value = ''; }
@@ -1371,7 +1394,7 @@ const Financeiro = (() => {
 
   function verMaisExtrato() { _appendExtrato(); }
 
-  return { render, switchTab, filtrar, limparFiltroVenc7d, verMais, calcNetValor, openExtrato, verMaisExtrato,
+  return { render, switchTab, filtrar, limparFiltroVenc7d, verAbertos, verMais, calcNetValor, openExtrato, verMaisExtrato,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
            refreshPagQuemPagouVisibility,
