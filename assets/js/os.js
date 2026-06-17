@@ -553,7 +553,11 @@ const OS = (() => {
     const matAdmin   = material * (adminPerc / 100);
     const matTotal   = material + matAdmin;
 
-    const totalItens  = Number(qs('#calc-itens-total')?.value) || 0;
+    // #calc-itens-total só existe quando a calculadora está expandida no DOM.
+    // Se não estiver (ex: chamado do fechamento com calc colapsada), lê de allItens.
+    const totalItens  = qs('#calc-itens-total')
+      ? Number(qs('#calc-itens-total').value) || 0
+      : allItens.filter(i => i.os_id === currentOS?.id).reduce((s, i) => s + Number(i.valor_total || 0), 0);
     const simplesPerc = Number(qs('#calc-simples')?.value)     || 0;
 
     const subtotal     = maoObra + matTotal + vChamada + totalItens;
@@ -1124,7 +1128,7 @@ const OS = (() => {
   }
 
   // ─── FECHAMENTO ──────────────────────────────────────────────
-  function openFechamento() {
+  async function openFechamento() {
     if (!currentOS) return;
 
     const isDiaria   = currentOS.tipo === 'diaria';
@@ -1138,9 +1142,15 @@ const OS = (() => {
       const base = totalDias + totalItens;
       _calc.liquido = base;
       _calc.bruto   = base;
-    } else if (_calc.liquido <= 0) {
-      _calc.liquido = Number(currentOS.valor_calculado || 0);
-      _calc.bruto   = _calc.liquido;
+    } else {
+      // OS normal: recalcula _calc das sessões. calcNormalUpdate usa optional chaining
+      // em todos os inputs do DOM, então funciona corretamente mesmo com a calculadora
+      // colapsada (campos ausentes = 0) — garante que novas sessões sempre apareçam.
+      await calcNormalUpdate();
+      if (_calc.liquido <= 0) {
+        _calc.liquido = Number(currentOS.valor_calculado || 0);
+        _calc.bruto   = _calc.liquido;
+      }
     }
 
     const calc = _calc.liquido;
