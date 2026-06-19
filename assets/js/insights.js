@@ -453,6 +453,14 @@ const Insights = (() => {
     const nOSAbertas = osAbertasIds.size;
     const nSessoesAbertas = sessoesAbertas.length;
 
+    // OS fechadas e ainda NÃO recebidas — parcelas geradas no fechamento (origem='os')
+    // que continuam pendentes. Mostrado como item do resumo (não recebido × valor).
+    const aReceberOS = _cache.parcelas.filter(p =>
+      p.origem === 'os' && p.tipo === 'receber' && p.status === 'pendente'
+    );
+    const naoRecebidoValor = sumValor(aReceberOS);
+    const naoRecebidoQtd   = new Set(aReceberOS.map(p => p.origem_id).filter(Boolean)).size || aReceberOS.length;
+
     // Sem OS abertas não há previsão → força modo realizado e esconde o toggle
     const temPrevisao = nOSAbertas > 0 && receitaPrevista > 0;
     const modo = temPrevisao ? _megaModo : 'realizado';
@@ -471,7 +479,7 @@ const Insights = (() => {
         ${periodo.label} · <strong>${regimeLabel}</strong>
       </p>
 
-      ${_renderMegaInsight(mega, receitaPrevista, modo, temPrevisao)}
+      ${_renderMegaInsight(mega, receitaPrevista, modo, temPrevisao, { naoRecebidoValor, naoRecebidoQtd })}
       ${_renderEvolucao(evol)}
       ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
       ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora })}
@@ -524,9 +532,10 @@ const Insights = (() => {
   }
 
   // ─── RENDERERS ───────────────────────────────────────────
-  function _renderMegaInsight(mega, receitaPrevista = 0, modo = 'realizado', temPrevisao = false) {
+  function _renderMegaInsight(mega, receitaPrevista = 0, modo = 'realizado', temPrevisao = false, extra = {}) {
     const tc = { green: 'var(--success)', red: 'var(--danger)', orange: 'var(--warning)', navy: 'var(--navy)' };
     const c = tc[mega.resumo.tone] || 'var(--navy)';
+    const { naoRecebidoValor = 0, naoRecebidoQtd = 0 } = extra;
     // Toggle Realizado / Com previsão — só quando há OS abertas com sessões
     const toggle = temPrevisao ? `
       <div class="mega-toggle">
@@ -538,6 +547,17 @@ const Insights = (() => {
       ? `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:10px;border-left:3px solid var(--gold-dk)">
            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">Receita prevista (OS em aberto)</div>
            <div style="font-size:1.1rem;font-weight:800;color:var(--navy)">${Fmt.currency(receitaPrevista)}</div>
+         </div>` : '';
+    // OS fechadas aguardando pagamento (não recebido × valor) — em ambos os modos
+    const naoRecebidoStr = naoRecebidoValor > 0
+      ? `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:10px;border-left:3px solid var(--danger)">
+           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+             <div>
+               <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">📥 OS fechadas a receber</div>
+               <div style="font-size:.72rem;color:var(--text-muted)">${naoRecebidoQtd} OS aguardando pagamento</div>
+             </div>
+             <div style="font-size:1.1rem;font-weight:800;color:var(--danger)">${Fmt.currency(naoRecebidoValor)}</div>
+           </div>
          </div>` : '';
     return `
       <div class="card mb-4" style="border-left:5px solid ${c}">
@@ -551,6 +571,7 @@ const Insights = (() => {
               <span style="font-size:.85rem;color:var(--text-muted);line-height:1.45">${a.text}</span>
             </div>`).join('')}
           ${prevStr}
+          ${naoRecebidoStr}
         </div>
       </div>
     `;
