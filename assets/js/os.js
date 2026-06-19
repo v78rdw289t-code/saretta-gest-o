@@ -1678,32 +1678,58 @@ const OS = (() => {
     const totalOS  = Number(o.valor_fechamento || 0) || (maoObra + matTotal);
     const recebido = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
     const aReceber = parcelas.filter(p => p.status !== 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
-    const mediaDia = nSessoes > 0 ? horas / nSessoes : 0;
-    const valorHora = horas > 0 ? maoObra / horas : 0;
     const lucroServico = totalOS - matTotal; // ganho do serviço (material é repasse)
 
-    // Distribuição por mês — sessões podem cair em meses diferentes
+    // Distribuição por mês — sessões podem cair em meses diferentes; conta DIAS
+    // distintos (não sessões) para o custo fixo e a média.
     const porMes = {};
     sessoes.forEach(d => {
       const mes = String(d.data || '').substring(0, 7);
+      const dia = String(d.data || '').substring(0, 10);
       if (!mes) return;
-      if (!porMes[mes]) porMes[mes] = { dias: 0, horas: 0, valor: 0 };
-      porMes[mes].dias  += 1;
+      if (!porMes[mes]) porMes[mes] = { diasSet: new Set(), horas: 0, valor: 0 };
+      porMes[mes].diasSet.add(dia);
       porMes[mes].horas += Number(d.horas_totais || 0);
       porMes[mes].valor += Number(d.valor_manual || d.valor_calculado || 0);
     });
     const meses = Object.keys(porMes).sort();
+    const nDias = meses.reduce((s, m) => s + porMes[m].diasSet.size, 0);
+    const mediaDia = nDias > 0 ? horas / nDias : 0;
+    const valorHora = horas > 0 ? maoObra / horas : 0;
 
     const cfg = await Calculator.getConfig();
     const baseHora = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+
+    // Custo fixo absorvido por esta OS: para cada mês das sessões, dias da OS ×
+    // (custo fixo mensal ÷ dias úteis daquele mês). Lucro real = serviço − absorção.
+    const custoFixoMensal = Calculator.cfgNum(cfg, 'custo_fixo_mensal', 0);
+    let custoFixoAbsorvido = 0;
+    if (custoFixoMensal > 0) {
+      meses.forEach(m => {
+        const [y, mm] = m.split('-').map(Number);
+        const ultimo = new Date(y, mm, 0).getDate();
+        const diasUteis = DateUtil.businessDays(`${m}-01`, `${m}-${String(ultimo).padStart(2, '0')}`);
+        const custoDia = diasUteis > 0 ? custoFixoMensal / diasUteis : 0;
+        custoFixoAbsorvido += porMes[m].diasSet.size * custoDia;
+      });
+    }
+    const temCusteio = custoFixoMensal > 0 && nDias > 0;
+    const lucroReal = lucroServico - custoFixoAbsorvido;
 
     // Insights textuais
     const tips = [];
     if (nSessoes === 0) {
       tips.push({ icon: '📭', text: 'Nenhuma sessão registrada ainda. Registre os dias trabalhados para ver a análise.' });
     } else {
-      if (mediaDia > 0 && mediaDia < 4 && nSessoes >= 3)
-        tips.push({ icon: '🌗', text: `Média de ${Fmt.hours(mediaDia)} por dia em ${nSessoes} dias — muitos dias de meio período, o que dilui o valor por dia. Concentrar horas rende mais por deslocamento.` });
+      // Lucro real (depois do custo fixo absorvido) — a resposta de "deu lucro?"
+      if (temCusteio) {
+        if (lucroReal >= 0)
+          tips.push({ icon: '🟢', text: `Lucro real de <strong>${Fmt.currency(lucroReal)}</strong> — sobrou depois de absorver ${Fmt.currency(custoFixoAbsorvido)} de custo fixo pelos ${nDias} dia(s) que a OS ocupou.` });
+        else
+          tips.push({ icon: '🔴', text: `No vermelho: depois do custo fixo (${Fmt.currency(custoFixoAbsorvido)} por ${nDias} dia(s)), esta OS fica em <strong>${Fmt.currency(lucroReal)}</strong>. O serviço não cobriu os dias que ocupou — vale reajustar ou concentrar o trabalho.` });
+      }
+      if (mediaDia > 0 && mediaDia < 4 && nDias >= 3)
+        tips.push({ icon: '🌗', text: `Média de ${Fmt.hours(mediaDia)} por dia em ${nDias} dias — muitos dias de meio período, o que dilui o valor por dia (e cada dia carrega custo fixo cheio). Concentrar horas rende mais.` });
       else if (mediaDia >= 8)
         tips.push({ icon: '💪', text: `Dias cheios: média de ${Fmt.hours(mediaDia)} por dia trabalhado.` });
       if (baseHora > 0 && valorHora > 0) {
@@ -1732,7 +1758,7 @@ const OS = (() => {
     qs('#os-insights-title').textContent = `📊 ${o.numero || 'OS'} · Análise`;
     qs('#os-insights-body').innerHTML = `
       <div class="stats-grid">
-        ${stat('⏱ Tempo', Fmt.hours(horas), 'stat-blue', `${nSessoes} dia(s) · ${Fmt.hours(mediaDia)}/dia`)}
+        ${stat('⏱ Tempo', Fmt.hours(horas), 'stat-blue', `${nDias} dia(s) · ${Fmt.hours(mediaDia)}/dia`)}
         ${stat('⚡ Valor/hora', Fmt.currency(valorHora), (baseHora > 0 && valorHora >= baseHora) ? 'stat-green' : 'stat-orange', baseHora > 0 ? `base ${Fmt.currency(baseHora)}` : '')}
         ${stat('🛠 Mão de obra', Fmt.currency(maoObra), 'stat-navy')}
         ${stat('📦 Materiais', Fmt.currency(matTotal), 'stat-navy')}
@@ -1741,6 +1767,11 @@ const OS = (() => {
         ${stat('💰 Total da OS', Fmt.currency(totalOS), 'stat-green')}
         ${stat('🧾 Result. serviço', Fmt.currency(lucroServico), 'stat-blue', 'sem materiais')}
       </div>
+      ${temCusteio ? `
+        <div class="stats-grid mt-3">
+          ${stat('🏢 Custo fixo', Fmt.currency(custoFixoAbsorvido), 'stat-navy', `${nDias} dia(s) absorvido(s)`)}
+          ${stat('🎯 Lucro real', Fmt.currency(lucroReal), lucroReal >= 0 ? 'stat-green' : 'stat-red', 'após custo fixo')}
+        </div>` : ''}
       ${parcelas.length ? `
         <div class="stats-grid mt-3">
           ${stat('✅ Recebido', Fmt.currency(recebido), 'stat-green')}
@@ -1754,7 +1785,7 @@ const OS = (() => {
             <div class="entity-item" style="cursor:default">
               <div class="entity-info">
                 <div class="entity-name" style="text-transform:capitalize">${mesLabel(m)}</div>
-                <div class="entity-sub">${porMes[m].dias} dia(s) · ${Fmt.hours(porMes[m].horas)}</div>
+                <div class="entity-sub">${porMes[m].diasSet.size} dia(s) · ${Fmt.hours(porMes[m].horas)}</div>
               </div>
               <div class="entity-right"><span class="entity-value">${Fmt.currency(porMes[m].valor)}</span></div>
             </div>`).join('')}

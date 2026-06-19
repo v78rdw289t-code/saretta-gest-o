@@ -106,6 +106,21 @@ const DateUtil = {
     d.setMonth(d.getMonth() + n);
     return d.toISOString().split('T')[0];
   },
+  // Dias úteis (seg–sex) entre duas datas YYYY-MM-DD, inclusive. Não desconta
+  // feriados (simplificação) — serve de "capacidade normal" para diluir custo fixo.
+  businessDays(startStr, endStr) {
+    const start = new Date(startStr + 'T00:00:00');
+    const end   = new Date(endStr + 'T00:00:00');
+    if (isNaN(start) || isNaN(end) || end < start) return 0;
+    let n = 0;
+    const d = new Date(start);
+    while (d <= end) {
+      const wd = d.getDay();
+      if (wd !== 0 && wd !== 6) n++;
+      d.setDate(d.getDate() + 1);
+    }
+    return n;
+  },
 };
 
 // ─── Toast ───────────────────────────────────────────────────

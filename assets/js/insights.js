@@ -141,6 +141,32 @@ const Insights = (() => {
 
   function _horasNoPeriodo(periodo) { return _horasBreakdown(periodo).total; }
 
+  // Nº de meses-calendário cobertos pelo período (para escalar o custo fixo)
+  function _mesesNoPeriodo(periodo) {
+    const s = new Date(periodo.start + 'T00:00:00');
+    const e = new Date(periodo.end + 'T00:00:00');
+    return Math.max(1, (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1);
+  }
+
+  // Custeio por absorção: dilui o custo fixo mensal pela CAPACIDADE NORMAL (dias
+  // úteis do calendário), não pelos dias realmente trabalhados — assim o custo/dia
+  // fica estável e o efeito do clima vira "ociosidade" (dias úteis não trabalhados).
+  function _custeioNoPeriodo(periodo, custoFixoMensal) {
+    const nMeses        = _mesesNoPeriodo(periodo);
+    const custoFixoTot  = custoFixoMensal * nMeses;
+    const diasUteis     = DateUtil.businessDays(periodo.start, periodo.end);
+    const custoDia      = diasUteis > 0 ? custoFixoTot / diasUteis : 0;
+    // Dias distintos com sessão registrada no período
+    const diasTrab = new Set(
+      _cache.diarias
+        .map(d => String(d.data || '').substring(0, 10))
+        .filter(data => data >= periodo.start && data <= periodo.end)
+    ).size;
+    const custoAbsorvido = diasTrab * custoDia;
+    const ociosidade     = Math.max(0, custoFixoTot - custoAbsorvido);
+    return { nMeses, custoFixoTot, diasUteis, custoDia, diasTrab, custoAbsorvido, ociosidade };
+  }
+
   function _osFechadasNoPeriodo(periodo) {
     return _cache.osList.filter(o => {
       if (o.status !== 'fechado') return false;
@@ -386,6 +412,10 @@ const Insights = (() => {
       diarias:  diRes?.data  || [],
     };
 
+    // Custo fixo mensal (config) — base do custeio por absorção
+    const _cfg = await Calculator.getConfig();
+    const custoFixoMensal = Number(_cfg.custo_fixo_mensal) || 0;
+
     const periodo = calcPeriodo(_periodo);
 
     // Pre-filtra parcelas pelo período (regime de competência)
@@ -492,6 +522,9 @@ const Insights = (() => {
       mega = buildMegaInsight(snapAtual, snapAnt);
     }
 
+    // Custeio por absorção (custo fixo diluído por dias úteis) — só se configurado
+    const custeio = custoFixoMensal > 0 ? _custeioNoPeriodo(periodo, custoFixoMensal) : null;
+
     qs('#insights-content').innerHTML = `
       <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
         ${periodo.label} · <strong>${regimeLabel}</strong>
@@ -500,6 +533,7 @@ const Insights = (() => {
       ${_renderMegaInsight(mega, receitaPrevista, modo, temPrevisao, { naoRecebidoValor, naoRecebidoQtd })}
       ${_renderEvolucao(evol)}
       ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
+      ${custeio ? _renderCusteio(custeio, faturamento) : ''}
       ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora })}
       ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
@@ -674,6 +708,66 @@ const Insights = (() => {
             <span>Realizado ${pctReal.toFixed(0)}%</span>
             <span>Em aberto ${pctPrev.toFixed(0)}%</span>
           </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _renderCusteio(c, faturamento) {
+    const ocupacao = c.diasUteis > 0 ? (c.diasTrab / c.diasUteis * 100) : 0;
+    const resultado = faturamento - c.custoFixoTot;
+    const diasParados = Math.max(0, c.diasUteis - c.diasTrab);
+    const sobrou = c.diasTrab >= c.diasUteis;
+    const insight = sobrou
+      ? `Você trabalhou ${c.diasTrab} dias — no nível (ou acima) dos ${c.diasUteis} dias úteis do período. Custo fixo totalmente coberto. 💪`
+      : `Você trabalhou <strong>${c.diasTrab} de ${c.diasUteis} dias úteis</strong>. Os ${diasParados} dia(s) parado(s) deixaram <strong>${Fmt.currency(c.ociosidade)}</strong> de custo fixo sem cobertura — é o impacto do clima/ociosidade no período, separado das suas OS.`;
+    return `
+      <div class="card mb-3">
+        <div class="card-header"><h3>🏢 Custo Fixo & Capacidade</h3></div>
+        <div class="card-body">
+          <div class="stats-grid">
+            <div class="stat-card stat-navy">
+              <div class="stat-label">Custo fixo ${c.nMeses > 1 ? `(${c.nMeses} meses)` : '(mês)'}</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoFixoTot)}</div>
+            </div>
+            <div class="stat-card stat-blue">
+              <div class="stat-label">Custo por dia</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoDia)}</div>
+              <div class="stat-sub">÷ ${c.diasUteis} dias úteis</div>
+            </div>
+            <div class="stat-card ${ocupacao >= 80 ? 'stat-green' : ocupacao >= 50 ? 'stat-orange' : 'stat-red'}">
+              <div class="stat-label">Dias trabalhados</div>
+              <div class="stat-value" style="font-size:1rem">${c.diasTrab} / ${c.diasUteis}</div>
+              <div class="stat-sub">${ocupacao.toFixed(0)}% de ocupação</div>
+            </div>
+            <div class="stat-card ${c.ociosidade > 0 ? 'stat-red' : 'stat-green'}">
+              <div class="stat-label">Ociosidade (clima)</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.ociosidade)}</div>
+              <div class="stat-sub">custo descoberto</div>
+            </div>
+          </div>
+
+          <div style="height:10px;border-radius:6px;overflow:hidden;display:flex;background:var(--bg);margin-top:14px">
+            <div style="width:${Math.min(100, ocupacao).toFixed(1)}%;background:${ocupacao >= 80 ? 'var(--success)' : ocupacao >= 50 ? 'var(--warning)' : 'var(--danger)'};transition:width .4s"></div>
+          </div>
+
+          <div class="info-row mt-3">
+            <span>Custo fixo coberto pelas OS:</span>
+            <strong>${Fmt.currency(c.custoAbsorvido)}</strong>
+          </div>
+          <div class="info-row">
+            <span>Faturamento − custo fixo:</span>
+            <strong class="${resultado >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(resultado)}</strong>
+          </div>
+
+          <div class="tip-card ${sobrou ? 'tip-success' : 'tip-warning'}" style="margin-top:12px">
+            <span class="tip-icon">${sobrou ? '☀️' : '🌧️'}</span>
+            <div class="tip-body"><div class="tip-text">${insight}</div></div>
+          </div>
+
+          <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
+            Custo/dia fixo pelos dias úteis do calendário — não muda com o clima. O que varia é a ociosidade.
+          </p>
         </div>
       </div>
     `;

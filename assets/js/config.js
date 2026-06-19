@@ -103,6 +103,14 @@ const Config = (() => {
                     value="${getCfg('valor_chamada_distante', '250')}">
                 </div>
               </div>
+              <p style="font-size:.8rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 12px">Custos do Negócio</p>
+              <div class="form-group">
+                <label>🏢 Custo fixo mensal (R$)</label>
+                <input type="number" name="custo_fixo_mensal" class="input" step="50" min="0"
+                  value="${getCfg('custo_fixo_mensal', '0')}"
+                  placeholder="Ex: 14500 — salários, combustível, manutenção, aluguel...">
+                <small style="color:var(--text-muted);font-size:.75rem">Diluído pelos dias úteis do mês para calcular o custo por dia e o lucro real de cada OS.</small>
+              </div>
               <div class="form-group">
                 <label>Nome da Empresa</label>
                 <input type="text" name="empresa_nome" class="input"
