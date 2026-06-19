@@ -107,7 +107,7 @@ const Config = (() => {
               <div class="form-group">
                 <label>🏢 Custo fixo mensal (R$)</label>
                 <input type="number" name="custo_fixo_mensal" class="input" step="50" min="0"
-                  value="${getCfg('custo_fixo_mensal', '0')}"
+                  value="${getCfg('custo_fixo_mensal', '14500')}"
                   placeholder="Ex: 14500 — salários, combustível, manutenção, aluguel...">
                 <small style="color:var(--text-muted);font-size:.75rem">Diluído pelos dias úteis do mês para calcular o custo por dia e o lucro real de cada OS.</small>
               </div>

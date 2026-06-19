@@ -263,6 +263,15 @@ const Calculator = {
 
   cfgNum(cfg, key, def) { return Number(cfg[key]) || def; },
 
+  // Custo fixo mensal usado no custeio por absorção. Default sugerido enquanto não
+  // configurado; respeita o valor salvo (inclusive 0, para desligar o recurso).
+  CUSTO_FIXO_DEFAULT: 14500,
+  custoFixoMensal(cfg) {
+    const raw = cfg?.custo_fixo_mensal;
+    if (raw === undefined || raw === null || raw === '') return this.CUSTO_FIXO_DEFAULT;
+    return Number(raw) || 0;
+  },
+
   getFatores(cfg) {
     try {
       const stored = cfg.fatores_json;

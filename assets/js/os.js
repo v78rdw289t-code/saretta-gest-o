@@ -1702,7 +1702,7 @@ const OS = (() => {
 
     // Custo fixo absorvido por esta OS: para cada mês das sessões, dias da OS ×
     // (custo fixo mensal ÷ dias úteis daquele mês). Lucro real = serviço − absorção.
-    const custoFixoMensal = Calculator.cfgNum(cfg, 'custo_fixo_mensal', 0);
+    const custoFixoMensal = Calculator.custoFixoMensal(cfg);
     let custoFixoAbsorvido = 0;
     if (custoFixoMensal > 0) {
       meses.forEach(m => {

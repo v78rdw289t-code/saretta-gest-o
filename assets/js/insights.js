@@ -414,7 +414,7 @@ const Insights = (() => {
 
     // Custo fixo mensal (config) — base do custeio por absorção
     const _cfg = await Calculator.getConfig();
-    const custoFixoMensal = Number(_cfg.custo_fixo_mensal) || 0;
+    const custoFixoMensal = Calculator.custoFixoMensal(_cfg);
 
     const periodo = calcPeriodo(_periodo);
 
