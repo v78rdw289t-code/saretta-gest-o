@@ -32,10 +32,6 @@ const Insights = (() => {
   let _periodo = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
   let _regime  = 'competencia'; // competencia | caixa — controla faturamento/lucro/margem
   let _cache   = null;          // { parcelas, osList, diarias }
-  // Estado de cards abertos/fechados (por título) — persiste entre re-renders
-  let _abertos = {};
-  // Cards abertos por padrão (os demais começam minimizados → tela limpa)
-  const _ABERTOS_DEFAULT = ['🧠 Resumo inteligente', '📊 Evolução (6 meses)'];
 
   // ─── Helpers de período ─────────────────────────────────
   // Retorna { start, end, label } no formato YYYY-MM-DD
@@ -388,13 +384,24 @@ const Insights = (() => {
     const snapAnt   = _calcSnapshot(calcPeriodoAnterior(_periodo));
     const mega      = buildMegaInsight(snapAtual, snapAnt);
     const evol      = _calcEvolucao(6);
+
+    // Receita prevista: soma das sessões registradas de OS abertas (andamento / acerto)
+    const osAbertasIds = new Set(
+      _cache.osList.filter(o => o.status === 'andamento' || o.status === 'acerto').map(o => o.id)
+    );
+    const sessoesAbertas = _cache.diarias.filter(d => osAbertasIds.has(d.os_id));
+    const receitaPrevista = sessoesAbertas.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    const nOSAbertas = osAbertasIds.size;
+    const nSessoesAbertas = sessoesAbertas.length;
+
     qs('#insights-content').innerHTML = `
       <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
         ${periodo.label} · <strong>${regimeLabel}</strong>
       </p>
 
-      ${_renderMegaInsight(mega)}
+      ${_renderMegaInsight(mega, receitaPrevista)}
       ${_renderEvolucao(evol)}
+      ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
       ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora })}
       ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
@@ -402,29 +409,6 @@ const Insights = (() => {
       ${semanas ? _renderFluxoCaixa(semanas) : ''}
       ${_renderDicas(tips)}
     `;
-    _setupCollapse();
-  }
-
-  // Torna todos os cards de insights expansíveis/minimizáveis (clica no título)
-  function _setupCollapse() {
-    qsa('#insights-content .card').forEach((card) => {
-      const head = card.querySelector('.card-header');
-      const body = card.querySelector('.card-body');
-      if (!head || !body) return;
-      const key = (head.querySelector('h3')?.textContent || '').trim();
-      const aberto = (key in _abertos) ? _abertos[key] : _ABERTOS_DEFAULT.includes(key);
-      body.style.display = aberto ? '' : 'none';
-      head.classList.add('ins-collapse-head');
-      let arr = head.querySelector('.ins-arrow');
-      if (!arr) { arr = document.createElement('span'); arr.className = 'ins-arrow'; head.appendChild(arr); }
-      arr.textContent = aberto ? '▾' : '▸';
-      head.onclick = () => {
-        const open = body.style.display === 'none';
-        body.style.display = open ? '' : 'none';
-        arr.textContent = open ? '▾' : '▸';
-        _abertos[key] = open;
-      };
-    });
   }
 
   // ─── HELPERS ─────────────────────────────────────────────
@@ -468,9 +452,14 @@ const Insights = (() => {
   }
 
   // ─── RENDERERS ───────────────────────────────────────────
-  function _renderMegaInsight(mega) {
+  function _renderMegaInsight(mega, receitaPrevista = 0) {
     const tc = { green: 'var(--success)', red: 'var(--danger)', orange: 'var(--warning)', navy: 'var(--navy)' };
     const c = tc[mega.resumo.tone] || 'var(--navy)';
+    const prevStr = receitaPrevista > 0
+      ? `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:10px;border-left:3px solid var(--gold-dk)">
+           <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">Receita prevista (OS em aberto)</div>
+           <div style="font-size:1.1rem;font-weight:800;color:var(--navy)">${Fmt.currency(receitaPrevista)}</div>
+         </div>` : '';
     return `
       <div class="card mb-4" style="border-left:5px solid ${c}">
         <div class="card-header"><h3>🧠 Resumo inteligente</h3></div>
@@ -481,6 +470,7 @@ const Insights = (() => {
               <span style="font-size:1rem;flex-shrink:0;line-height:1.3">${a.icon}</span>
               <span style="font-size:.85rem;color:var(--text-muted);line-height:1.45">${a.text}</span>
             </div>`).join('')}
+          ${prevStr}
         </div>
       </div>
     `;
@@ -491,8 +481,14 @@ const Insights = (() => {
     const maxRD    = Math.max(1, ...evol.flatMap(m => [m.receita, m.despesa]));
     const maxLucro = Math.max(1, ...evol.map(m => Math.abs(m.lucro)));
     const maxH     = Math.max(1, ...evol.map(m => m.horas));
-    const col = (mes, bars) => `<div class="evo-col"><div class="evo-barwrap">${bars}</div><div class="evo-lbl">${mes.label}</div></div>`;
     const hfmt = (h) => (typeof Fmt.hours === 'function') ? Fmt.hours(h) : `${Math.round(h)}h`;
+    const kfmt = (v) => { if (v >= 1000) return `${(v/1000).toFixed(1)}k`; return v > 0 ? Math.round(v).toString() : '—'; };
+    const col = (mes, bars, val) => `
+      <div class="evo-col">
+        <div class="evo-barwrap">${bars}</div>
+        <div class="evo-val">${val}</div>
+        <div class="evo-lbl">${mes.label}</div>
+      </div>`;
     return `
       <div class="card mb-3">
         <div class="card-header"><h3>📊 Evolução (6 meses)</h3></div>
@@ -504,23 +500,64 @@ const Insights = (() => {
             </div>
             <div class="evo-row">
               ${evol.map(m => col(m, `
-                <div class="evo-bar" style="height:${Math.max(2, m.receita / maxRD * 100)}%;background:var(--success)" title="${m.label}: receita ${Fmt.currency(m.receita)}"></div>
-                <div class="evo-bar" style="height:${Math.max(2, m.despesa / maxRD * 100)}%;background:var(--danger)" title="${m.label}: despesa ${Fmt.currency(m.despesa)}"></div>
-              `)).join('')}
+                <div class="evo-bar" style="height:${Math.max(2, m.receita / maxRD * 100)}%;background:var(--success)"></div>
+                <div class="evo-bar" style="height:${Math.max(2, m.despesa / maxRD * 100)}%;background:var(--danger)"></div>
+              `, m.receita > 0 ? `<span style="color:var(--success)">R$${kfmt(m.receita)}</span>` : '—')).join('')}
             </div>
 
             <div class="evo-title">Lucro por mês</div>
             <div class="evo-row">
-              ${evol.map(m => col(m, `<div class="evo-bar evo-bar-wide" style="height:${Math.max(2, Math.abs(m.lucro) / maxLucro * 100)}%;background:${m.lucro >= 0 ? 'var(--navy)' : 'var(--danger)'}" title="${m.label}: lucro ${Fmt.currency(m.lucro)}"></div>`)).join('')}
+              ${evol.map(m => col(m,
+                `<div class="evo-bar evo-bar-wide" style="height:${Math.max(2, Math.abs(m.lucro) / maxLucro * 100)}%;background:${m.lucro >= 0 ? 'var(--navy)' : 'var(--danger)'}"></div>`,
+                m.lucro !== 0 ? `<span style="color:${m.lucro >= 0 ? 'var(--navy)' : 'var(--danger)'}">R$${kfmt(m.lucro)}</span>` : '—'
+              )).join('')}
             </div>
 
             <div class="evo-title">Horas trabalhadas</div>
             <div class="evo-row">
-              ${evol.map(m => col(m, `<div class="evo-bar evo-bar-wide" style="height:${Math.max(2, m.horas / maxH * 100)}%;background:var(--gold)" title="${m.label}: ${hfmt(m.horas)}"></div>`)).join('')}
+              ${evol.map(m => col(m,
+                `<div class="evo-bar evo-bar-wide" style="height:${Math.max(2, m.horas / maxH * 100)}%;background:var(--gold)"></div>`,
+                m.horas > 0 ? hfmt(m.horas) : '—'
+              )).join('')}
             </div>
           `}
         </div>
       </div>`;
+  }
+
+  function _renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas }) {
+    if (nOSAbertas === 0) return '';
+    const total = faturamento + receitaPrevista;
+    const pctReal = total > 0 ? (faturamento / total * 100) : 0;
+    const pctPrev = total > 0 ? (receitaPrevista / total * 100) : 100;
+    return `
+      <div class="card mb-3">
+        <div class="card-header"><h3>🔮 Receita Prevista</h3></div>
+        <div class="card-body">
+          <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px">
+            ${nOSAbertas} OS abertas · ${nSessoesAbertas} sessão(ões) registrada(s)
+          </div>
+          <div style="display:flex;gap:12px;margin-bottom:14px">
+            <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px;border-left:3px solid var(--success)">
+              <div style="font-size:.72rem;color:var(--text-muted)">Realizado (período)</div>
+              <div style="font-size:1rem;font-weight:800;color:var(--success)">${Fmt.currency(faturamento)}</div>
+            </div>
+            <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px;border-left:3px solid var(--gold-dk)">
+              <div style="font-size:.72rem;color:var(--text-muted)">Em andamento</div>
+              <div style="font-size:1rem;font-weight:800;color:var(--gold-dk)">${Fmt.currency(receitaPrevista)}</div>
+            </div>
+          </div>
+          <div style="height:10px;border-radius:6px;overflow:hidden;display:flex;background:var(--bg)">
+            ${pctReal > 0 ? `<div style="width:${pctReal.toFixed(1)}%;background:var(--success);transition:width .4s"></div>` : ''}
+            ${pctPrev > 0 ? `<div style="width:${pctPrev.toFixed(1)}%;background:var(--gold-dk);transition:width .4s"></div>` : ''}
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.72rem;color:var(--text-muted)">
+            <span>Realizado ${pctReal.toFixed(0)}%</span>
+            <span>Em aberto ${pctPrev.toFixed(0)}%</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   function _renderDicas(tips) {

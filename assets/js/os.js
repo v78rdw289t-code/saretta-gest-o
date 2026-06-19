@@ -241,13 +241,6 @@ const OS = (() => {
         </div>
       </div>
 
-      <!-- Calculadora de valor — colapsada por padrão; expande sob demanda -->
-      ${currentOS.status !== 'fechado' ? `
-        <div class="card mb-3" id="os-calc-card">
-          <!-- preenchido por renderCalculadora() — 3 estados: botão, aberta, ou resumo -->
-        </div>
-      ` : ''}
-
       <!-- Itens -->
       <div class="card mb-3">
         <div class="card-header">
@@ -317,12 +310,9 @@ const OS = (() => {
     `;
 
     // Renderiza a calculadora de valor (se a OS ainda não foi fechada)
-    if (currentOS.status !== 'fechado') {
-      await renderCalculadora(diarias, itens);
-    }
   }
 
-  // ─── CALCULADORA DE VALOR (no detalhe) ──────────────────
+  // ─── CALCULADORA DE VALOR (removida do detalhe) ─────────
   // Card com 3 estados:
   //   1. Sem cálculo + colapsado → botão grande "🧮 Calcular Valor"
   //   2. Com cálculo + colapsado → card-resumo (valor, detalhe, "Editar")

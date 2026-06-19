@@ -90,11 +90,16 @@ const Home = (() => {
           <span class="quick-action-icon qa-green">💰</span>
           <span class="quick-action-label">Lançar</span>
         </button>
-        <button class="quick-action" onclick="App.navigate('os').then(() => OS.openListaCompras())">
-          <span class="quick-action-icon qa-gold">🛒</span>
-          <span class="quick-action-label">Compras</span>
+        <button class="quick-action" onclick="Home.openCalculadoraHome()">
+          <span class="quick-action-icon qa-gold">🧮</span>
+          <span class="quick-action-label">Calcular</span>
         </button>
       </div>
+
+      <!-- Lista de Compras — botão destacado -->
+      <button class="btn btn-full compras-btn-home" onclick="App.navigate('os').then(() => OS.openListaCompras())">
+        🛒 Lista de Compras
+      </button>
 
       <div id="home-stats" class="home-stats">
         <div class="home-insights loading-pulse" style="min-height:120px"></div>
@@ -411,6 +416,7 @@ const Home = (() => {
     body.innerHTML = `
       <div class="registrar-row">
         <select id="reg-dia-os" class="input registrar-select">
+          <option value="">— Selecione a OS —</option>
           ${ordenadas.map(o => {
             const titulo = o.nome || App.clienteNome(o.cliente_id);
             const num = (o.numero || '').replace('OS-', '');
@@ -558,5 +564,25 @@ const Home = (() => {
     if (autoScroll) resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  return { render, search, clearSearch, onSearchInput, toggleValores, irRegistrar };
+  async function openCalculadoraHome() {
+    const cfg  = await Calculator.getConfig();
+    const taxa = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 90);
+    const modal = qs('#modal-calc-home');
+    if (!modal) return;
+    qs('#calc-home-taxa').value = taxa;
+    qs('#calc-home-horas').value = '';
+    qs('#calc-home-result').textContent = 'R$ 0,00';
+    Modal.open('modal-calc-home');
+    setTimeout(() => qs('#calc-home-horas')?.focus(), 200);
+  }
+
+  function calcHomeUpdate() {
+    const horas = Number(qs('#calc-home-horas')?.value || 0);
+    const taxa  = Number(qs('#calc-home-taxa')?.value  || 0);
+    const total = horas * taxa;
+    const el = qs('#calc-home-result');
+    if (el) el.textContent = Fmt.currency(total);
+  }
+
+  return { render, search, clearSearch, onSearchInput, toggleValores, irRegistrar, openCalculadoraHome, calcHomeUpdate };
 })();
