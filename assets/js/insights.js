@@ -107,18 +107,39 @@ const Insights = (() => {
     return { start: ymd(new Date(y, m-1, 1)), end: ymd(new Date(y, m, 0)) }; // mes_atual → mês anterior
   }
 
-  function _horasNoPeriodo(periodo) {
-    const hd = _cache.diarias.filter(d => {
+  // Horas trabalhadas no período, separadas por tipo de OS (diária × normal).
+  // Fonte de verdade: as SESSÕES (diárias), atribuídas ao mês de CADA sessão pela
+  // sua data. Isso separa corretamente OS com sessões em meses diferentes, mesmo
+  // que a OS ainda não tenha sido fechada/recebida. As horas_calculadas da OS só
+  // entram como legado, para OS normais antigas que NÃO têm sessão registrada
+  // (antes da calculadora virar sessões) — evita dupla contagem.
+  function _horasBreakdown(periodo) {
+    const tipoDe = {};
+    _cache.osList.forEach(o => { tipoDe[o.id] = o.tipo; });
+    const osComSessao = new Set(_cache.diarias.map(d => d.os_id));
+
+    let hDiaria = 0, hNormal = 0, valorSessoes = 0;
+    _cache.diarias.forEach(d => {
       const data = String(d.data || '').substring(0, 10);
-      return data >= periodo.start && data <= periodo.end;
-    }).reduce((s, d) => s + Number(d.horas_totais || 0), 0);
-    const ho = _cache.osList.filter(o => {
-      if (o.tipo !== 'normal') return false;
+      if (data < periodo.start || data > periodo.end) return;
+      const h = Number(d.horas_totais || 0);
+      if (tipoDe[d.os_id] === 'diaria') hDiaria += h; else hNormal += h;
+      // valor da mão de obra da sessão — acompanha as horas mês a mês
+      valorSessoes += Number(d.valor_manual || d.valor_calculado || 0);
+    });
+
+    _cache.osList.forEach(o => {
+      if (o.tipo !== 'normal' || osComSessao.has(o.id)) return; // já contado via sessões
       const ref = String(o.data_atualizacao || o.data_inicio || '').substring(0, 10);
-      return ref >= periodo.start && ref <= periodo.end;
-    }).reduce((s, o) => s + Number(o.horas_calculadas || 0), 0);
-    return hd + ho;
+      if (ref < periodo.start || ref > periodo.end) return;
+      hNormal += Number(o.horas_calculadas || 0);
+      valorSessoes += Number(o.valor_calculado || 0);
+    });
+
+    return { hDiaria, hNormal, total: hDiaria + hNormal, valorSessoes };
   }
+
+  function _horasNoPeriodo(periodo) { return _horasBreakdown(periodo).total; }
 
   function _osFechadasNoPeriodo(periodo) {
     return _cache.osList.filter(o => {
@@ -135,14 +156,18 @@ const Insights = (() => {
     const despesas = parc.filter(p => p.tipo === 'pagar');
     const faturamento = sumValor(receitas);
     const totalDesp   = sumValor(despesas);
-    const horas = _horasNoPeriodo(periodo);
+    const hb = _horasBreakdown(periodo);
+    const horas = hb.total;
     const osFech = _osFechadasNoPeriodo(periodo);
     const valorOS = osFech.reduce((s, o) => s + Number(o.valor_fechamento || o.valor_calculado || 0), 0);
     return {
       faturamento, totalDesp, lucro: faturamento - totalDesp, horas,
       nOS: osFech.length,
       ticket: osFech.length > 0 ? valorOS / osFech.length : 0,
-      receitaHora: horas > 0 ? faturamento / horas : 0,
+      // valor/hora baseado no valor das SESSÕES do período (acompanha as horas mês
+      // a mês) — evita o R$/h inflado quando o faturamento da OS cai todo no mês do
+      // fechamento mas as horas estão espalhadas em meses anteriores.
+      receitaHora: horas > 0 ? hb.valorSessoes / horas : 0,
       despPorCat: Object.fromEntries(agruparPorCategoria(despesas)),
       recPorCat:  Object.fromEntries(agruparPorCategoria(receitas)),
     };
@@ -375,22 +400,15 @@ const Insights = (() => {
     const margem      = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
 
     // Horas trabalhadas no período:
-    //   - Diárias: horas_totais cuja data está no período
-    //   - OS normais: horas_calculadas, usando data_atualizacao || data_inicio
-    const horasDiarias = _cache.diarias.filter(d => {
-      const data = String(d.data || '').substring(0, 10);
-      return data >= periodo.start && data <= periodo.end;
-    }).reduce((s, d) => s + Number(d.horas_totais || 0), 0);
-
-    const horasOSNormal = _cache.osList.filter(o => {
-      if (o.tipo !== 'normal') return false;
-      const ref = String(o.data_atualizacao || o.data_inicio || '').substring(0, 10);
-      return ref >= periodo.start && ref <= periodo.end;
-    }).reduce((s, o) => s + Number(o.horas_calculadas || 0), 0);
-
-    const horasPeriodo = horasDiarias + horasOSNormal;
-    const custoHora    = horasPeriodo > 0 ? totalDesp   / horasPeriodo : 0;
-    const receitaHora  = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
+    //   Fonte: sessões (diárias) atribuídas ao mês de cada sessão, separadas por
+    //   tipo de OS. horas_calculadas só entra p/ OS normais legadas sem sessão.
+    const _hb = _horasBreakdown(periodo);
+    const horasDiarias  = _hb.hDiaria;
+    const horasOSNormal = _hb.hNormal;
+    const horasPeriodo  = _hb.total;
+    const custoHora    = horasPeriodo > 0 ? totalDesp        / horasPeriodo : 0;
+    // valor/hora pelo valor das SESSÕES do período (acompanha as horas mês a mês)
+    const receitaHora  = horasPeriodo > 0 ? _hb.valorSessoes / horasPeriodo : 0;
 
     // Top clientes no período (por receita) — ignora lançamentos sem cliente identificado
     const porCliente = {};
@@ -731,7 +749,7 @@ const Insights = (() => {
 
           ${horasPeriodo > 0 ? `
             <div class="info-row mt-3">
-              <span>Faturamento / hora trabalhada:</span>
+              <span>Valor/hora trabalhada <small style="color:var(--text-muted)">(sessões do mês)</small>:</span>
               <strong class="${receitaHora > custoHora ? 'text-green' : 'text-red'}">${Fmt.currency(receitaHora)}/h</strong>
             </div>
             <div class="info-row">

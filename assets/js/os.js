@@ -146,6 +146,7 @@ const OS = (() => {
   function _maisOpcoes(id) {
     const o = allOS.find(x => x.id === id) || currentOS;
     const actions = [
+      { icon: '📊', label: 'Análise / Insights', fn: () => openInsightsOS(id) },
       { icon: '✏️', label: 'Editar OS', fn: () => openForm(id) },
       { icon: '🔄', label: 'Alterar status', fn: () => _menuStatus() },
       { icon: '📋', label: 'Gerar OS (PDF)',       fn: () => Doc.gerar(id, 'os') },
@@ -1656,8 +1657,124 @@ const OS = (() => {
     });
   }
 
+  // ─── ANÁLISE / INSIGHTS DA OS (menu ⋯) ──────────────────
+  // Reúne tempo, mão de obra, materiais, recebimento e valor/hora desta OS, com
+  // insights textuais (meio período, valor/hora vs base, multi-mês, a receber).
+  async function openInsightsOS(id) {
+    const o = allOS.find(x => x.id === id) || currentOS;
+    if (!o) { Toast.warning('OS não encontrada'); return; }
+
+    const sessoes = allDiarias.filter(d => d.os_id === id).sort((a, b) => a.data > b.data ? 1 : -1);
+    const itens   = allItens.filter(i => i.os_id === id);
+
+    // Parcelas geradas no fechamento desta OS (recebido vs a receber)
+    const parcRes  = await API.db.read('parcelas');
+    const parcelas = (parcRes?.data || []).filter(p => p.origem === 'os' && String(p.origem_id) === String(id));
+
+    const nSessoes = sessoes.length;
+    const horas    = sessoes.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
+    const maoObra  = sessoes.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    const matTotal = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const totalOS  = Number(o.valor_fechamento || 0) || (maoObra + matTotal);
+    const recebido = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
+    const aReceber = parcelas.filter(p => p.status !== 'pago').reduce((s, p) => s + Number(p.valor || 0), 0);
+    const mediaDia = nSessoes > 0 ? horas / nSessoes : 0;
+    const valorHora = horas > 0 ? maoObra / horas : 0;
+    const lucroServico = totalOS - matTotal; // ganho do serviço (material é repasse)
+
+    // Distribuição por mês — sessões podem cair em meses diferentes
+    const porMes = {};
+    sessoes.forEach(d => {
+      const mes = String(d.data || '').substring(0, 7);
+      if (!mes) return;
+      if (!porMes[mes]) porMes[mes] = { dias: 0, horas: 0, valor: 0 };
+      porMes[mes].dias  += 1;
+      porMes[mes].horas += Number(d.horas_totais || 0);
+      porMes[mes].valor += Number(d.valor_manual || d.valor_calculado || 0);
+    });
+    const meses = Object.keys(porMes).sort();
+
+    const cfg = await Calculator.getConfig();
+    const baseHora = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+
+    // Insights textuais
+    const tips = [];
+    if (nSessoes === 0) {
+      tips.push({ icon: '📭', text: 'Nenhuma sessão registrada ainda. Registre os dias trabalhados para ver a análise.' });
+    } else {
+      if (mediaDia > 0 && mediaDia < 4 && nSessoes >= 3)
+        tips.push({ icon: '🌗', text: `Média de ${Fmt.hours(mediaDia)} por dia em ${nSessoes} dias — muitos dias de meio período, o que dilui o valor por dia. Concentrar horas rende mais por deslocamento.` });
+      else if (mediaDia >= 8)
+        tips.push({ icon: '💪', text: `Dias cheios: média de ${Fmt.hours(mediaDia)} por dia trabalhado.` });
+      if (baseHora > 0 && valorHora > 0) {
+        if (valorHora >= baseHora) tips.push({ icon: '⚡', text: `Cada hora rendeu ${Fmt.currency(valorHora)} — acima da sua base (${Fmt.currency(baseHora)}/h). 👏` });
+        else tips.push({ icon: '📉', text: `Cada hora rendeu ${Fmt.currency(valorHora)} — abaixo da base (${Fmt.currency(baseHora)}/h). Um reajuste nas próximas sessões compensa.` });
+      }
+      if (matTotal > 0 && matTotal > maoObra)
+        tips.push({ icon: '📦', text: `Materiais (${Fmt.currency(matTotal)}) superam a mão de obra (${Fmt.currency(maoObra)}). Confira se a margem do material está coberta.` });
+      if (meses.length > 1)
+        tips.push({ icon: '📆', text: `Trabalho distribuído em ${meses.length} meses. As horas entram no mês de cada sessão — o recebimento, no mês do fechamento.` });
+      if (aReceber > 0)
+        tips.push({ icon: '📥', text: `${Fmt.currency(aReceber)} ainda a receber desta OS.` });
+      else if (recebido > 0)
+        tips.push({ icon: '✅', text: `Tudo recebido: ${Fmt.currency(recebido)}.` });
+    }
+
+    const stat = (label, val, cls = 'stat-navy', sub = '') => `
+      <div class="stat-card ${cls}">
+        <div class="stat-label">${label}</div>
+        <div class="stat-value" style="font-size:1rem">${val}</div>
+        ${sub ? `<div class="stat-sub">${sub}</div>` : ''}
+      </div>`;
+    const NOMES_MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const mesLabel = (m) => { const [y, mm] = m.split('-'); return `${NOMES_MES[Number(mm) - 1] || mm}/${y.slice(2)}`; };
+
+    qs('#os-insights-title').textContent = `📊 ${o.numero || 'OS'} · Análise`;
+    qs('#os-insights-body').innerHTML = `
+      <div class="stats-grid">
+        ${stat('⏱ Tempo', Fmt.hours(horas), 'stat-blue', `${nSessoes} dia(s) · ${Fmt.hours(mediaDia)}/dia`)}
+        ${stat('⚡ Valor/hora', Fmt.currency(valorHora), (baseHora > 0 && valorHora >= baseHora) ? 'stat-green' : 'stat-orange', baseHora > 0 ? `base ${Fmt.currency(baseHora)}` : '')}
+        ${stat('🛠 Mão de obra', Fmt.currency(maoObra), 'stat-navy')}
+        ${stat('📦 Materiais', Fmt.currency(matTotal), 'stat-navy')}
+      </div>
+      <div class="stats-grid mt-3">
+        ${stat('💰 Total da OS', Fmt.currency(totalOS), 'stat-green')}
+        ${stat('🧾 Result. serviço', Fmt.currency(lucroServico), 'stat-blue', 'sem materiais')}
+      </div>
+      ${parcelas.length ? `
+        <div class="stats-grid mt-3">
+          ${stat('✅ Recebido', Fmt.currency(recebido), 'stat-green')}
+          ${stat('📥 A receber', Fmt.currency(aReceber), aReceber > 0 ? 'stat-red' : 'stat-navy')}
+        </div>` : ''}
+
+      ${meses.length > 1 ? `
+        <div class="ins-os-title">Distribuição por mês</div>
+        <div class="entity-list" style="border-radius:12px">
+          ${meses.map(m => `
+            <div class="entity-item" style="cursor:default">
+              <div class="entity-info">
+                <div class="entity-name" style="text-transform:capitalize">${mesLabel(m)}</div>
+                <div class="entity-sub">${porMes[m].dias} dia(s) · ${Fmt.hours(porMes[m].horas)}</div>
+              </div>
+              <div class="entity-right"><span class="entity-value">${Fmt.currency(porMes[m].valor)}</span></div>
+            </div>`).join('')}
+        </div>` : ''}
+
+      ${tips.length ? `
+        <div class="ins-os-title">💡 Insights</div>
+        ${tips.map(t => `
+          <div class="tip-card tip-info">
+            <span class="tip-icon">${t.icon}</span>
+            <div class="tip-body"><div class="tip-text">${t.text}</div></div>
+          </div>`).join('')}
+      ` : ''}
+    `;
+    Modal.open('modal-os-insights');
+  }
+
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
+    openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
