@@ -1429,6 +1429,15 @@ textarea.input { resize: vertical; min-height: 80px; }
 .evo-barwrap { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
 .evo-bar { width: 9px; border-radius: 3px 3px 0 0; min-height: 2px; transition: height .5s cubic-bezier(.34,1.56,.64,1); }
 .evo-bar-wide { width: 60%; max-width: 18px; }
+/* Toggle Realizado / Com previsão — resumo inteligente */
+.mega-toggle { display: flex; gap: 6px; margin-bottom: 12px; background: var(--bg); padding: 4px; border-radius: 12px; }
+.mega-toggle-btn {
+  flex: 1; padding: 7px 8px; border: none; background: none; border-radius: 9px;
+  font-size: .78rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.mega-toggle-btn.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); }
+
 .evo-val { font-size: .6rem; color: var(--text-muted); margin-top: 3px; text-align: center; white-space: nowrap; }
 .evo-lbl { font-size: .62rem; color: var(--text-muted); margin-top: 2px; text-transform: capitalize; }
 .evo-title { font-size: .68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 2px; }

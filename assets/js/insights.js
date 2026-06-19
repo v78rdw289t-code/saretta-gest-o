@@ -29,9 +29,10 @@ const Insights = (() => {
   };
 
   // Período selecionado (default: mês atual)
-  let _periodo = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
-  let _regime  = 'competencia'; // competencia | caixa — controla faturamento/lucro/margem
-  let _cache   = null;          // { parcelas, osList, diarias }
+  let _periodo  = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
+  let _regime   = 'competencia'; // competencia | caixa — controla faturamento/lucro/margem
+  let _megaModo = 'realizado';   // realizado | previsao — narrativa do resumo inteligente
+  let _cache    = null;          // { parcelas, osList, diarias }
 
   // ─── Helpers de período ─────────────────────────────────
   // Retorna { start, end, label } no formato YYYY-MM-DD
@@ -228,6 +229,31 @@ const Insights = (() => {
     return { resumo, achados: achados.slice(0, 4) };
   }
 
+  // Resumo no modo PREVISÃO: projeta o fechamento do período somando o que já
+  // foi realizado com as sessões registradas em OS ainda abertas, e compara o
+  // total projetado com o período anterior (já realizado).
+  function buildMegaInsightPrevisao(a, b, receitaPrevista, nOSAbertas) {
+    const fatProj   = a.faturamento + receitaPrevista;
+    const lucroProj = fatProj - a.totalDesp;
+    const lucroPct  = _sinalPct(lucroProj, b.lucro);
+    const temBase   = b.faturamento > 0 || b.lucro !== 0;
+
+    const tone = !temBase ? 'navy'
+      : (lucroProj >= b.lucro ? 'green' : 'orange');
+    const cmp = temBase ? ` (${lucroPct} vs período anterior)` : '';
+    const texto = `Projeção do período: você já realizou <strong>${Fmt.currency(a.faturamento)}</strong> e tem mais `
+      + `<strong>${Fmt.currency(receitaPrevista)}</strong> em ${nOSAbertas} OS aberta(s). Fechando tudo, o período `
+      + `termina em <strong>${Fmt.currency(fatProj)}</strong> de faturamento — lucro projetado de `
+      + `<strong>${Fmt.currency(lucroProj)}</strong>${cmp}.`;
+
+    const achados = [
+      { icon: '✅', tone: 'green', text: `Já realizado: <strong>${Fmt.currency(a.faturamento)}</strong>` },
+      { icon: '🔮', tone: 'navy',  text: `Em aberto: <strong>${Fmt.currency(receitaPrevista)}</strong> em ${nOSAbertas} OS` },
+      { icon: '🎯', tone: 'navy',  text: `Total projetado: <strong>${Fmt.currency(fatProj)}</strong>` },
+    ];
+    return { resumo: { tone, texto }, achados };
+  }
+
   // Evolução mês a mês (últimos N meses) — reaproveita o snapshot por mês
   function _calcEvolucao(nMeses) {
     const hoje = new Date(); const y = hoje.getFullYear(); const m = hoje.getMonth();
@@ -285,6 +311,9 @@ const Insights = (() => {
 
   function setPeriodo(p) { _periodo = p; render(); }
   function setRegime(r)  { _regime  = r; render(); }
+  // Alterna a narrativa do resumo: realizado vs. projeção com receita prevista.
+  // Re-renderiza só os insights (dados já em cache, sem novos requests).
+  function setMegaModo(m) { _megaModo = m; loadInsights(); }
 
   async function loadInsights() {
     const shown = Loading.maybeShow('parcelas', 'os', 'diarias');
@@ -379,10 +408,9 @@ const Insights = (() => {
     });
 
     const regimeLabel = _regime === 'caixa' ? 'regime de Caixa' : 'regime de Competência';
-    // Mega insight: compara o período atual com o anterior de mesma duração
+    // Snapshots para o resumo: período atual × anterior de mesma duração
     const snapAtual = _calcSnapshot(periodo);
     const snapAnt   = _calcSnapshot(calcPeriodoAnterior(_periodo));
-    const mega      = buildMegaInsight(snapAtual, snapAnt);
     const evol      = _calcEvolucao(6);
 
     // Receita prevista: soma das sessões registradas de OS abertas (andamento / acerto)
@@ -394,12 +422,19 @@ const Insights = (() => {
     const nOSAbertas = osAbertasIds.size;
     const nSessoesAbertas = sessoesAbertas.length;
 
+    // Sem OS abertas não há previsão → força modo realizado e esconde o toggle
+    const temPrevisao = nOSAbertas > 0 && receitaPrevista > 0;
+    const modo = temPrevisao ? _megaModo : 'realizado';
+    const mega = modo === 'previsao'
+      ? buildMegaInsightPrevisao(snapAtual, snapAnt, receitaPrevista, nOSAbertas)
+      : buildMegaInsight(snapAtual, snapAnt);
+
     qs('#insights-content').innerHTML = `
       <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
         ${periodo.label} · <strong>${regimeLabel}</strong>
       </p>
 
-      ${_renderMegaInsight(mega, receitaPrevista)}
+      ${_renderMegaInsight(mega, receitaPrevista, modo, temPrevisao)}
       ${_renderEvolucao(evol)}
       ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
       ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora })}
@@ -452,10 +487,17 @@ const Insights = (() => {
   }
 
   // ─── RENDERERS ───────────────────────────────────────────
-  function _renderMegaInsight(mega, receitaPrevista = 0) {
+  function _renderMegaInsight(mega, receitaPrevista = 0, modo = 'realizado', temPrevisao = false) {
     const tc = { green: 'var(--success)', red: 'var(--danger)', orange: 'var(--warning)', navy: 'var(--navy)' };
     const c = tc[mega.resumo.tone] || 'var(--navy)';
-    const prevStr = receitaPrevista > 0
+    // Toggle Realizado / Com previsão — só quando há OS abertas com sessões
+    const toggle = temPrevisao ? `
+      <div class="mega-toggle">
+        <button class="mega-toggle-btn ${modo === 'realizado' ? 'active' : ''}" onclick="Insights.setMegaModo('realizado')">📊 Realizado</button>
+        <button class="mega-toggle-btn ${modo === 'previsao' ? 'active' : ''}" onclick="Insights.setMegaModo('previsao')">🔮 Com previsão</button>
+      </div>` : '';
+    // Rodapé com a receita prevista: só no modo realizado (no previsão a narrativa já cobre isso)
+    const prevStr = (modo === 'realizado' && receitaPrevista > 0)
       ? `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:10px;border-left:3px solid var(--gold-dk)">
            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">Receita prevista (OS em aberto)</div>
            <div style="font-size:1.1rem;font-weight:800;color:var(--navy)">${Fmt.currency(receitaPrevista)}</div>
@@ -464,6 +506,7 @@ const Insights = (() => {
       <div class="card mb-4" style="border-left:5px solid ${c}">
         <div class="card-header"><h3>🧠 Resumo inteligente</h3></div>
         <div class="card-body">
+          ${toggle}
           <p style="font-size:.95rem;line-height:1.5;font-weight:600;color:var(--text);margin:0 0 ${mega.achados.length ? '10px' : '0'}">${mega.resumo.texto}</p>
           ${mega.achados.map(a => `
             <div style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)">
@@ -879,5 +922,5 @@ const Insights = (() => {
     return tips;
   }
 
-  return { render, setPeriodo, setRegime };
+  return { render, setPeriodo, setRegime, setMegaModo };
 })();
