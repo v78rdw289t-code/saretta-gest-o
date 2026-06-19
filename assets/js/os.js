@@ -565,10 +565,17 @@ const OS = (() => {
     const calculado    = Math.round((subtotal + valorSimples) * 100) / 100;
 
     _calc = {
-      bruto:   calculado,
-      liquido: calculado,
-      horas:   horasSess,
-      detalhe: `${sessoes.length} sessão(ões) · ${Fmt.hours(horasSess)}`,
+      bruto:      calculado,
+      liquido:    calculado,
+      horas:      horasSess,
+      detalhe:    `${sessoes.length} sessão(ões) · ${Fmt.hours(horasSess)}`,
+      // breakdown guardado para exibir no fechamento mesmo com calc colapsada
+      maoObra,
+      matTotal,
+      vChamada,
+      totalItens,
+      valorSimples,
+      nSessoes: sessoes.length,
     };
 
     const bd = qs('#calc-breakdown');
@@ -1172,32 +1179,29 @@ const OS = (() => {
             <!-- hidden sempre presente — base para atualizarFechamento e saveFechamento -->
             <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
 
-            ${isDiaria ? `
             <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:16px">
               <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
-              <div class="info-row" style="margin-bottom:4px">
-                <span>Diárias (${diarias.length} dia${diarias.length !== 1 ? 's' : ''})</span>
-                <strong>${Fmt.currency(totalDias)}</strong>
-              </div>
-              ${totalItens > 0 ? `
-              <div class="info-row" style="margin-bottom:4px">
-                <span>Materiais / Itens</span>
-                <strong>${Fmt.currency(totalItens)}</strong>
-              </div>` : ''}
+              ${isDiaria ? `
+                <div class="info-row" style="margin-bottom:4px">
+                  <span>Diárias (${diarias.length} dia${diarias.length !== 1 ? 's' : ''})</span>
+                  <strong>${Fmt.currency(totalDias)}</strong>
+                </div>
+                ${totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens</span><strong>${Fmt.currency(totalItens)}</strong></div>` : ''}
+              ` : `
+                <div class="info-row" style="margin-bottom:4px">
+                  <span>Mão de obra (${_calc.nSessoes || diarias.length} sessão(ões))</span>
+                  <strong>${Fmt.currency(_calc.maoObra ?? totalDias)}</strong>
+                </div>
+                ${(_calc.matTotal > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Material</span><strong>${Fmt.currency(_calc.matTotal)}</strong></div>` : ''}
+                ${(_calc.vChamada > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Chamada técnica</span><strong>${Fmt.currency(_calc.vChamada)}</strong></div>` : ''}
+                ${((_calc.totalItens ?? totalItens) > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Itens do OS</span><strong>${Fmt.currency(_calc.totalItens ?? totalItens)}</strong></div>` : ''}
+                ${(_calc.valorSimples > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Simples Nacional</span><strong>${Fmt.currency(_calc.valorSimples)}</strong></div>` : ''}
+              `}
               <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
-                <span><strong>Subtotal</strong></span>
+                <span><strong>Valor calculado</strong></span>
                 <strong class="text-green">${Fmt.currency(calc)}</strong>
               </div>
             </div>
-            ` : `
-            <!-- OS normal: valor calculado -->
-            <div class="form-group">
-              <label>Valor calculado</label>
-              <input type="text" class="input" value="${Fmt.currency(calc)}"
-                readonly style="background:var(--bg);font-weight:700;color:var(--text-muted)">
-              <small style="color:var(--text-muted);font-size:.72rem">Vem da calculadora — se quiser sobrescrever, preencha "valor manual" abaixo.</small>
-            </div>
-            `}
 
             <!-- Sobrescrever valor (opcional) — vale p/ OS normal e diária -->
             <div class="form-group">
