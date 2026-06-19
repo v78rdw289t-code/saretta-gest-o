@@ -148,6 +148,33 @@ const Insights = (() => {
     };
   }
 
+  // Snapshot na ótica da PREVISÃO — mesma forma de _calcSnapshot, mas a receita
+  // considera SÓ o que entrou de fato (parcelas recebidas/pagas) + a receita
+  // prevista das OS em andamento (passada por fora). Ignora deliberadamente as
+  // parcelas a receber ainda pendentes (ex.: OS fechada que o cliente não pagou).
+  function _calcSnapshotProjetado(periodo, receitaPrevista = 0) {
+    const recebidas = _cache.parcelas.filter(p =>
+      p.tipo === 'receber' && p.status === 'pago' &&
+      String(p.data_competencia || '').substring(0, 10) >= periodo.start &&
+      String(p.data_competencia || '').substring(0, 10) <= periodo.end
+    );
+    const despesas = _cache.parcelas.filter(p => p.tipo === 'pagar' && noPeriodo(p, periodo));
+    const recebido    = sumValor(recebidas);
+    const faturamento = recebido + receitaPrevista;
+    const totalDesp   = sumValor(despesas);
+    const horas       = _horasNoPeriodo(periodo);
+    const osFech      = _osFechadasNoPeriodo(periodo);
+    const valorOS     = osFech.reduce((s, o) => s + Number(o.valor_fechamento || o.valor_calculado || 0), 0);
+    return {
+      faturamento, totalDesp, lucro: faturamento - totalDesp, horas, recebido,
+      nOS: osFech.length,
+      ticket: osFech.length > 0 ? valorOS / osFech.length : 0,
+      receitaHora: horas > 0 ? faturamento / horas : 0,
+      despPorCat: Object.fromEntries(agruparPorCategoria(despesas)),
+      recPorCat:  Object.fromEntries(agruparPorCategoria(recebidas)),
+    };
+  }
+
   // ─── MEGA INSIGHT — narrativa comparando atual × anterior ────
   function _pct(cur, prev) { return prev > 0 ? ((cur - prev) / prev * 100) : (cur > 0 ? 100 : 0); }
   function _sinalPct(cur, prev) {
@@ -229,29 +256,33 @@ const Insights = (() => {
     return { resumo, achados: achados.slice(0, 4) };
   }
 
-  // Resumo no modo PREVISÃO: projeta o fechamento do período somando o que já
-  // foi realizado com as sessões registradas em OS ainda abertas, e compara o
-  // total projetado com o período anterior (já realizado).
-  function buildMegaInsightPrevisao(a, b, receitaPrevista, nOSAbertas) {
-    const fatProj   = a.faturamento + receitaPrevista;
-    const lucroProj = fatProj - a.totalDesp;
-    const lucroPct  = _sinalPct(lucroProj, b.lucro);
-    const temBase   = b.faturamento > 0 || b.lucro !== 0;
-
-    const tone = !temBase ? 'navy'
-      : (lucroProj >= b.lucro ? 'green' : 'orange');
-    const cmp = temBase ? ` (${lucroPct} vs período anterior)` : '';
-    const texto = `Projeção do período: você já realizou <strong>${Fmt.currency(a.faturamento)}</strong> e tem mais `
-      + `<strong>${Fmt.currency(receitaPrevista)}</strong> em ${nOSAbertas} OS aberta(s). Fechando tudo, o período `
-      + `termina em <strong>${Fmt.currency(fatProj)}</strong> de faturamento — lucro projetado de `
-      + `<strong>${Fmt.currency(lucroProj)}</strong>${cmp}.`;
-
-    const achados = [
-      { icon: '✅', tone: 'green', text: `Já realizado: <strong>${Fmt.currency(a.faturamento)}</strong>` },
-      { icon: '🔮', tone: 'navy',  text: `Em aberto: <strong>${Fmt.currency(receitaPrevista)}</strong> em ${nOSAbertas} OS` },
-      { icon: '🎯', tone: 'navy',  text: `Total projetado: <strong>${Fmt.currency(fatProj)}</strong>` },
+  // Resumo no modo PREVISÃO: usa o MESMO motor do resumo normal (buildMegaInsight),
+  // mas alimentado por snapshots projetados (recebido + OS em andamento). Assim a
+  // narrativa considera gastos, horas, eficiência e ticket — igual ao resumo normal,
+  // só que com a base de previsão. No topo, mostra a composição recebido/andamento.
+  function buildMegaInsightPrevisao(a, b, recebido, receitaPrevista, nOSAbertas) {
+    const total = recebido + receitaPrevista;
+    const composicao = [
+      { icon: '✅', tone: 'green', text: `Já recebido: <strong>${Fmt.currency(recebido)}</strong>` },
+      { icon: '🔮', tone: 'navy',  text: `Em andamento: <strong>${Fmt.currency(receitaPrevista)}</strong> em ${nOSAbertas} OS` },
+      { icon: '🎯', tone: 'navy',  text: `Total projetado: <strong>${Fmt.currency(total)}</strong>` },
     ];
-    return { resumo: { tone, texto }, achados };
+
+    const temBase = b.faturamento > 0 || b.totalDesp > 0 || b.horas > 0;
+    let base;
+    if (!temBase) {
+      // Sem período anterior pra comparar — narrativa própria, ainda considerando gastos e horas
+      const tone = a.lucro >= 0 ? 'green' : 'red';
+      const horaTxt = a.horas > 0 ? ` em ${_hf(a.horas)} de trabalho (${Fmt.currency(a.receitaHora)}/h)` : '';
+      const texto = `Somando o que já recebeu com as OS em andamento, o período deve fechar em `
+        + `<strong>${Fmt.currency(total)}</strong>. Descontando <strong>${Fmt.currency(a.totalDesp)}</strong> de gastos, `
+        + `o lucro projetado é <strong>${Fmt.currency(a.lucro)}</strong>${horaTxt}.`;
+      base = { resumo: { tone, texto }, achados: [] };
+    } else {
+      base = buildMegaInsight(a, b);
+      base.resumo = { tone: base.resumo.tone, texto: '🔮 <strong>Projeção:</strong> ' + base.resumo.texto };
+    }
+    return { resumo: base.resumo, achados: [...composicao, ...base.achados].slice(0, 6) };
   }
 
   // Evolução mês a mês (últimos N meses) — reaproveita o snapshot por mês
@@ -425,9 +456,15 @@ const Insights = (() => {
     // Sem OS abertas não há previsão → força modo realizado e esconde o toggle
     const temPrevisao = nOSAbertas > 0 && receitaPrevista > 0;
     const modo = temPrevisao ? _megaModo : 'realizado';
-    const mega = modo === 'previsao'
-      ? buildMegaInsightPrevisao(snapAtual, snapAnt, receitaPrevista, nOSAbertas)
-      : buildMegaInsight(snapAtual, snapAnt);
+    let mega;
+    if (modo === 'previsao') {
+      // Base de previsão: recebido + OS em andamento; anterior usa só o recebido
+      const snapProjAtual = _calcSnapshotProjetado(periodo, receitaPrevista);
+      const snapProjAnt   = _calcSnapshotProjetado(calcPeriodoAnterior(_periodo), 0);
+      mega = buildMegaInsightPrevisao(snapProjAtual, snapProjAnt, snapProjAtual.recebido, receitaPrevista, nOSAbertas);
+    } else {
+      mega = buildMegaInsight(snapAtual, snapAnt);
+    }
 
     qs('#insights-content').innerHTML = `
       <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
