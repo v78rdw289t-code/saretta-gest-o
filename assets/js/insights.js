@@ -692,7 +692,7 @@ const Insights = (() => {
           </div>
           <div style="display:flex;gap:12px;margin-bottom:14px">
             <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px;border-left:3px solid var(--success)">
-              <div style="font-size:.72rem;color:var(--text-muted)">Realizado (período)</div>
+              <div style="font-size:.72rem;color:var(--text-muted)">Faturado (período)</div>
               <div style="font-size:1rem;font-weight:800;color:var(--success)">${Fmt.currency(faturamento)}</div>
             </div>
             <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px;border-left:3px solid var(--gold-dk)">
@@ -705,7 +705,7 @@ const Insights = (() => {
             ${pctPrev > 0 ? `<div style="width:${pctPrev.toFixed(1)}%;background:var(--gold-dk);transition:width .4s"></div>` : ''}
           </div>
           <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.72rem;color:var(--text-muted)">
-            <span>Realizado ${pctReal.toFixed(0)}%</span>
+            <span>Faturado ${pctReal.toFixed(0)}%</span>
             <span>Em aberto ${pctPrev.toFixed(0)}%</span>
           </div>
         </div>
@@ -766,7 +766,7 @@ const Insights = (() => {
           </div>
 
           <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
-            Custo/dia fixo pelos dias úteis do calendário — não muda com o clima. O que varia é a ociosidade.
+            Custo/dia fixo pelos dias úteis do calendário (não muda com o clima). Estimativa gerencial para medir rentabilidade — é separada das despesas lançadas no Financeiro, não some as duas.
           </p>
         </div>
       </div>
@@ -832,7 +832,7 @@ const Insights = (() => {
             <div class="stat-card stat-navy">
               <div class="stat-label">📋 OS Normais</div>
               <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasOSNormal)}</div>
-              <div class="stat-sub">calculadora</div>
+              <div class="stat-sub">sessões</div>
             </div>
             <div class="stat-card stat-blue">
               <div class="stat-label">📅 Diárias</div>
@@ -855,7 +855,7 @@ const Insights = (() => {
               <span style="font-size:.78rem;color:var(--text-muted)">${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}/h</span>
             </div>
           ` : `
-            <p class="text-muted mt-2" style="font-size:.82rem">Registre diárias ou salve cálculos em OS normais para ver horas e ${'$'}/hora.</p>
+            <p class="text-muted mt-2" style="font-size:.82rem">Registre sessões de trabalho nas OS para ver horas e ${'$'}/hora.</p>
           `}
         </div>
       </div>
