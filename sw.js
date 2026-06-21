@@ -5,7 +5,7 @@
 // Atualizar CACHE_NAME a cada deploy para invalidar arquivos antigos.
 // ============================================================
 
-const CACHE_NAME = 'saretta-shell-v2.4.1';
+const CACHE_NAME = 'saretta-shell-v2.4.2';
 
 // Todos os arquivos que formam o "app shell" — carregados uma vez
 // e servidos do cache daí em diante, mesmo sem internet.
@@ -15,22 +15,22 @@ const SHELL = [
   'manifest.json',
   'assets/img/logo-icon.svg',
   'assets/img/logo.svg',
-  'assets/img/logo-app.png?v=2.4.1',
-  'assets/css/style.css?v=2.4.1',
-  'assets/js/api.js?v=2.4.1',
-  'assets/js/utils.js?v=2.4.1',
-  'assets/js/home.js?v=2.4.1',
-  'assets/js/os.js?v=2.4.1',
-  'assets/js/financeiro.js?v=2.4.1',
-  'assets/js/clientes.js?v=2.4.1',
-  'assets/js/estoque.js?v=2.4.1',
-  'assets/js/compras.js?v=2.4.1',
-  'assets/js/fiado.js?v=2.4.1',
-  'assets/js/insights.js?v=2.4.1',
-  'assets/js/config.js?v=2.4.1',
+  'assets/img/logo-app.png?v=2.4.2',
+  'assets/css/style.css?v=2.4.2',
+  'assets/js/api.js?v=2.4.2',
+  'assets/js/utils.js?v=2.4.2',
+  'assets/js/home.js?v=2.4.2',
+  'assets/js/os.js?v=2.4.2',
+  'assets/js/financeiro.js?v=2.4.2',
+  'assets/js/clientes.js?v=2.4.2',
+  'assets/js/estoque.js?v=2.4.2',
+  'assets/js/compras.js?v=2.4.2',
+  'assets/js/fiado.js?v=2.4.2',
+  'assets/js/insights.js?v=2.4.2',
+  'assets/js/config.js?v=2.4.2',
   'assets/js/lib/html2pdf.bundle.min.js',
-  'assets/js/pdf.js?v=2.4.1',
-  'assets/js/app.js?v=2.4.1',
+  'assets/js/pdf.js?v=2.4.2',
+  'assets/js/app.js?v=2.4.2',
 ];
 
 // ─── INSTALL: cacheia o shell completo ───────────────────────

@@ -1429,14 +1429,28 @@ textarea.input { resize: vertical; min-height: 80px; }
 .evo-barwrap { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
 .evo-bar { width: 9px; border-radius: 3px 3px 0 0; min-height: 2px; transition: height .5s cubic-bezier(.34,1.56,.64,1); }
 .evo-bar-wide { width: 60%; max-width: 18px; }
-/* Toggle Realizado / Com previsão — resumo inteligente */
-.mega-toggle { display: flex; gap: 6px; margin-bottom: 12px; background: var(--bg); padding: 4px; border-radius: 12px; }
-.mega-toggle-btn {
-  flex: 1; padding: 7px 8px; border: none; background: none; border-radius: 9px;
-  font-size: .78rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
+/* Swap principal do painel de insights (Realizado / Com previsão) */
+.ins-swap { display: flex; gap: 6px; background: var(--bg); padding: 5px; border-radius: 14px; }
+.ins-swap-btn {
+  flex: 1; padding: 11px 6px; border: none; background: none; border-radius: 10px;
+  font-size: .85rem; font-weight: 800; color: var(--text-muted); cursor: pointer;
+  white-space: nowrap; transition: background .15s, color .15s;
+}
+.ins-swap-btn.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); }
+
+/* Controles secundários: regime (competência/caixa) + período (discreto) */
+.ins-controls { display: flex; gap: 8px; align-items: center; }
+.ins-regime { display: flex; gap: 2px; background: var(--bg); padding: 3px; border-radius: 10px; flex: 0 0 auto; }
+.ins-regime button {
+  padding: 6px 12px; border: none; background: none; border-radius: 8px;
+  font-size: .76rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
   transition: background .15s, color .15s;
 }
-.mega-toggle-btn.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); }
+.ins-regime button.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); }
+.ins-periodo-sel {
+  flex: 1; min-width: 0; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--card); font-size: .82rem; font-weight: 700; color: var(--text);
+}
 
 /* Título de seção dentro da modal de análise da OS */
 .ins-os-title { font-size: .72rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin: 18px 0 8px; }
