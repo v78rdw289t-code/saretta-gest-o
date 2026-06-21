@@ -350,33 +350,14 @@ const Insights = (() => {
     return { resumo: base.resumo, achados: [...composicao, ...base.achados] };
   }
 
-  // Achados ABRANGENTES do estado atual da empresa (não comparação) — puxam de
-  // pipeline, recebíveis, inadimplência, concentração, margem e ocupação. Juntam-se
-  // aos achados de comparação para o resumo "raio-x" pedido pelo dono.
+  // Achados ABRANGENTES do estado atual da empresa (FATOS — não comparação). Os
+  // alertas acionáveis (margem, concentração, inadimplência, custo) ficam nas DICAS
+  // (buildTips), para não duplicar. Aqui ficam pipeline, recebíveis e ocupação.
   function buildAchadosEmpresa(ctx) {
-    const { faturamento, margem, totalReceber, atrasados, totalAtrasado,
-            nOSAbertas, receitaPrevista, naoRecebidoValor, naoRecebidoQtd,
-            concentracao, topCliente, custeio, fechado, modo, osParadaDias } = ctx;
+    const { nOSAbertas, receitaPrevista, naoRecebidoValor, naoRecebidoQtd,
+            custeio, fechado, modo, osParadaDias } = ctx;
     const ach = [];
 
-    // Inadimplência — alerta mais crítico
-    if (atrasados && atrasados.length > 0) {
-      ach.push({ prio: 95, icon: '⚠️', tone: 'red',
-        text: `<strong>${Fmt.currency(totalAtrasado)}</strong> vencido(s) em ${atrasados.length} conta(s) — priorize a cobrança.` });
-    }
-    // Margem
-    if (faturamento > 0 && margem < 20) {
-      ach.push({ prio: 90, icon: '📉', tone: 'red',
-        text: `Margem em <strong>${margem.toFixed(0)}%</strong> — abaixo do nível seguro. Revise preços e custos.` });
-    } else if (faturamento > 0 && margem >= SPEC_DEFAULTS.metaMargemPercent) {
-      ach.push({ prio: 28, icon: '💪', tone: 'green',
-        text: `Margem saudável de <strong>${margem.toFixed(0)}%</strong> (meta ${SPEC_DEFAULTS.metaMargemPercent}%).` });
-    }
-    // Concentração de clientes
-    if (concentracao > SPEC_DEFAULTS.alertaConcentracao && topCliente) {
-      ach.push({ prio: 82, icon: '🎯', tone: 'orange',
-        text: `<strong>${topCliente}</strong> concentra ${concentracao.toFixed(0)}% do faturamento — diversifique para reduzir risco.` });
-    }
     // OS fechadas a receber (fluxo que vai entrar)
     if (naoRecebidoValor > 0) {
       ach.push({ prio: 72, icon: '📥', tone: 'orange',
@@ -549,10 +530,11 @@ const Insights = (() => {
     // Fluxo de caixa por semana (apenas para mês atual)
     const semanas = _periodo === 'mes_atual' ? _calcSemanas(periodo, _cache.parcelas) : null;
 
-    // Dicas
+    // Dicas (recomendações acionáveis) — exibidas dentro do resumo inteligente
     const tips = buildTips({
-      receitas, despesas, faturamento, totalDesp, margem, top5Clientes,
+      faturamento, totalDesp, margem, top5Clientes,
       concentracao, atrasados, horasPeriodo, custoHora,
+      fechado: _periodoFechado(periodo),
     });
 
     const regimeLabel = _regime === 'caixa' ? 'regime de Caixa' : 'regime de Competência';
@@ -608,12 +590,11 @@ const Insights = (() => {
       }
     });
 
-    // Resumo abrangente: junta os achados de comparação (mega) com os de estado
-    // atual da empresa (pipeline, recebíveis, inadimplência, concentração, ocupação)
+    // Resumo abrangente: junta achados de comparação (mega) com FATOS do estado
+    // atual (pipeline, recebíveis, ocupação). Alertas acionáveis vão nas DICAS.
     const achadosEmpresa = buildAchadosEmpresa({
-      faturamento, margem, totalReceber, atrasados, totalAtrasado,
       nOSAbertas, receitaPrevista, naoRecebidoValor, naoRecebidoQtd,
-      concentracao, topCliente: clientesRanked[0]?.[0], custeio, fechado, modo, osParadaDias,
+      custeio, fechado, modo, osParadaDias,
     });
     mega.achados = [...(mega.achados || []), ...achadosEmpresa]
       .sort((a, b) => (b.prio || 50) - (a.prio || 50))
@@ -624,7 +605,7 @@ const Insights = (() => {
         ${periodo.label} · <strong>${regimeLabel}</strong>${fechado ? '' : ' · <span style="color:var(--warning)">em curso</span>'}
       </p>
 
-      ${_renderMegaInsight(mega, receitaPrevista, modo, temPrevisao, { naoRecebidoValor, naoRecebidoQtd })}
+      ${_renderMegaInsight(mega, tips)}
       ${_renderEvolucao(evol)}
       ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
       ${custeio ? _renderCusteio(custeio, faturamento, fechado, diasRestantes) : ''}
@@ -633,7 +614,6 @@ const Insights = (() => {
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
       ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
       ${semanas ? _renderFluxoCaixa(semanas) : ''}
-      ${_renderDicas(tips)}
     `;
   }
 
@@ -678,28 +658,21 @@ const Insights = (() => {
   }
 
   // ─── RENDERERS ───────────────────────────────────────────
-  function _renderMegaInsight(mega, receitaPrevista = 0, modo = 'realizado', temPrevisao = false, extra = {}) {
+  function _renderMegaInsight(mega, tips = []) {
     const tc = { green: 'var(--success)', red: 'var(--danger)', orange: 'var(--warning)', navy: 'var(--navy)' };
     const c = tc[mega.resumo.tone] || 'var(--navy)';
-    const { naoRecebidoValor = 0, naoRecebidoQtd = 0 } = extra;
-    // (o swap Realizado/Com previsão agora fica no topo do painel)
-    // Rodapé com a receita prevista: só no modo realizado (no previsão a narrativa já cobre isso)
-    const prevStr = (modo === 'realizado' && receitaPrevista > 0)
-      ? `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:10px;border-left:3px solid var(--gold-dk)">
-           <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">Receita prevista (OS em aberto)</div>
-           <div style="font-size:1.1rem;font-weight:800;color:var(--navy)">${Fmt.currency(receitaPrevista)}</div>
-         </div>` : '';
-    // OS fechadas aguardando pagamento (não recebido × valor) — em ambos os modos
-    const naoRecebidoStr = naoRecebidoValor > 0
-      ? `<div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:10px;border-left:3px solid var(--danger)">
-           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-             <div>
-               <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">📥 OS fechadas a receber</div>
-               <div style="font-size:.72rem;color:var(--text-muted)">${naoRecebidoQtd} OS aguardando pagamento</div>
-             </div>
-             <div style="font-size:1.1rem;font-weight:800;color:var(--danger)">${Fmt.currency(naoRecebidoValor)}</div>
-           </div>
-         </div>` : '';
+    // Dicas do negócio (recomendações acionáveis) embutidas no resumo
+    const dicasHtml = tips.length ? `
+      <div class="ins-dicas-sep">💡 Dicas do negócio</div>
+      ${tips.map(t => `
+        <div class="tip-card tip-${t.type}">
+          <span class="tip-icon">${t.icon}</span>
+          <div class="tip-body">
+            <div class="tip-title">${t.title}</div>
+            <div class="tip-text">${t.text}</div>
+          </div>
+        </div>`).join('')}
+    ` : '';
     return `
       <div class="card mb-4" style="border-left:5px solid ${c}">
         <div class="card-header"><h3>🧠 Resumo inteligente</h3></div>
@@ -710,8 +683,7 @@ const Insights = (() => {
               <span style="font-size:1rem;flex-shrink:0;line-height:1.3">${a.icon}</span>
               <span style="font-size:.85rem;color:var(--text-muted);line-height:1.45">${a.text}</span>
             </div>`).join('')}
-          ${prevStr}
-          ${naoRecebidoStr}
+          ${dicasHtml}
         </div>
       </div>
     `;
@@ -897,27 +869,6 @@ const Insights = (() => {
     `;
   }
 
-  function _renderDicas(tips) {
-    return `
-      <div class="card mb-4">
-        <div class="card-header">
-          <h3>💡 Dicas do Negócio</h3>
-          <span class="badge badge-gold">${tips.length}</span>
-        </div>
-        <div class="card-body">
-          ${tips.map(t => `
-            <div class="tip-card tip-${t.type}">
-              <span class="tip-icon">${t.icon}</span>
-              <div class="tip-body">
-                <div class="tip-title">${t.title}</div>
-                <div class="tip-text">${t.text}</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
 
   function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora, fechado = true }) {
     const margemClass = margem >= SPEC_DEFAULTS.metaMargemPercent ? 'stat-green'
@@ -1182,8 +1133,8 @@ const Insights = (() => {
     return entries.reduce((s, [, v]) => s + v, 0) || 1;
   }
 
-  // ─── DICAS (mantém + adapta para período selecionado) ────
-  function buildTips({ receitas, despesas, faturamento, totalDesp, margem, top5Clientes, concentracao, atrasados, horasPeriodo, custoHora }) {
+  // ─── DICAS (recomendações acionáveis — incorporadas no resumo inteligente) ────
+  function buildTips({ faturamento, totalDesp, margem, top5Clientes, concentracao, atrasados, horasPeriodo, custoHora, fechado = true }) {
     const tips = [];
 
     if (faturamento === 0 && totalDesp === 0) {
@@ -1209,8 +1160,8 @@ const Insights = (() => {
       tips.push({ icon: '⏰', type: 'danger', title: `${atrasados.length} Conta(s) Atrasada(s)`, text: `${Fmt.currency(total)} em recebíveis vencidos. Priorize a cobrança.` });
     }
 
-    // Custo/hora vs base de referência
-    if (horasPeriodo > 0 && custoHora > SPEC_DEFAULTS.custoHoraBase * 1.2) {
+    // Custo/hora vs base de referência — só com o mês FECHADO (parcial distorce)
+    if (fechado && horasPeriodo > 0 && custoHora > SPEC_DEFAULTS.custoHoraBase * 1.2) {
       tips.push({ icon: '📊', type: 'warning', title: 'Custo Operacional Alto', text: `Custo/hora real (${Fmt.currency(custoHora)}) está ${((custoHora/SPEC_DEFAULTS.custoHoraBase-1)*100).toFixed(0)}% acima da base de referência (${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}).` });
     }
 

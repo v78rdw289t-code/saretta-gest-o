@@ -1438,6 +1438,14 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 .ins-swap-btn.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); }
 
+/* Separador da seção de Dicas dentro do resumo inteligente */
+.ins-dicas-sep {
+  font-size: .72rem; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.ins-dicas-sep + .tip-card, .ins-dicas-sep ~ .tip-card { margin-bottom: 8px; }
+
 /* Controles secundários: regime (competência/caixa) + período (discreto) */
 .ins-controls { display: flex; gap: 8px; align-items: center; }
 .ins-regime { display: flex; gap: 2px; background: var(--bg); padding: 3px; border-radius: 10px; flex: 0 0 auto; }
