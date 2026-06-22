@@ -43,7 +43,7 @@ const Home = (() => {
             <div class="home-greeting">${saudIcon} ${saud}</div>
             <div class="home-date">${hoje}</div>
           </div>
-          <img src="assets/img/logo-app.png?v=2.0.22" alt="Saretta" class="home-hero-logo"
+          <img src="assets/img/logo-app.png?v=2.5.0" alt="Saretta" class="home-hero-logo"
             onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
         </div>
 
@@ -77,22 +77,23 @@ const Home = (() => {
         </div>
       </div>
 
-      <div class="quick-row">
-        <button class="quick-action" onclick="App.navigate('os').then(() => OS.openForm())">
-          <span class="quick-action-icon qa-navy">📋</span>
-          <span class="quick-action-label">Nova OS</span>
+      <!-- Atalhos rápidos -->
+      <div class="quick-grid">
+        <button class="quick-tile" onclick="App.navigate('os').then(() => OS.openForm())">
+          <span class="quick-tile-icon qa-navy">📋</span>
+          <span class="quick-tile-label">Nova OS</span>
         </button>
-        <button class="quick-action" onclick="App.navigate('clientes').then(() => Clientes.openForm())">
-          <span class="quick-action-icon qa-blue">👤</span>
-          <span class="quick-action-label">Cliente</span>
+        <button class="quick-tile" onclick="Home.openCalculadoraHome()">
+          <span class="quick-tile-icon qa-gold">🧮</span>
+          <span class="quick-tile-label">Calcular</span>
         </button>
-        <button class="quick-action" onclick="App.navigate('financeiro').then(() => Financeiro.openManual())">
-          <span class="quick-action-icon qa-green">💰</span>
-          <span class="quick-action-label">Lançar</span>
+        <button class="quick-tile" onclick="App.navigate('financeiro').then(() => Financeiro.openManual())">
+          <span class="quick-tile-icon qa-green">💰</span>
+          <span class="quick-tile-label">Lançar</span>
         </button>
-        <button class="quick-action" onclick="Home.openCalculadoraHome()">
-          <span class="quick-action-icon qa-gold">🧮</span>
-          <span class="quick-action-label">Calcular</span>
+        <button class="quick-tile" onclick="App.navigate('clientes').then(() => Clientes.openForm())">
+          <span class="quick-tile-icon qa-blue">👤</span>
+          <span class="quick-tile-label">Cliente</span>
         </button>
       </div>
 
@@ -101,18 +102,19 @@ const Home = (() => {
         🛒 Lista de Compras
       </button>
 
+      <div class="home-section-head">
+        <h2 class="home-section-title">💡 Resumo de hoje</h2>
+      </div>
       <div id="home-stats" class="home-stats">
         <div class="home-insights loading-pulse" style="min-height:120px"></div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <h3>OS em Andamento</h3>
-          <button class="btn btn-sm btn-outline" onclick="App.navigate('os')">Ver todas</button>
-        </div>
-        <div id="home-os-andamento">
-          <p class="text-muted p-3">Carregando...</p>
-        </div>
+      <div class="home-section-head">
+        <h2 class="home-section-title">🔧 OS em andamento</h2>
+        <button class="home-section-link" onclick="App.navigate('os')">Ver todas ›</button>
+      </div>
+      <div id="home-os-andamento">
+        <p class="text-muted p-3">Carregando...</p>
       </div>
     `;
 
@@ -182,6 +184,16 @@ const Home = (() => {
       }
     });
 
+    // Tendência: saldo (recebido − pago) dos últimos 6 meses, para o mini-gráfico
+    const saldo6m = [];
+    for (let i = 5; i >= 0; i--) {
+      const dM = new Date(); dM.setDate(1); dM.setMonth(dM.getMonth() - i);
+      const mk = dM.toISOString().substring(0, 7);
+      const rec = sum(reais.filter(p => p.tipo === 'receber' && p.status === 'pago' && String(p.data_competencia||'').startsWith(mk)));
+      const pag = sum(reais.filter(p => p.tipo === 'pagar'   && p.status === 'pago' && String(p.data_competencia||'').startsWith(mk)));
+      saldo6m.push({ label: dM.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), saldo: rec - pag });
+    }
+
     return {
       os_andamento: osAndamento, os_acerto: osAcerto,
       rec_total: recTotal, rec_pago: recPago,
@@ -195,6 +207,7 @@ const Home = (() => {
       vencidas_qtd: vencidas.length,
       vencidas_valor: sum(vencidas),
       os_parada_dias: osParadaDias,
+      saldo_6m: saldo6m,
     };
   }
 
@@ -304,6 +317,29 @@ const Home = (() => {
     renderStatsCard(d);
   }
 
+  // Mini-gráfico (sparkline) do saldo dos últimos 6 meses — SVG leve, sem libs.
+  function _sparkline(serie) {
+    if (!serie || serie.length < 2) return '';
+    const vals = serie.map(s => Number(s.saldo || 0));
+    const min = Math.min(...vals, 0), max = Math.max(...vals, 0);
+    const span = (max - min) || 1;
+    const W = 100, H = 30;
+    const x = (i) => (i / (serie.length - 1)) * W;
+    const y = (val) => H - ((val - min) / span) * H;
+    const pts = vals.map((val, i) => `${x(i).toFixed(1)},${y(val).toFixed(1)}`).join(' ');
+    const zeroY = y(0).toFixed(1);
+    const last = vals[vals.length - 1];
+    const cor = last >= 0 ? '#5CE08A' : '#FF8A80';
+    const area = `0,${H} ${pts} ${W},${H}`;
+    return `
+      <svg class="home-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <polygon points="${area}" fill="${cor}" opacity="0.12"/>
+        <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="rgba(255,255,255,.18)" stroke-width="0.5" stroke-dasharray="2 2"/>
+        <polyline points="${pts}" fill="none" stroke="${cor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="${x(serie.length-1).toFixed(1)}" cy="${y(last).toFixed(1)}" r="2.6" fill="${cor}"/>
+      </svg>`;
+  }
+
   // Resumo financeiro do mês (caixa) no topo — valores maskáveis.
   function renderSaldo(d) {
     const el = qs('#home-saldo');
@@ -312,25 +348,29 @@ const Home = (() => {
     const pos = saldo >= 0;
     const v = (n) => `<span class="val-sensivel">${Fmt.currency(n)}</span>`;
 
+    // Tendência vs mês anterior (selo)
+    let trend = '';
+    if (typeof d.saldo_ant === 'number' && (d.saldo_ant !== 0 || saldo !== 0)) {
+      const up = saldo >= d.saldo_ant;
+      trend = `<span class="home-saldo-trend ${up ? 'up' : 'down'}">${up ? '▲' : '▼'} vs mês anterior</span>`;
+    }
+
     el.innerHTML = `
       <div class="home-saldo-head">
         <span class="home-saldo-label">Saldo do mês</span>
         <button id="home-saldo-eye" class="home-saldo-eye" onclick="Home.toggleValores()" aria-label="Mostrar valores">👁</button>
       </div>
-      <div class="home-saldo-value ${pos ? 'is-pos' : 'is-neg'}">${v(saldo)}</div>
-      <div class="home-saldo-grid">
-        <div class="home-saldo-mini">
-          <span class="hsm-label">Recebido</span>
-          <span class="hsm-value pos">${v(d.rec_pago || 0)}</span>
+      <div class="home-saldo-mainrow">
+        <div>
+          <div class="home-saldo-value ${pos ? 'is-pos' : 'is-neg'}">${v(saldo)}</div>
+          ${trend}
         </div>
-        <div class="home-saldo-mini">
-          <span class="hsm-label">Pago</span>
-          <span class="hsm-value neg">${v(d.pag_pago || 0)}</span>
-        </div>
-        <div class="home-saldo-mini">
-          <span class="hsm-label">A receber</span>
-          <span class="hsm-value gold">${v(d.a_receber_total || 0)}</span>
-        </div>
+        ${_sparkline(d.saldo_6m)}
+      </div>
+      <div class="home-saldo-rows">
+        <div class="hsr"><span class="hsr-k"><i class="hsr-dot pos"></i>Recebido</span><strong class="val-sensivel pos">${Fmt.currency(d.rec_pago || 0)}</strong></div>
+        <div class="hsr"><span class="hsr-k"><i class="hsr-dot neg"></i>Pago</span><strong class="val-sensivel neg">${Fmt.currency(d.pag_pago || 0)}</strong></div>
+        <div class="hsr"><span class="hsr-k"><i class="hsr-dot gold"></i>A receber</span><strong class="val-sensivel gold">${Fmt.currency(d.a_receber_total || 0)}</strong></div>
       </div>
     `;
     applyValoresVis();
@@ -340,9 +380,6 @@ const Home = (() => {
     const insights = buildInsights(d);
     qs('#home-stats').innerHTML = `
       <div class="home-insights">
-        <div class="home-insights-head">
-          <span>💡 Resumo de hoje</span>
-        </div>
         ${insights.map(i => `
           <div class="insight-row tone-${i.tone} ${i.onclick ? 'insight-clickable' : ''}"
             ${i.onclick ? `onclick="${i.onclick}"` : ''}>
@@ -438,23 +475,34 @@ const Home = (() => {
   function renderOSAndamento(items) {
     items = items.sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
     if (items.length === 0) {
-      qs('#home-os-andamento').innerHTML = '<div class="entity-empty">Nenhuma OS em andamento 🎉</div>';
+      qs('#home-os-andamento').innerHTML = '<div class="os-card-empty">✅ Nenhuma OS em andamento</div>';
       return;
     }
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     qs('#home-os-andamento').innerHTML = `
-      <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-        ${items.slice(0, 8).map(o => `
-          <div class="entity-item" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
-            <div class="avatar av-blue"><span style="font-size:.72rem;font-weight:800">${(o.numero||'').replace('OS-','')}</span></div>
-            <div class="entity-info">
-              <div class="entity-name">${o.nome || App.clienteNome(o.cliente_id)}</div>
-              <div class="entity-sub">Início ${Fmt.date(o.data_inicio)} · ${o.tipo === 'diaria' ? 'Diária' : 'Normal'}</div>
-            </div>
-            <div class="entity-right">
-              <span class="entity-chevron">›</span>
-            </div>
-          </div>
-        `).join('')}
+      <div class="os-cards">
+        ${items.slice(0, 8).map(o => {
+          const num = (o.numero || '').replace('OS-', '');
+          const titulo = o.nome || App.clienteNome(o.cliente_id);
+          const cliente = App.clienteNome(o.cliente_id);
+          const ini = new Date((o.data_inicio || '') + 'T00:00:00');
+          const dias = !isNaN(ini.getTime()) ? Math.max(0, Math.floor((hoje - ini) / 86400000)) : null;
+          const isDiaria = o.tipo === 'diaria';
+          return `
+            <button class="os-card" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
+              <div class="os-card-top">
+                <span class="os-card-num">#${num}</span>
+                <span class="os-card-tipo ${isDiaria ? 'is-diaria' : 'is-normal'}">${isDiaria ? '📅 Diária' : '🔧 Normal'}</span>
+              </div>
+              <div class="os-card-title">${titulo}</div>
+              ${titulo !== cliente ? `<div class="os-card-cli">👤 ${cliente}</div>` : ''}
+              <div class="os-card-foot">
+                <span>${dias === null ? '' : dias === 0 ? 'Começou hoje' : `há ${dias} dia${dias > 1 ? 's' : ''}`}</span>
+                <span class="os-card-go">Abrir ›</span>
+              </div>
+            </button>
+          `;
+        }).join('')}
       </div>
     `;
   }
