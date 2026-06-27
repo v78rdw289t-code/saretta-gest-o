@@ -155,6 +155,75 @@ const Doc = (() => {
     _abrir(html, `${titulo.toLowerCase()} ${os.numero || ''}`.trim());
   }
 
+  // ─── Relatório financeiro (receitas / despesas de um período) ────
+  // d: { periodoLabel, receitasList[], despesasList[], totalReceitas,
+  //      totalDespesas, recebido, pago }
+  async function relatorioFinanceiro(d) {
+    const cfg  = await Calculator.getConfig();
+    const emp  = _empresa(cfg);
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const logo = 'assets/img/logo-app.png?v=2.6.0';
+    const resultado = (d.totalReceitas || 0) - (d.totalDespesas || 0);
+    const corResult = resultado >= 0 ? '#1a7f37' : '#c81e1e';
+
+    const catNome = (id) => { const n = App.categoriaNome(id); return (n && n !== '—') ? n : '—'; };
+    const linhas = (arr) => arr.map(p => `
+      <tr>
+        <td>${Fmt.date(p.data_competencia)}</td>
+        <td>${p.descricao || '—'}</td>
+        <td>${catNome(p.categoria_id)}</td>
+        <td class="r">${p.status === 'pago' ? '✓' : '○'}</td>
+        <td class="r">${Fmt.currency(p.valor || 0)}</td>
+      </tr>`).join('');
+
+    const secao = (titulo, arr, total) => `
+      <section class="doc-bloco">
+        <div class="doc-bloco-titulo">${titulo}</div>
+        ${arr.length ? `
+        <table class="doc-table">
+          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="r">Pg</th><th class="r">Valor</th></tr></thead>
+          <tbody>
+            ${linhas(arr)}
+            <tr class="doc-tr-total"><td colspan="4">Total ${titulo.toLowerCase()} (${arr.length})</td><td class="r">${Fmt.currency(total)}</td></tr>
+          </tbody>
+        </table>` : '<p class="doc-cli-info">Nenhum lançamento no período.</p>'}
+      </section>`;
+
+    const html = `
+      <div class="doc-page">
+        <header class="doc-head">
+          <img src="${logo}" class="doc-logo" alt="" onerror="this.style.display='none'">
+          <div class="doc-emp">
+            <div class="doc-emp-nome">${emp.nome}</div>
+            <div class="doc-emp-sub">${emp.sub}</div>
+            <div class="doc-emp-contato">${[emp.doc, emp.telefone, emp.cidade].filter(Boolean).join(' · ')}</div>
+          </div>
+          <div class="doc-meta">
+            <div class="doc-tipo">RELATÓRIO FINANCEIRO</div>
+            <div class="doc-num">${d.periodoLabel || ''}</div>
+            <div class="doc-data">${hoje}</div>
+          </div>
+        </header>
+
+        <section class="doc-resumo" style="margin-top:0;margin-bottom:14px">
+          <div class="doc-row"><span>Receitas (competência)</span><span>${Fmt.currency(d.totalReceitas || 0)}</span></div>
+          <div class="doc-row"><span>Despesas (competência)</span><span>${Fmt.currency(d.totalDespesas || 0)}</span></div>
+          <div class="doc-row doc-total"><span>Resultado</span><span style="color:${corResult}">${Fmt.currency(resultado)}</span></div>
+          <div class="doc-row" style="font-size:11px;color:#666"><span>Realizado no caixa — recebido / pago</span><span>${Fmt.currency(d.recebido || 0)} / ${Fmt.currency(d.pago || 0)}</span></div>
+        </section>
+
+        ${secao('Receitas', d.receitasList || [], d.totalReceitas || 0)}
+        ${secao('Despesas', d.despesasList || [], d.totalDespesas || 0)}
+
+        <footer class="doc-foot">
+          <div class="doc-foot-slogan">${emp.slogan}</div>
+          <div>${emp.nome}${emp.telefone ? ' · ' + emp.telefone : ''}</div>
+        </footer>
+      </div>
+    `;
+    _abrir(html, `relatorio financeiro ${d.periodoLabel || ''}`.trim());
+  }
+
   let _nomeArquivo = 'documento';
 
   // Mostra o documento em overlay com ações (Baixar / Enviar / Fechar)
@@ -235,5 +304,5 @@ const Doc = (() => {
     document.body.classList.remove('doc-open');
   }
 
-  return { gerar, baixar, compartilhar, fechar };
+  return { gerar, relatorioFinanceiro, baixar, compartilhar, fechar };
 })();

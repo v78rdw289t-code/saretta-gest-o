@@ -170,7 +170,7 @@ const Financeiro = (() => {
           ` : `
             <div class="form-group">
               <label>Mês</label>
-              <input type="month" id="fin-mes" value="${_filtros.mes}" onchange="Financeiro.onFilterChange()">
+              ${MonthPicker.render('fin-mes', _filtros.mes, 'Financeiro.onFilterChange()')}
             </div>
           `}
           <div class="form-group">
@@ -244,7 +244,7 @@ const Financeiro = (() => {
 
   function onFilterChange() {
     // ?? mantém o valor quando o input não está no DOM (modo mês vs intervalo)
-    _filtros.mes       = qs('#fin-mes')?.value       ?? _filtros.mes;
+    _filtros.mes       = MonthPicker.value('fin-mes') || _filtros.mes;
     _filtros.dataIni   = qs('#fin-data-ini')?.value  ?? _filtros.dataIni;
     _filtros.dataFim   = qs('#fin-data-fim')?.value  ?? _filtros.dataFim;
     _filtros.status    = qs('#fin-status')?.value    || '';
@@ -576,8 +576,11 @@ const Financeiro = (() => {
   function renderResumo() {
     const mes = new Date().toISOString().substring(0, 7);
     qs('#fin-content').innerHTML = `
-      <div class="filters-bar">
-        <label>Mês: <input type="month" id="resumo-mes" class="input-select" value="${mes}" onchange="Financeiro.renderResumoMes()"></label>
+      <div class="filters-bar" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <label style="flex:1;min-width:200px">Mês:
+          ${MonthPicker.render('resumo-mes', mes, 'Financeiro.renderResumoMes()')}
+        </label>
+        <button class="btn btn-outline btn-sm" onclick="Financeiro.exportarPDF()">📄 Exportar PDF</button>
       </div>
       <div id="resumo-content"></div>
     `;
@@ -585,7 +588,7 @@ const Financeiro = (() => {
   }
 
   function renderResumoMes() {
-    const mes = qs('#resumo-mes')?.value || new Date().toISOString().substring(0, 7);
+    const mes = MonthPicker.value('resumo-mes') || new Date().toISOString().substring(0, 7);
 
     // Mês anterior para comparativo
     const [ano, m] = mes.split('-').map(Number);
@@ -838,7 +841,7 @@ const Financeiro = (() => {
     if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = '';
     const _vencLabel = qs('#manual-venc')?.closest('.form-group')?.querySelector('label');
     if (_vencLabel) _vencLabel.textContent = 'Vencimento';
-    qs('#manual-comp').value   = DateUtil.today().substring(0, 7);
+    qs('#manual-comp-wrap').innerHTML = MonthPicker.render('manual-comp', DateUtil.today().substring(0, 7));
     qs('#manual-venc').value   = DateUtil.today();
     // Padrão: já pago hoje. Usuário muda pra "Pendente" se ainda não foi pago.
     qs('#manual-pagto').value  = DateUtil.today();
@@ -888,7 +891,7 @@ const Financeiro = (() => {
     const valorBruto = Number(qs('#manual-valor').value) || 0;
     const desconto   = Number(qs('#manual-desconto')?.value) || 0;
     const valor      = Math.max(0, valorBruto - desconto);
-    const compMonth= qs('#manual-comp').value;
+    const compMonth= MonthPicker.value('manual-comp');
     const venc     = qs('#manual-venc').value;
     const pagto    = qs('#manual-pagto').value;
     const categoria= qs('#manual-categoria').value;
@@ -1161,7 +1164,7 @@ const Financeiro = (() => {
     qs('#manual-valor').value    = p.valor;
     qs('#manual-desconto').value = '0';
     if (qs('#manual-valor-liq-row')) qs('#manual-valor-liq-row').style.display = 'none';
-    qs('#manual-comp').value   = Fmt.monthInput(p.data_competencia);
+    qs('#manual-comp-wrap').innerHTML = MonthPicker.render('manual-comp', Fmt.monthInput(p.data_competencia));
     qs('#manual-venc').value   = Fmt.dateInput(p.data_vencimento);
     qs('#manual-pagto').value  = Fmt.dateInput(p.data_pagamento);
     qs('#manual-status').value = p.status;
@@ -1178,7 +1181,7 @@ const Financeiro = (() => {
         cliente_id:      qs('#manual-cliente').value,
         descricao:       qs('#manual-desc').value,
         valor:           Number(qs('#manual-valor').value) || 0,
-        data_competencia:qs('#manual-comp').value + '-01',
+        data_competencia:MonthPicker.value('manual-comp') + '-01',
         data_vencimento: qs('#manual-venc').value,
         // Se voltar para pendente/cancelado, zera data_pagamento e conta_id pra não distorcer caixa
         data_pagamento:  status === 'pago' ? (qs('#manual-pagto').value || DateUtil.today()) : '',
@@ -1394,7 +1397,32 @@ const Financeiro = (() => {
 
   function verMaisExtrato() { _appendExtrato(); }
 
+  // Exporta um relatório de receitas/despesas do mês do Resumo em PDF.
+  async function exportarPDF() {
+    const mes = MonthPicker.value('resumo-mes') || new Date().toISOString().substring(0, 7);
+    const [ano, m] = mes.split('-').map(Number);
+    const nomeMs = new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const label  = nomeMs.charAt(0).toUpperCase() + nomeMs.slice(1);
+
+    const reais = p => p.origem !== 'transferencia';
+    const sum   = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const byComp = (tipo) => allParcelas.filter(p => p.tipo === tipo && reais(p) && String(p.data_competencia || '').startsWith(mes));
+    const pagoNoMes = (tipo) => allParcelas.filter(p => p.tipo === tipo && p.status === 'pago' && reais(p) && String(p.data_pagamento || '').startsWith(mes));
+    const sortComp = arr => [...arr].sort((a, b) => (a.data_competencia || '') < (b.data_competencia || '') ? -1 : 1);
+
+    const rec = byComp('receber'), pag = byComp('pagar');
+    if (rec.length === 0 && pag.length === 0) { Toast.warning('Sem lançamentos em ' + label); return; }
+
+    await Doc.relatorioFinanceiro({
+      periodoLabel:  label,
+      receitasList:  sortComp(rec), totalReceitas: sum(rec),
+      despesasList:  sortComp(pag), totalDespesas: sum(pag),
+      recebido: sum(pagoNoMes('receber')), pago: sum(pagoNoMes('pagar')),
+    });
+  }
+
   return { render, switchTab, filtrar, limparFiltroVenc7d, verAbertos, verMais, calcNetValor, openExtrato, verMaisExtrato,
+           exportarPDF,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
            refreshPagQuemPagouVisibility,

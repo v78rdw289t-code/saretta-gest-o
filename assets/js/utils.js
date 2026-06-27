@@ -429,6 +429,40 @@ function tipoBadge(tipo) {
     : '<span class="badge badge-secondary">Normal</span>';
 }
 
+// ─── Seletor de mês/ano (competência) ────────────────────────
+// Dois <select> (mês + ano) no lugar de <input type="month"> — sem digitar,
+// sem formato pra errar. value = 'YYYY-MM'. Use MonthPicker.value(id) para ler.
+const MonthPicker = {
+  MESES: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+          'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'],
+  render(id, value, onchange = '') {
+    const now = new Date();
+    const def = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const [yy, mm] = String(value || def).split('-');
+    const yNum = Number(yy) || now.getFullYear();
+    const mNum = Number(mm) || (now.getMonth() + 1);
+    const anos = [];
+    for (let y = now.getFullYear() - 5; y <= now.getFullYear() + 1; y++) anos.push(y);
+    if (!anos.includes(yNum)) { anos.push(yNum); anos.sort((a, b) => a - b); }
+    const ch = onchange ? ` onchange="${onchange}"` : '';
+    return `<div class="month-picker" id="${id}" style="display:flex;gap:8px">
+      <select class="input" id="${id}-m" aria-label="Mês" style="flex:1;min-width:0"${ch}>
+        ${this.MESES.map((nome, i) => `<option value="${i + 1}" ${i + 1 === mNum ? 'selected' : ''}>${nome}</option>`).join('')}
+      </select>
+      <select class="input" id="${id}-y" aria-label="Ano" style="flex:0 0 92px"${ch}>
+        ${anos.map(y => `<option value="${y}" ${y === yNum ? 'selected' : ''}>${y}</option>`).join('')}
+      </select>
+    </div>`;
+  },
+  // 'YYYY-MM' a partir do id base, ou '' se incompleto.
+  value(id) {
+    const m = document.getElementById(`${id}-m`)?.value;
+    const y = document.getElementById(`${id}-y`)?.value;
+    if (!m || !y) return '';
+    return `${y}-${String(m).padStart(2, '0')}`;
+  },
+};
+
 // ─── ActionSheet ─────────────────────────────────────────────
 const ActionSheet = (() => {
   let el = null;

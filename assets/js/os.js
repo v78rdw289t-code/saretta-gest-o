@@ -120,7 +120,7 @@ const OS = (() => {
               <div class="entity-info">
                 <div class="entity-name">${App.clienteNome(o.cliente_id)}${o.nome ? ` <span style="font-weight:500;color:var(--text-muted);font-size:.85em">· ${o.nome}</span>` : ''}</div>
                 <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
-                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}</div>
+                <div class="entity-badges">${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}</div>
               </div>
               <div class="entity-right">
                 <span class="entity-chevron">›</span>
@@ -216,7 +216,7 @@ const OS = (() => {
       ${currentOS.status !== 'fechado' ? `
         <div style="display:flex;gap:10px;margin-bottom:16px">
           <button class="btn btn-primary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openDiaria()">
-            ${currentOS.tipo === 'diaria' ? '＋ Registrar Dia' : '⏱ Registrar Sessão'}
+            ⏱ Registrar Sessão
           </button>
           <button class="btn btn-gold" style="flex:1;font-size:1rem;padding:13px 8px" onclick="OS.openFechamento()">
             ✓ Fechar OS
@@ -229,7 +229,6 @@ const OS = (() => {
       <!-- Info resumida -->
       <div class="card mb-3">
         <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div><div class="info-label">Tipo</div>${tipoBadge(currentOS.tipo)}</div>
           <div><div class="info-label">Início</div><strong>${Fmt.date(currentOS.data_inicio)}</strong></div>
           ${currentOS.data_fim ? `<div><div class="info-label">Fim</div><strong>${Fmt.date(currentOS.data_fim)}</strong></div>` : ''}
           <!-- Status (alterar via menu ⋯ no topo) -->
@@ -254,12 +253,12 @@ const OS = (() => {
       <!-- Sessões de trabalho (diária: "Dias Trabalhados"; normal: "Sessões de Trabalho") -->
       <div class="card mb-3">
         <div class="card-header">
-          <h3>${currentOS.tipo === 'diaria' ? 'Dias Trabalhados' : 'Sessões de Trabalho'}</h3>
-          <span class="badge badge-info">${diarias.length} ${currentOS.tipo === 'diaria' ? 'dia(s)' : 'sessão(ões)'}</span>
+          <h3>Sessões de Trabalho</h3>
+          <span class="badge badge-info">${diarias.length} sessão(ões)</span>
         </div>
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
           ${diarias.length === 0
-            ? `<div class="entity-empty">${currentOS.tipo === 'diaria' ? 'Nenhum dia registrado ainda' : 'Nenhuma sessão registrada ainda'}</div>`
+            ? `<div class="entity-empty">Nenhuma sessão registrada ainda</div>`
             : diarias.map(d => {
                 const valor = Number(d.valor_manual || d.valor_calculado || 0);
                 const horas = Number(d.horas_totais || 0);
@@ -299,8 +298,8 @@ const OS = (() => {
           ${diarias.length > 0 ? `
             <div class="entity-item" style="background:var(--bg);cursor:default">
               <div class="entity-info">
-                <strong>Total (${diarias.length} ${currentOS.tipo === 'diaria' ? 'dias' : 'sessões'})</strong>
-                ${currentOS.tipo !== 'diaria' ? `<div style="font-size:.78rem;color:var(--text-muted)">${Fmt.hours(diarias.reduce((s,d)=>s+Number(d.horas_totais||0),0))} registradas</div>` : ''}
+                <strong>Total (${diarias.length} sessões)</strong>
+                <div style="font-size:.78rem;color:var(--text-muted)">${Fmt.hours(diarias.reduce((s,d)=>s+Number(d.horas_totais||0),0))} registradas</div>
               </div>
               <div class="entity-right">
                 <span class="entity-value">${Fmt.currency(diarias.reduce((s,d)=>s+Number(d.valor_manual||d.valor_calculado||0),0))}</span>
@@ -629,18 +628,9 @@ const OS = (() => {
       <div class="card">
         <div class="card-body">
           <form id="os-form" onsubmit="OS.saveForm(event, '${id || ''}')">
-            <div class="form-row">
-              <div class="form-group">
-                <label>Número</label>
-                <input type="text" name="numero" class="input" value="${numero}" required>
-              </div>
-              <div class="form-group">
-                <label>Tipo *</label>
-                <select name="tipo" class="input" required onchange="OS.toggleTipo(this.value)">
-                  <option value="normal" ${(!os||os.tipo==='normal')?'selected':''}>Normal</option>
-                  <option value="diaria" ${os?.tipo==='diaria'?'selected':''}>Diária</option>
-                </select>
-              </div>
+            <div class="form-group">
+              <label>Número</label>
+              <input type="text" name="numero" class="input" value="${numero}" required>
             </div>
             <div class="form-group">
               <label>Nome da OS <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
@@ -662,16 +652,14 @@ const OS = (() => {
                 ${App.categoriaOptions('os', os?.categoria_id)}
               </select>
             </div>
-            <div id="datas-normais" class="${os?.tipo==='diaria'?'hidden':''}">
-              <div class="form-row">
-                <div class="form-group">
-                  <label>Data Início</label>
-                  <input type="date" name="data_inicio" class="input" value="${Fmt.dateInput(os?.data_inicio) || DateUtil.today()}">
-                </div>
-                <div class="form-group">
-                  <label>Data Fim</label>
-                  <input type="date" name="data_fim" class="input" value="${Fmt.dateInput(os?.data_fim)}">
-                </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Data Início</label>
+                <input type="date" name="data_inicio" class="input" value="${Fmt.dateInput(os?.data_inicio) || DateUtil.today()}">
+              </div>
+              <div class="form-group">
+                <label>Data Fim</label>
+                <input type="date" name="data_fim" class="input" value="${Fmt.dateInput(os?.data_fim)}">
               </div>
             </div>
             <div class="form-group">
@@ -697,10 +685,6 @@ const OS = (() => {
     `;
   }
 
-  function toggleTipo(val) {
-    qs('#datas-normais')?.classList.toggle('hidden', val === 'diaria');
-  }
-
   async function saveForm(e, id = '') {
     e.preventDefault();
     const form = e.target;
@@ -713,6 +697,8 @@ const OS = (() => {
     if (id) {
       res = await API.db.update('os', id, data);
     } else {
+      // Tipo unificado: toda OS é por sessões (campo mantido p/ compat com dados/legado).
+      data.tipo = 'normal';
       data.data_criacao = new Date().toISOString();
       res = await API.db.create('os', data);
     }
@@ -753,14 +739,10 @@ const OS = (() => {
     if (!currentOS) return;
     let d = null;
     if (diariaId) d = allDiarias.find(x => x.id === diariaId);
-    // Título dinâmico: "Registrar Dia" para diária, "Registrar Sessão" para normal
-    const isNormal = currentOS.tipo !== 'diaria';
     const titleEl  = qs('#modal-diaria-title');
-    if (titleEl) titleEl.textContent = diariaId
-      ? (isNormal ? 'Editar Sessão' : 'Editar Dia')
-      : (isNormal ? 'Registrar Sessão' : 'Registrar Dia');
+    if (titleEl) titleEl.textContent = diariaId ? 'Editar Sessão' : 'Registrar Sessão';
     const saveBtn = qs('#modal-diaria-save-btn');
-    if (saveBtn) saveBtn.textContent = isNormal ? 'Salvar Sessão' : 'Salvar Dia';
+    if (saveBtn) saveBtn.textContent = 'Salvar Sessão';
     const cfg = await Calculator.getConfig();
 
     qs('#modal-diaria-os-id').value     = currentOS.id;
@@ -950,7 +932,7 @@ const OS = (() => {
     Loading.hide();
 
     if (res?.success) {
-      Toast.success(currentOS?.tipo === 'diaria' ? 'Dia registrado!' : 'Sessão registrada!');
+      Toast.success('Sessão registrada!');
       Modal.close('modal-diaria');
       const dRes = await API.db.read('diarias', null, { os_id: osId });
       const dias = (dRes?.data || []).sort((a, b) => a.data > b.data ? 1 : -1);
@@ -965,18 +947,16 @@ const OS = (() => {
   }
 
   async function deleteDiaria(id) {
-    const msg = currentOS?.tipo !== 'diaria' ? 'Excluir esta sessão?' : 'Excluir este dia?';
-    Modal.confirm(msg, async () => {
+    Modal.confirm('Excluir esta sessão?', async () => {
       await API.db.delete('diarias', id);
-      Toast.success('Dia excluído');
+      Toast.success('Sessão excluída');
       await loadData();
       openDetail(currentOS.id);
     });
   }
 
   function tapDiaria(id) {
-    const titulo = currentOS?.tipo !== 'diaria' ? 'Sessão registrada' : 'Dia registrado';
-    ActionSheet.open(titulo, [
+    ActionSheet.open('Sessão registrada', [
       { icon: '✏️', label: 'Editar', fn: () => openDiaria(id) },
       { icon: '🗑', label: 'Excluir', fn: () => deleteDiaria(id), danger: true },
     ]);
@@ -1126,32 +1106,56 @@ const OS = (() => {
   }
 
   // ─── FECHAMENTO ──────────────────────────────────────────────
+  // Recalcula mão de obra a partir das sessões usando uma hora base.
+  // Sessões com valor_manual (>0) ficam fixas; as demais são recalculadas
+  // aplicando os fatores/reajuste de cada bloco sobre a nova base.
+  function _calcFromBase(base) {
+    const sessoes = allDiarias.filter(d => d.os_id === currentOS?.id);
+    let maoObra = 0, nCalc = 0, nManual = 0;
+    for (const d of sessoes) {
+      if (Number(d.valor_manual) > 0) { maoObra += Number(d.valor_manual); nManual++; }
+      else { maoObra += Calculator.calcBlocos(Calculator.blocosFromDiaria(d), base).valor; nCalc++; }
+    }
+    const totalItens = allItens.filter(i => i.os_id === currentOS?.id)
+      .reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const calculado = Math.round((maoObra + totalItens) * 100) / 100;
+    return { maoObra, totalItens, calculado, nSessoes: sessoes.length, nCalc, nManual };
+  }
+
+  // Revela o campo de hora base (fica escondido atrás de um botão p/ não poluir).
+  function toggleHoraBase() {
+    qs('#fech-hora-base-wrap')?.classList.remove('hidden');
+    qs('#fech-hora-base-btn')?.classList.add('hidden');
+    const inp = qs('#fech-hora-base');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+
+  // oninput da hora base no fechamento — recalcula tudo ao vivo.
+  function recalcBaseFechamento() {
+    const base = Number(qs('#fech-hora-base')?.value) || 0;
+    const r = _calcFromBase(base);
+    _calc.liquido = r.calculado; _calc.bruto = r.calculado;
+    _calc.maoObra = r.maoObra;   _calc.totalItens = r.totalItens;
+    _calc.nSessoes = r.nSessoes; _calc.horaBase = base;
+    if (qs('#fech-maoobra'))           qs('#fech-maoobra').textContent = Fmt.currency(r.maoObra);
+    if (qs('#fech-calculado-num'))     qs('#fech-calculado-num').value = r.calculado.toFixed(2);
+    if (qs('#fech-calculado-display')) qs('#fech-calculado-display').textContent = Fmt.currency(r.calculado);
+    atualizarFechamento();
+  }
+
   async function openFechamento() {
     if (!currentOS) return;
 
-    const isDiaria   = currentOS.tipo === 'diaria';
-    const diarias    = allDiarias.filter(d => d.os_id === currentOS.id);
-    const itens      = allItens.filter(i => i.os_id === currentOS.id);
-    const totalDias  = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
-    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    // Hora base padrão vem da config; pode ser sobrescrita no fechamento.
+    const cfg      = await Calculator.getConfig();
+    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
 
-    // Para diária: sempre recalcula direto das diárias + itens (independe de _calc)
-    if (isDiaria) {
-      const base = totalDias + totalItens;
-      _calc.liquido = base;
-      _calc.bruto   = base;
-    } else {
-      // OS normal: recalcula _calc das sessões. calcNormalUpdate usa optional chaining
-      // em todos os inputs do DOM, então funciona corretamente mesmo com a calculadora
-      // colapsada (campos ausentes = 0) — garante que novas sessões sempre apareçam.
-      await calcNormalUpdate();
-      if (_calc.liquido <= 0) {
-        _calc.liquido = Number(currentOS.valor_calculado || 0);
-        _calc.bruto   = _calc.liquido;
-      }
-    }
-
-    const calc = _calc.liquido;
+    const r0 = _calcFromBase(baseRate);
+    _calc.liquido  = r0.calculado; _calc.bruto = r0.calculado;
+    _calc.maoObra  = r0.maoObra;   _calc.totalItens = r0.totalItens;
+    _calc.nSessoes = r0.nSessoes;  _calc.horaBase = baseRate;
+    _calc.horaBaseOrig = baseRate; // referência p/ detectar mudança no fechamento
+    const calc = r0.calculado;
 
     // Renderiza modal de fechamento
     const section = qs('#page-os');
@@ -1170,29 +1174,37 @@ const OS = (() => {
             <!-- hidden sempre presente — base para atualizarFechamento e saveFechamento -->
             <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
 
-            <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:16px">
+            <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
               <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
-              ${isDiaria ? `
-                <div class="info-row" style="margin-bottom:4px">
-                  <span>Diárias (${diarias.length} dia${diarias.length !== 1 ? 's' : ''})</span>
-                  <strong>${Fmt.currency(totalDias)}</strong>
-                </div>
-                ${totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens</span><strong>${Fmt.currency(totalItens)}</strong></div>` : ''}
-              ` : `
-                <div class="info-row" style="margin-bottom:4px">
-                  <span>Mão de obra (${_calc.nSessoes || diarias.length} sessão(ões))</span>
-                  <strong>${Fmt.currency(_calc.maoObra ?? totalDias)}</strong>
-                </div>
-                ${(_calc.matTotal > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Material</span><strong>${Fmt.currency(_calc.matTotal)}</strong></div>` : ''}
-                ${(_calc.vChamada > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Chamada técnica</span><strong>${Fmt.currency(_calc.vChamada)}</strong></div>` : ''}
-                ${((_calc.totalItens ?? totalItens) > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Itens do OS</span><strong>${Fmt.currency(_calc.totalItens ?? totalItens)}</strong></div>` : ''}
-                ${(_calc.valorSimples > 0) ? `<div class="info-row" style="margin-bottom:4px"><span>Simples Nacional</span><strong>${Fmt.currency(_calc.valorSimples)}</strong></div>` : ''}
-              `}
+              <div class="info-row" style="margin-bottom:4px">
+                <span>Mão de obra (${r0.nSessoes} sessão(ões))</span>
+                <strong id="fech-maoobra">${Fmt.currency(r0.maoObra)}</strong>
+              </div>
+              ${r0.totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens</span><strong>${Fmt.currency(r0.totalItens)}</strong></div>` : ''}
               <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
                 <span><strong>Valor calculado</strong></span>
-                <strong class="text-green">${Fmt.currency(calc)}</strong>
+                <strong id="fech-calculado-display" class="text-green">${Fmt.currency(calc)}</strong>
               </div>
             </div>
+
+            ${r0.nCalc > 0 ? `
+            <div style="margin-bottom:16px">
+              <button type="button" id="fech-hora-base-btn" class="btn btn-outline btn-sm" style="font-size:.82rem"
+                onclick="OS.toggleHoraBase()">⚙️ Alterar hora base (R$ ${baseRate}/h)</button>
+              <div id="fech-hora-base-wrap" class="hidden" style="margin-top:10px">
+                <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:4px">Nova hora base
+                  <small style="color:var(--text-muted);font-weight:400">— recalcula todas as sessões (fatores por cima)</small>
+                </label>
+                <div class="input-row">
+                  <span style="align-self:center;color:var(--text-muted);font-weight:700">R$</span>
+                  <input type="number" id="fech-hora-base" class="input" step="1" min="0"
+                    value="${baseRate}" oninput="OS.recalcBaseFechamento()">
+                  <span style="align-self:center;color:var(--text-muted);font-size:.85rem">/h</span>
+                </div>
+                ${r0.nManual > 0 ? `<small style="color:var(--text-muted);font-size:.72rem">${r0.nManual} sessão(ões) com valor fixo não mudam.</small>` : ''}
+              </div>
+            </div>
+            ` : ''}
 
             <!-- Sobrescrever valor (opcional) — vale p/ OS normal e diária -->
             <div class="form-group">
@@ -1227,8 +1239,7 @@ const OS = (() => {
             <div class="form-row">
               <div class="form-group">
                 <label>Competência</label>
-                <input type="month" id="fech-competencia" class="input"
-                  value="${DateUtil.today().substring(0,7)}" required>
+                ${MonthPicker.render('fech-competencia', DateUtil.today().substring(0, 7))}
               </div>
               <div class="form-group">
                 <label>Vencimento</label>
@@ -1299,20 +1310,31 @@ const OS = (() => {
     const descontoAbs = descTipo === 'perc' ? (base * descVal / 100) : descVal;
 
     const liquido = Math.max(0, base - descontoAbs);
-    const comp    = qs('#fech-competencia').value + '-01';
+    const compMes = MonthPicker.value('fech-competencia');
+    if (!compMes) { Toast.warning('Selecione a competência'); return; }
+    const comp    = compMes + '-01';
     const venc    = qs('#fech-vencimento').value;
     const catId   = currentOS.categoria_id || '';
     const obs     = qs('#fech-obs').value;
 
-    // Para diárias: pega os dias que estão marcados na CALCULADORA do detalhe
-    // (não mais aqui no fechamento — ela já passou)
-    const diariaIds = currentOS.tipo === 'diaria'
-      ? allDiarias.filter(d => d.os_id === osId).map(d => d.id)
-      : [];
+    // Vincula todas as sessões da OS ao fechamento (registro em fechamento_dias).
+    const diariaIds = allDiarias.filter(d => d.os_id === osId).map(d => d.id);
 
     if (liquido <= 0) { Toast.warning('Valor final precisa ser maior que zero'); return; }
 
     Loading.show();
+
+    // Se a hora base foi alterada, persiste o novo valor de cada sessão recalculada
+    // (mantém o detalhe da OS coerente com o valor fechado). Manuais não mudam.
+    const horaBase = Number(qs('#fech-hora-base')?.value) || 0;
+    if (horaBase > 0 && horaBase !== _calc.horaBaseOrig) {
+      const ops = allDiarias
+        .filter(d => d.os_id === osId && !(Number(d.valor_manual) > 0))
+        .map(d => ({ action: 'update', sheet: 'diarias', id: d.id,
+          data: { valor_calculado: Calculator.calcBlocos(Calculator.blocosFromDiaria(d), horaBase).valor } }));
+      if (ops.length) await API.db.batch(ops);
+    }
+
     const res = await API.db.fecharOS({
       os_id: osId, valor_bruto: base, desconto: descontoAbs, valor_liquido: liquido,
       data_competencia: comp, data_vencimento: venc, categoria_id: catId,
@@ -1804,14 +1826,14 @@ const OS = (() => {
   }
 
   return {
-    render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, toggleTipo, saveForm,
+    render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, saveForm,
     openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
-    openFechamento, atualizarFechamento, toggleDescontoTipo, saveFechamento, mudarStatus,
+    openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, mudarStatus,
     openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
     openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
     addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado,

@@ -162,6 +162,9 @@ const App = (() => {
       if (pages.includes(page) && page !== currentPage) navigate(page);
     });
 
+    // Badge de notificações (a partir do que estiver salvo de sessões anteriores)
+    if (typeof Notif !== 'undefined') Notif.init();
+
     // Boot decide se mostra splash ou entra direto
     await bootApp();
   }

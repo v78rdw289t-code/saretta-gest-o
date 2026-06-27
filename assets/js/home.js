@@ -403,6 +403,34 @@ const Home = (() => {
   function maybeLembrete(d) {
     const vencidas = Number(d.vencidas_qtd || 0);
     const vencendo = Number(d.vencendo_7d || 0);
+    const osParada = Number(d.os_parada_dias || 0);
+
+    // 1) Notificações persistentes na central (dedupe diário pelo próprio Notif)
+    if (typeof Notif !== 'undefined') {
+      if (vencidas > 0) Notif.add({
+        tipo: 'danger',
+        titulo: `${vencidas} conta${vencidas > 1 ? 's' : ''} vencida${vencidas > 1 ? 's' : ''}`,
+        texto: 'Há contas em atraso — toque para ver no Financeiro.',
+        action: { page: 'financeiro', params: { tab: 'pagar', status: 'pendente' } },
+        dedupeKey: 'contas-vencidas',
+      });
+      if (vencendo > 0) Notif.add({
+        tipo: 'warning',
+        titulo: `${vencendo} conta${vencendo > 1 ? 's' : ''} vencendo essa semana`,
+        texto: 'Vence nos próximos 7 dias.',
+        action: { page: 'financeiro', params: { filtro: 'vencendo7d' } },
+        dedupeKey: 'contas-vencendo',
+      });
+      if (osParada >= 10) Notif.add({
+        tipo: 'os',
+        titulo: `OS parada há ${osParada} dias`,
+        texto: 'Uma OS em andamento está sem registro de sessão.',
+        action: { page: 'os' },
+        dedupeKey: 'os-parada',
+      });
+    }
+
+    // 2) Toast diário (só p/ contas) — igual antes
     if (vencidas === 0 && vencendo === 0) return;
 
     // Chave do dia em horário LOCAL (evita o off-by-one do toISOString em UTC)
@@ -487,12 +515,12 @@ const Home = (() => {
           const cliente = App.clienteNome(o.cliente_id);
           const ini = new Date((o.data_inicio || '') + 'T00:00:00');
           const dias = !isNaN(ini.getTime()) ? Math.max(0, Math.floor((hoje - ini) / 86400000)) : null;
-          const isDiaria = o.tipo === 'diaria';
+          const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
           return `
             <button class="os-card" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
               <div class="os-card-top">
                 <span class="os-card-num">#${num}</span>
-                <span class="os-card-tipo ${isDiaria ? 'is-diaria' : 'is-normal'}">${isDiaria ? '📅 Diária' : '🔧 Normal'}</span>
+                ${catNome ? `<span class="os-card-tipo is-normal">${catNome}</span>` : ''}
               </div>
               <div class="os-card-title">${titulo}</div>
               ${titulo !== cliente ? `<div class="os-card-cli">👤 ${cliente}</div>` : ''}

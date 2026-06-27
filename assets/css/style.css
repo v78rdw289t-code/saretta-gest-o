@@ -199,6 +199,49 @@ img { max-width: 100%; }
 #btn-settings:hover { background: rgba(255,255,255,.16); color: #fff; }
 #btn-settings:active { transform: scale(.94); }
 
+/* Sino de notificações */
+#btn-notif {
+  position: relative; color: rgba(255,255,255,.85); font-size: 1.2rem;
+  padding: 8px 10px; border-radius: 12px; margin-right: 6px;
+  background: rgba(255,255,255,.08); transition: all .15s;
+}
+#btn-notif:hover { background: rgba(255,255,255,.16); color: #fff; }
+#btn-notif:active { transform: scale(.94); }
+.notif-badge {
+  position: absolute; top: 1px; right: 1px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  background: var(--danger); color: #fff;
+  font-size: .62rem; font-weight: 800; line-height: 17px;
+  border-radius: 9px; text-align: center; box-shadow: 0 0 0 2px var(--navy);
+}
+.notif-badge.hidden { display: none; }
+
+/* Lista de notificações (modal) */
+.notif-empty { text-align: center; color: var(--text-muted); padding: 32px 12px; font-size: 2rem; }
+.notif-empty > div { margin-top: 8px; font-size: .9rem; }
+.notif-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 10px; border-radius: 12px; margin-bottom: 8px;
+  border-left: 3px solid var(--border); background: var(--bg);
+}
+.notif-item.nao-lida { background: #eef4ff; }
+.notif-ico { font-size: 1.1rem; line-height: 1.4; flex: 0 0 auto; }
+.notif-main { flex: 1; min-width: 0; }
+.notif-titulo { font-weight: 700; font-size: .9rem; color: var(--text); }
+.notif-texto { font-size: .8rem; color: var(--text-muted); margin-top: 2px; }
+.notif-data { font-size: .68rem; color: var(--text-muted); margin-top: 4px; }
+.notif-del {
+  flex: 0 0 auto; background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-size: .9rem; padding: 2px 4px; line-height: 1;
+}
+.notif-del:hover { color: var(--danger); }
+.notif-item.tone-red    { border-left-color: var(--danger); }
+.notif-item.tone-orange { border-left-color: var(--warning); }
+.notif-item.tone-green  { border-left-color: var(--success); }
+.notif-item.tone-blue   { border-left-color: #3b82f6; }
+.notif-item.tone-navy   { border-left-color: var(--navy); }
+.notif-item.tone-gold   { border-left-color: var(--gold); }
+
 /* CONTEÚDO */
 #content { flex: 1; padding: 16px; }
 .page { min-height: 50px; }
