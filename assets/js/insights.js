@@ -470,8 +470,9 @@ const Insights = (() => {
       p.origem !== 'transferencia' && noPeriodo(p, periodo, 'competencia'));
     let semCat = 0, semVenc = 0, valorRuim = 0;
     parc.forEach(p => {
-      const cat = App.categoriaNome(p.categoria_id);
-      if (!p.categoria_id || !cat || cat === '—') semCat++;
+      const catId = _categoriaIdEfetiva(p);
+      const cat = App.categoriaNome(catId);
+      if (!catId || !cat || cat === '—') semCat++;
       if (!p.data_vencimento) semVenc++;
       if (!(Number(p.valor) > 0)) valorRuim++;
     });
@@ -671,10 +672,15 @@ const Insights = (() => {
   // ─── HELPERS ─────────────────────────────────────────────
   function sumValor(arr) { return arr.reduce((s, p) => s + Number(p.valor || 0), 0); }
 
+  // Categoria efetiva (sessões → OS → parcela) via helper compartilhado (utils.js).
+  function _categoriaIdEfetiva(p) {
+    return categoriaEfetivaId(p, _cache.osList, _cache.diarias);
+  }
+
   function agruparPorCategoria(parcelas) {
     const out = {};
     parcelas.forEach(p => {
-      const k = App.categoriaNome(p.categoria_id) || 'Sem categoria';
+      const k = App.categoriaNome(_categoriaIdEfetiva(p)) || 'Sem categoria';
       out[k] = (out[k] || 0) + Number(p.valor || 0);
     });
     return Object.entries(out).sort((a, b) => b[1] - a[1]);

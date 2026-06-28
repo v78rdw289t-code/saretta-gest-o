@@ -4,6 +4,7 @@
 
 const Financeiro = (() => {
   let allParcelas = [];
+  let allOS = [], allDiarias = []; // p/ resolver a categoria efetiva das parcelas de OS
   let currentTab = 'receber'; // receber | pagar | resumo
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
@@ -55,10 +56,20 @@ const Financeiro = (() => {
 
   async function loadData() {
     const shown = Loading.maybeShow('parcelas');
-    const res = await API.db.read('parcelas');
+    // OS + sessões são usadas só p/ resolver a categoria efetiva das parcelas de OS
+    const [res, osRes, diRes] = await Promise.all([
+      API.db.read('parcelas'),
+      API.db.read('os'),
+      API.db.read('diarias'),
+    ]);
     if (shown) Loading.hide();
     allParcelas = res?.data || [];
+    allOS       = osRes?.data || [];
+    allDiarias  = diRes?.data || [];
   }
+
+  // Categoria efetiva de uma parcela (sessões → OS → parcela) — utils.js
+  function _catEfetivaId(p) { return categoriaEfetivaId(p, allOS, allDiarias); }
 
   function renderView() {
     const section = qs('#page-financeiro');
@@ -633,7 +644,7 @@ const Financeiro = (() => {
     const byCategoria = (arr) => {
       const map = {};
       arr.forEach(p => {
-        const nome = App.categoriaNome(p.categoria_id);
+        const nome = App.categoriaNome(_catEfetivaId(p));
         const k = (nome && nome !== '—') ? nome : 'Sem Categoria';
         map[k] = (map[k] || 0) + Number(p.valor || 0);
       });
@@ -1413,10 +1424,13 @@ const Financeiro = (() => {
     const rec = byComp('receber'), pag = byComp('pagar');
     if (rec.length === 0 && pag.length === 0) { Toast.warning('Sem lançamentos em ' + label); return; }
 
+    // Resolve a categoria efetiva (sessões → OS → parcela) já no nome p/ o PDF.
+    const enrich = arr => sortComp(arr).map(p => ({ ...p, categoriaNome: App.categoriaNome(_catEfetivaId(p)) }));
+
     await Doc.relatorioFinanceiro({
       periodoLabel:  label,
-      receitasList:  sortComp(rec), totalReceitas: sum(rec),
-      despesasList:  sortComp(pag), totalDespesas: sum(pag),
+      receitasList:  enrich(rec), totalReceitas: sum(rec),
+      despesasList:  enrich(pag), totalDespesas: sum(pag),
       recebido: sum(pagoNoMes('receber')), pago: sum(pagoNoMes('pagar')),
     });
   }

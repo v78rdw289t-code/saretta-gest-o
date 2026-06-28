@@ -429,6 +429,25 @@ function tipoBadge(tipo) {
     : '<span class="badge badge-secondary">Normal</span>';
 }
 
+// Resolve a categoria_id EFETIVA de uma parcela. Para parcelas de OS
+// (origem==='os'), prioriza a categoria das SESSÕES da OS, depois a categoria
+// atual da OS, por fim a da própria parcela — assim, corrigir a categoria na OS
+// reflete em todo lugar mesmo que a parcela tenha sido gerada (no fechamento)
+// sem categoria ou com a antiga.
+function categoriaEfetivaId(p, osList, diarias) {
+  if (p && p.origem === 'os' && p.origem_id) {
+    const cats = (diarias || []).filter(d => d.os_id === p.origem_id && d.categoria_id).map(d => d.categoria_id);
+    if (cats.length) {
+      const cont = {};
+      cats.forEach(c => { cont[c] = (cont[c] || 0) + 1; });
+      return Object.entries(cont).sort((a, b) => b[1] - a[1])[0][0];
+    }
+    const os = (osList || []).find(o => o.id === p.origem_id);
+    if (os && os.categoria_id) return os.categoria_id;
+  }
+  return (p && p.categoria_id) || '';
+}
+
 // ─── Seletor de mês/ano (competência) ────────────────────────
 // Dois <select> (mês + ano) no lugar de <input type="month"> — sem digitar,
 // sem formato pra errar. value = 'YYYY-MM'. Use MonthPicker.value(id) para ler.

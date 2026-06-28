@@ -162,7 +162,7 @@ const Doc = (() => {
     const cfg  = await Calculator.getConfig();
     const emp  = _empresa(cfg);
     const hoje = new Date().toLocaleDateString('pt-BR');
-    const logo = 'assets/img/logo-app.png?v=2.7.0';
+    const logo = 'assets/img/logo-app.png?v=2.7.1';
     const resultado = (d.totalReceitas || 0) - (d.totalDespesas || 0);
     const corResult = resultado >= 0 ? '#1a7f37' : '#c81e1e';
 
@@ -171,7 +171,7 @@ const Doc = (() => {
       <tr>
         <td>${Fmt.date(p.data_competencia)}</td>
         <td>${p.descricao || '—'}</td>
-        <td>${catNome(p.categoria_id)}</td>
+        <td>${p.categoriaNome || catNome(p.categoria_id)}</td>
         <td class="r">${p.status === 'pago' ? '✓' : '○'}</td>
         <td class="r">${Fmt.currency(p.valor || 0)}</td>
       </tr>`).join('');
