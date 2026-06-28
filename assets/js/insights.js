@@ -168,6 +168,7 @@ const Insights = (() => {
     const nMeses        = _mesesNoPeriodo(periodo);
     const custoFixoTot  = custoFixoMensal * nMeses;
     const diasUteis     = DateUtil.businessDays(periodo.start, periodo.end);
+    // Custo/dia PREVISTO: dilui pela capacidade normal (dias úteis) — estável.
     const custoDia      = diasUteis > 0 ? custoFixoTot / diasUteis : 0;
     // Dias distintos com sessão registrada no período
     const diasTrab = new Set(
@@ -175,9 +176,11 @@ const Insights = (() => {
         .map(d => String(d.data || '').substring(0, 10))
         .filter(data => data >= periodo.start && data <= periodo.end)
     ).size;
+    // Custo/dia REAL: dilui pelos dias realmente trabalhados (sobe quando trabalha pouco).
+    const custoDiaReal  = diasTrab > 0 ? custoFixoTot / diasTrab : 0;
     const custoAbsorvido = diasTrab * custoDia;
     const ociosidade     = Math.max(0, custoFixoTot - custoAbsorvido);
-    return { nMeses, custoFixoTot, diasUteis, custoDia, diasTrab, custoAbsorvido, ociosidade };
+    return { nMeses, custoFixoTot, diasUteis, custoDia, custoDiaReal, diasTrab, custoAbsorvido, ociosidade };
   }
 
   function _osFechadasNoPeriodo(periodo) {
@@ -203,10 +206,10 @@ const Insights = (() => {
       faturamento, totalDesp, lucro: faturamento - totalDesp, horas,
       nOS: osFech.length,
       ticket: osFech.length > 0 ? valorOS / osFech.length : 0,
-      // valor/hora baseado no valor das SESSÕES do período (acompanha as horas mês
-      // a mês) — evita o R$/h inflado quando o faturamento da OS cai todo no mês do
-      // fechamento mas as horas estão espalhadas em meses anteriores.
-      receitaHora: horas > 0 ? hb.valorSessoes / horas : 0,
+      // valor/hora = faturamento do período ÷ horas do período (consistente com a
+      // Visão Geral). Pode ficar alto no mês em que uma OS é faturada com horas de
+      // meses anteriores — por isso a narrativa só destaca variações relevantes.
+      receitaHora: horas > 0 ? faturamento / horas : 0,
       despPorCat: Object.fromEntries(agruparPorCategoria(despesas)),
       recPorCat:  Object.fromEntries(agruparPorCategoria(receitas)),
     };
@@ -412,7 +415,11 @@ const Insights = (() => {
       ultimos_3m: 'Últimos 3 meses', ultimos_6m: 'Últimos 6 meses', ano: 'Ano',
     };
     section.innerHTML = `
-      <div class="page-header"><h1>📊 Insights</h1></div>
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <h1>📊 Insights</h1>
+        <button class="btn btn-outline btn-sm" onclick="Insights.atualizar()"
+          title="Recarrega os dados e revisa valores, datas e categorias do mês">🔄 Atualizar</button>
+      </div>
 
       <!-- Swap principal: Realizado / Com previsão -->
       <div class="ins-swap mb-2">
@@ -447,6 +454,38 @@ const Insights = (() => {
   // O swap fica no topo (fora de #insights-content), então re-renderiza tudo.
   function setMegaModo(m) { _megaModo = m; render(); }
 
+  // Botão "Atualizar": limpa o cache, recarrega dados frescos do servidor e
+  // re-renderiza; depois faz uma revisão dos lançamentos do mês (valores/datas/
+  // categorias) e avisa por toast.
+  async function atualizar() {
+    if (typeof API.clearCache === 'function') API.clearCache();
+    await render();
+    _auditarMes();
+  }
+
+  // Revisa os lançamentos com competência no período: categoria, vencimento e valor.
+  function _auditarMes() {
+    const periodo = calcPeriodo(_periodo);
+    const parc = (_cache.parcelas || []).filter(p =>
+      p.origem !== 'transferencia' && noPeriodo(p, periodo, 'competencia'));
+    let semCat = 0, semVenc = 0, valorRuim = 0;
+    parc.forEach(p => {
+      const cat = App.categoriaNome(p.categoria_id);
+      if (!p.categoria_id || !cat || cat === '—') semCat++;
+      if (!p.data_vencimento) semVenc++;
+      if (!(Number(p.valor) > 0)) valorRuim++;
+    });
+    const probs = [];
+    if (semCat    > 0) probs.push(`${semCat} sem categoria`);
+    if (semVenc   > 0) probs.push(`${semVenc} sem vencimento`);
+    if (valorRuim > 0) probs.push(`${valorRuim} com valor inválido`);
+    if (probs.length === 0) {
+      Toast.success(`${periodo.label}: ${parc.length} lançamento(s) revisado(s) — tudo certo ✓`);
+    } else {
+      Toast.warning(`Revisão de ${periodo.label}: ${probs.join(' · ')}`);
+    }
+  }
+
   async function loadInsights() {
     const shown = Loading.maybeShow('parcelas', 'os', 'diarias');
     const [parRes, osRes, diRes] = await Promise.all([
@@ -479,16 +518,13 @@ const Insights = (() => {
     const lucro       = faturamento - totalDesp;
     const margem      = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
 
-    // Horas trabalhadas no período:
-    //   Fonte: sessões (diárias) atribuídas ao mês de cada sessão, separadas por
-    //   tipo de OS. horas_calculadas só entra p/ OS normais legadas sem sessão.
+    // Horas trabalhadas no período (das sessões, pela data de cada uma).
+    // horas_calculadas só entra p/ OS legada sem sessão registrada.
     const _hb = _horasBreakdown(periodo);
-    const horasDiarias  = _hb.hDiaria;
-    const horasOSNormal = _hb.hNormal;
     const horasPeriodo  = _hb.total;
-    const custoHora    = horasPeriodo > 0 ? totalDesp        / horasPeriodo : 0;
-    // valor/hora pelo valor das SESSÕES do período (acompanha as horas mês a mês)
-    const receitaHora  = horasPeriodo > 0 ? _hb.valorSessoes / horasPeriodo : 0;
+    const custoHora    = horasPeriodo > 0 ? totalDesp / horasPeriodo : 0;
+    // Valor/hora trabalhada = faturamento do mês ÷ horas do mês (pedido do dono).
+    const receitaHoraReal = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
 
     // Top clientes no período (por receita) — ignora lançamentos sem cliente identificado
     const porCliente = {};
@@ -552,6 +588,15 @@ const Insights = (() => {
     const nOSAbertas = osAbertasIds.size;
     const nSessoesAbertas = sessoesAbertas.length;
 
+    // Receita prevista DO PERÍODO: só as sessões de OS em andamento/acerto com data
+    // dentro do período (regra do dono — na previsão, somar as OS em andamento do mês).
+    // Diferente da "receita prevista" acima, que é o pipeline total das OS abertas.
+    const receitaPrevistaPeriodo = sessoesAbertas
+      .filter(d => { const dt = String(d.data || '').substring(0, 10); return dt >= periodo.start && dt <= periodo.end; })
+      .reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    // Valor/hora na previsão = (faturamento + OS em andamento do mês) ÷ horas do mês.
+    const receitaHoraPrev = horasPeriodo > 0 ? (faturamento + receitaPrevistaPeriodo) / horasPeriodo : 0;
+
     // OS fechadas e ainda NÃO recebidas — parcelas geradas no fechamento (origem='os')
     // que continuam pendentes. Mostrado como item do resumo (não recebido × valor).
     const aReceberOS = _cache.parcelas.filter(p =>
@@ -565,13 +610,19 @@ const Insights = (() => {
     const modo = temPrevisao ? _megaModo : 'realizado';
     let mega;
     if (modo === 'previsao') {
-      // Base de previsão: recebido + OS em andamento; anterior usa só o recebido
-      const snapProjAtual = _calcSnapshotProjetado(periodo, receitaPrevista);
+      // Base de previsão: recebido + OS em andamento DO PERÍODO; anterior só recebido
+      const snapProjAtual = _calcSnapshotProjetado(periodo, receitaPrevistaPeriodo);
       const snapProjAnt   = _calcSnapshotProjetado(calcPeriodoAnterior(_periodo), 0);
-      mega = buildMegaInsightPrevisao(snapProjAtual, snapProjAnt, snapProjAtual.recebido, receitaPrevista, nOSAbertas);
+      mega = buildMegaInsightPrevisao(snapProjAtual, snapProjAnt, snapProjAtual.recebido, receitaPrevistaPeriodo, nOSAbertas);
     } else {
       mega = buildMegaInsight(snapAtual, snapAnt);
     }
+
+    // Valor/hora exibido na Visão Geral: realizado (faturamento÷horas) ou, no modo
+    // previsão, somando as OS em andamento do mês.
+    const emPrevisao     = modo === 'previsao';
+    const receitaHora    = emPrevisao ? receitaHoraPrev : receitaHoraReal;
+    const receitaHoraSub = emPrevisao ? '(faturado + OS andamento) ÷ horas' : 'faturamento ÷ horas';
 
     // Custeio por absorção (custo fixo diluído por dias úteis) — só se configurado
     const custeio = custoFixoMensal > 0 ? _custeioNoPeriodo(periodo, custoFixoMensal) : null;
@@ -609,7 +660,7 @@ const Insights = (() => {
       ${_renderEvolucao(evol)}
       ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
       ${custeio ? _renderCusteio(custeio, faturamento, fechado, diasRestantes) : ''}
-      ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora, fechado })}
+      ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora, receitaHoraSub, emPrevisao, fechado })}
       ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
       ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
@@ -779,16 +830,22 @@ const Insights = (() => {
     const diasParados = Math.max(0, c.diasUteis - c.diasTrab);
     const sobrou = c.diasTrab >= c.diasUteis;
 
-    // Cards de custo fixo + custo/dia — sempre válidos (custo/dia é estável)
+    // Cards de custo fixo + custo/dia previsto (÷ dias úteis, estável) + custo/dia
+    // real (÷ dias trabalhados, sobe quando trabalha pouco).
     const cardsBase = `
       <div class="stat-card stat-navy">
         <div class="stat-label">Custo fixo ${c.nMeses > 1 ? `(${c.nMeses} meses)` : '(mês)'}</div>
         <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoFixoTot)}</div>
       </div>
       <div class="stat-card stat-blue">
-        <div class="stat-label">Custo por dia</div>
+        <div class="stat-label">Custo/dia previsto</div>
         <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoDia)}</div>
         <div class="stat-sub">÷ ${c.diasUteis} dias úteis</div>
+      </div>
+      <div class="stat-card ${c.custoDiaReal > c.custoDia ? 'stat-orange' : 'stat-green'}">
+        <div class="stat-label">Custo/dia real</div>
+        <div class="stat-value" style="font-size:1rem">${c.diasTrab > 0 ? Fmt.currency(c.custoDiaReal) : '—'}</div>
+        <div class="stat-sub">÷ ${c.diasTrab} dia(s) trabalhado(s)</div>
       </div>`;
 
     // PERÍODO EM ANDAMENTO: ociosidade/resultado distorcidos (contam dias futuros).
@@ -870,13 +927,14 @@ const Insights = (() => {
   }
 
 
-  function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, horasDiarias, horasOSNormal, custoHora, receitaHora, fechado = true }) {
+  function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora, receitaHoraSub = 'faturamento ÷ horas', emPrevisao = false, fechado = true }) {
     const margemClass = margem >= SPEC_DEFAULTS.metaMargemPercent ? 'stat-green'
                       : margem >= 20 ? 'stat-orange' : 'stat-red';
     const horasClass = horasPeriodo >= 40 ? 'stat-green' : horasPeriodo > 0 ? 'stat-blue' : 'stat-navy';
+    const parcial = fechado ? '' : ' *';
     return `
       <div class="card mb-4">
-        <div class="card-header"><h3>📈 Visão Geral</h3></div>
+        <div class="card-header"><h3>📈 Visão Geral${emPrevisao ? ' <span class="badge badge-gold" style="font-size:.62rem">🔮 previsão</span>' : ''}</h3></div>
         <div class="card-body">
           <div class="stats-grid">
             <div class="stat-card stat-green">
@@ -898,40 +956,30 @@ const Insights = (() => {
             </div>
           </div>
 
-          <div class="stats-grid mt-3">
-            <div class="stat-card ${horasClass}">
-              <div class="stat-label">⏱ Horas no Mês</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasPeriodo)}</div>
-              ${horasPeriodo > 0 ? `<div class="stat-sub">${Fmt.currency(receitaHora)}/h</div>` : ''}
-            </div>
-            <div class="stat-card stat-navy">
-              <div class="stat-label">📋 OS Normais</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasOSNormal)}</div>
-              <div class="stat-sub">sessões</div>
-            </div>
-            <div class="stat-card stat-blue">
-              <div class="stat-label">📅 Diárias</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasDiarias)}</div>
-              <div class="stat-sub">registro do dia</div>
-            </div>
-          </div>
-
           ${horasPeriodo > 0 ? `
+            <div class="stats-grid mt-3">
+              <div class="stat-card ${horasClass}">
+                <div class="stat-label">⏱ Horas no mês</div>
+                <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasPeriodo)}</div>
+              </div>
+              <div class="stat-card ${receitaHora >= custoHora ? 'stat-green' : 'stat-red'}">
+                <div class="stat-label">💵 Valor/hora${parcial}</div>
+                <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaHora)}</div>
+                <div class="stat-sub">${receitaHoraSub}</div>
+              </div>
+              <div class="stat-card stat-blue">
+                <div class="stat-label">🏭 Custo/hora${parcial}</div>
+                <div class="stat-value" style="font-size:1rem">${Fmt.currency(custoHora)}</div>
+                <div class="stat-sub">despesas ÷ horas</div>
+              </div>
+            </div>
             ${!fechado ? `
               <div class="tip-card tip-info" style="margin-top:14px">
                 <span class="tip-icon">⏳</span>
-                <div class="tip-body"><div class="tip-text">Valores por hora ainda são <strong>parciais</strong> — ficam definitivos quando o mês fechar.</div></div>
+                <div class="tip-body"><div class="tip-text">Valores por hora ainda são <strong>parciais</strong> (*) — ficam definitivos quando o mês fechar.</div></div>
               </div>` : ''}
             <div class="info-row mt-3">
-              <span>Valor/hora trabalhada <small style="color:var(--text-muted)">(sessões do mês)</small>:</span>
-              <strong class="${receitaHora > custoHora ? 'text-green' : 'text-red'}">${Fmt.currency(receitaHora)}/h${fechado ? '' : ' *'}</strong>
-            </div>
-            <div class="info-row">
-              <span>Custo/hora real:</span>
-              <strong>${Fmt.currency(custoHora)}/h${fechado ? '' : ' *'}</strong>
-            </div>
-            <div class="info-row">
-              <span style="font-size:.78rem;color:var(--text-muted)">Base de referência:</span>
+              <span style="font-size:.78rem;color:var(--text-muted)">Base de referência (custo/hora alvo):</span>
               <span style="font-size:.78rem;color:var(--text-muted)">${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}/h</span>
             </div>
           ` : `
@@ -1172,5 +1220,5 @@ const Insights = (() => {
     return tips;
   }
 
-  return { render, setPeriodo, setRegime, setMegaModo };
+  return { render, setPeriodo, setRegime, setMegaModo, atualizar };
 })();
