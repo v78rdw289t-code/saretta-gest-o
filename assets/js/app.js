@@ -7,8 +7,7 @@ const App = (() => {
   // v1.3: sub-páginas que vivem dentro de uma página pai no nav.
   // App.navigate('fiado') automaticamente roteia pra dentro de Financeiro.
   const SUB_PAGES = {
-    estoque:  'os',
-    compras:  'financeiro',
+    compras:  'estoque',
     fiado:    'financeiro',
   };
   let currentPage = 'home';

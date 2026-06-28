@@ -67,12 +67,6 @@ const OS = (() => {
 
     const section = qs('#page-os');
     section.innerHTML = `
-      <div class="section-tabs">
-        <button class="section-tab active" onclick="App.navigate('os')">📋 Ordens</button>
-        <button class="section-tab" onclick="App.navigate('estoque')">📦 Estoque</button>
-        <button class="section-tab" onclick="OS.openListaCompras()">🛒 Lista Compras</button>
-      </div>
-
       <div class="page-header">
         <h1>Ordens de Serviço</h1>
         <button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>
@@ -1056,22 +1050,26 @@ const OS = (() => {
     let finalEstId = estId;
 
     if (!itemId && estId) {
-      // Novo item com estoque: descontar
+      // Novo item do estoque: baixa + movimentação rastreada (uso em OS)
       const estRes = await API.db.read('estoque', estId);
       const est = estRes?.data?.[0];
       if (est) {
         finalDesc = est.descricao;
-        await API.db.update('estoque', estId, { quantidade: Math.max(0, Number(est.quantidade || 0) - qtd) });
+        await API.db.registrarMovEstoque({
+          estoque_id: estId, tipo: 'saida', motivo: 'uso_os',
+          quantidade: qtd, origem: 'os', origem_id: osId,
+          observacoes: 'OS #' + (currentOS?.numero || ''),
+        });
       }
     } else if (itemId) {
-      // Edição: ajustar estoque pela diferença de quantidade
+      // Edição: ajusta o estoque pela diferença, registrando a movimentação
       const original = allItens.find(i => i.id === itemId);
       if (original?.estoque_id) {
-        const estRes = await API.db.read('estoque', original.estoque_id);
-        const est = estRes?.data?.[0];
-        if (est) {
-          const diff = Number(original.quantidade || 0) - qtd; // positive = return stock
-          await API.db.update('estoque', original.estoque_id, { quantidade: Math.max(0, Number(est.quantidade || 0) + diff) });
+        const diff = Number(original.quantidade || 0) - qtd; // >0 devolve ao estoque, <0 consome mais
+        if (diff > 0) {
+          await API.db.registrarMovEstoque({ estoque_id: original.estoque_id, tipo: 'entrada', motivo: 'devolucao', quantidade: diff, origem: 'os', origem_id: osId, observacoes: 'Ajuste de item na OS' });
+        } else if (diff < 0) {
+          await API.db.registrarMovEstoque({ estoque_id: original.estoque_id, tipo: 'saida', motivo: 'uso_os', quantidade: -diff, origem: 'os', origem_id: osId, observacoes: 'Ajuste de item na OS' });
         }
         finalEstId = original.estoque_id;
       }
@@ -1137,11 +1135,13 @@ const OS = (() => {
   async function deleteItem(id) {
     Modal.confirm('Remover este item?', async () => {
       const item = allItens.find(i => i.id === id);
-      // Devolver ao estoque se for material
+      // Devolver ao estoque se for material (+ movimentação de devolução)
       if (item?.estoque_id && item.tipo === 'material') {
-        const estRes = await API.db.read('estoque', item.estoque_id);
-        const est = estRes?.data?.[0];
-        if (est) await API.db.update('estoque', item.estoque_id, { quantidade: Number(est.quantidade||0) + Number(item.quantidade||0) });
+        await API.db.registrarMovEstoque({
+          estoque_id: item.estoque_id, tipo: 'entrada', motivo: 'devolucao',
+          quantidade: Number(item.quantidade || 0), origem: 'os',
+          origem_id: currentOS?.id || '', observacoes: 'Item removido da OS',
+        });
       }
       await API.db.delete('os_itens', id);
       Toast.success('Item removido');
@@ -1446,270 +1446,6 @@ const OS = (() => {
     }
   }
 
-  // ─── LISTA DE COMPRAS ───────────────────────────────────
-  // Estado local para o modal "Nova Lista": cliente fixo + itens acumulados
-  let _novaLista = { cliente_id: '', itens: [] };
-  // Cache da lista pra evitar refetch quando só toggleamos checkbox
-  let _listaCache = { lista: [], estoque: [] };
-
-  async function openListaCompras() {
-    Loading.show();
-    const [lcRes, estRes] = await Promise.all([
-      API.db.read('lista_compras'),
-      API.db.read('estoque'),
-    ]);
-    Loading.hide();
-    _listaCache = {
-      lista:   lcRes?.data || [],
-      estoque: (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false'),
-    };
-    renderListaCompras();
-  }
-
-  function renderListaCompras() {
-    const { lista, estoque } = _listaCache;
-    const section = qs('#page-os');
-
-    // Agrupar por cliente_id (mantém pendentes E comprados juntos)
-    const grupos = {};
-    lista.forEach(l => {
-      const k = l.cliente_id || '_sem';
-      if (!grupos[k]) grupos[k] = [];
-      grupos[k].push(l);
-    });
-    // Ordena cada grupo: pendentes primeiro, depois por data
-    Object.keys(grupos).forEach(k => {
-      grupos[k].sort((a, b) => {
-        const aP = (a.status || 'pendente') === 'pendente' ? 0 : 1;
-        const bP = (b.status || 'pendente') === 'pendente' ? 0 : 1;
-        if (aP !== bP) return aP - bP;
-        return String(a.data_criacao || '').localeCompare(String(b.data_criacao || ''));
-      });
-    });
-
-    const grupoIds = Object.keys(grupos).sort((a, b) =>
-      App.clienteNome(a).localeCompare(App.clienteNome(b))
-    );
-
-    section.innerHTML = `
-      <div class="section-tabs">
-        <button class="section-tab" onclick="OS.render()">📋 Ordens</button>
-        <button class="section-tab" onclick="App.navigate('estoque')">📦 Estoque</button>
-        <button class="section-tab active" onclick="OS.openListaCompras()">🛒 Lista Compras</button>
-      </div>
-
-      <div class="page-header">
-        <h1>Lista de Compras</h1>
-        <button class="btn btn-primary" onclick="OS.openNovaListaForm()">+ Nova Lista</button>
-      </div>
-
-      ${grupoIds.length === 0 ? `
-        <div class="card mt-3"><div class="card-body">
-          <p class="text-muted" style="text-align:center;margin:0">Nenhum item na lista. Toque em <strong>+ Nova Lista</strong> para começar.</p>
-        </div></div>
-      ` : grupoIds.map(cid => {
-        const itens = grupos[cid];
-        const pend  = itens.filter(i => (i.status || 'pendente') === 'pendente').length;
-        const total = itens.length;
-        return `
-          <div class="card mt-3">
-            <div class="card-header">
-              <h3>${App.clienteNome(cid)}</h3>
-              <div style="display:flex;gap:6px;align-items:center">
-                <span class="badge ${pend > 0 ? 'badge-warning' : 'badge-success'}">${pend > 0 ? `${pend} pend.` : '✓ tudo comprado'}</span>
-                <button class="btn btn-sm btn-outline" onclick="OS.addItensCliente('${cid}')">+ Item</button>
-              </div>
-            </div>
-            <div class="card-body" style="padding:6px 8px">
-              ${itens.map(i => {
-                const comprado = (i.status || 'pendente') === 'comprado';
-                const noEst = estoque.find(e => (e.descricao || '').toLowerCase() === (i.descricao || '').toLowerCase());
-                return `
-                  <label class="lista-row" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-bottom:1px solid var(--border);cursor:pointer">
-                    <input type="checkbox" ${comprado ? 'checked' : ''}
-                      style="width:22px;height:22px;flex:0 0 auto;accent-color:var(--success)"
-                      onchange="OS.toggleComprado('${i.id}', this.checked)">
-                    <div style="flex:1;min-width:0">
-                      <div style="font-weight:600;${comprado ? 'text-decoration:line-through;color:var(--text-muted)' : ''}">${i.descricao}</div>
-                      <div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">
-                        ${i.quantidade || 1} ${i.unidade || 'un'}
-                        ${noEst ? ` · <span class="badge badge-success" style="font-size:.65rem">estoque: ${noEst.quantidade}</span>` : ''}
-                      </div>
-                    </div>
-                    <button class="btn btn-sm btn-danger" style="flex:0 0 auto" onclick="event.preventDefault();OS.deleteListaItem('${i.id}')">✕</button>
-                  </label>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        `;
-      }).join('')}
-
-      ${_renderNovaListaModal()}
-    `;
-  }
-
-  // Modal inline da Nova Lista — escolhe cliente uma vez e adiciona vários itens
-  function _renderNovaListaModal() {
-    const aberto = !!_novaLista._aberto;
-    if (!aberto) return '';
-    const cliFix = _novaLista.cliente_id;
-    return `
-      <div class="card mt-3" style="border:2px solid var(--primary)">
-        <div class="card-header">
-          <h3>Nova Lista de Compras</h3>
-          <button class="btn btn-sm btn-outline" onclick="OS.fecharNovaLista()">✕</button>
-        </div>
-        <div class="card-body">
-          <div class="form-group">
-            <label>Cliente *</label>
-            <select id="nl-cliente" class="input" ${cliFix ? 'disabled' : ''}
-              onchange="OS._setNovaListaCliente(this.value)">
-              ${App.clienteOptions('cliente', cliFix)}
-            </select>
-            ${cliFix ? '<small style="color:var(--text-muted);font-size:.72rem">Adicionando itens para este cliente. Para trocar, cancele e comece de novo.</small>' : ''}
-          </div>
-
-          <hr style="margin:12px 0;border:none;border-top:1px solid var(--border)">
-
-          <div class="form-row">
-            <div class="form-group">
-              <label>Item</label>
-              <input type="text" id="nl-desc" class="input" placeholder="Ex: Parafuso M8"
-                onkeydown="if(event.key==='Enter'){event.preventDefault();OS.addItemNovaLista();}">
-            </div>
-            <div class="form-group" style="flex:0 0 80px">
-              <label>Qtd</label>
-              <input type="number" id="nl-qtd" class="input" value="1" min="0.01" step="0.01">
-            </div>
-            <div class="form-group" style="flex:0 0 80px">
-              <label>Un.</label>
-              <input type="text" id="nl-und" class="input" placeholder="un">
-            </div>
-          </div>
-          <button type="button" class="btn btn-outline btn-full" onclick="OS.addItemNovaLista()">+ Adicionar à lista</button>
-
-          ${_novaLista.itens.length > 0 ? `
-            <div style="margin-top:14px">
-              <div style="font-size:.78rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">
-                ${_novaLista.itens.length} item(s) para salvar
-              </div>
-              ${_novaLista.itens.map((it, i) => `
-                <div class="info-row" style="padding:6px 4px">
-                  <span>${it.descricao} — ${it.quantidade} ${it.unidade}</span>
-                  <button class="btn btn-sm btn-danger" onclick="OS.removeItemNovaLista(${i})">✕</button>
-                </div>
-              `).join('')}
-            </div>
-          ` : ''}
-        </div>
-        <div class="card-body" style="padding-top:0;display:flex;gap:8px">
-          <button class="btn btn-outline" onclick="OS.fecharNovaLista()">Cancelar</button>
-          <button class="btn btn-primary" style="flex:1" onclick="OS.salvarNovaLista()"
-            ${_novaLista.itens.length === 0 ? 'disabled' : ''}>
-            Salvar ${_novaLista.itens.length > 0 ? `(${_novaLista.itens.length})` : ''}
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  function openNovaListaForm() {
-    _novaLista = { cliente_id: '', itens: [], _aberto: true };
-    renderListaCompras();
-  }
-
-  function fecharNovaLista() {
-    _novaLista = { cliente_id: '', itens: [], _aberto: false };
-    renderListaCompras();
-  }
-
-  // Adiciona itens a um cliente já existente — pré-seleciona e trava o cliente
-  function addItensCliente(clienteId) {
-    _novaLista = { cliente_id: clienteId, itens: [], _aberto: true };
-    renderListaCompras();
-    setTimeout(() => qs('#nl-desc')?.focus(), 50);
-  }
-
-  function _setNovaListaCliente(id) {
-    _novaLista.cliente_id = id;
-  }
-
-  function addItemNovaLista() {
-    const cli  = qs('#nl-cliente')?.value || _novaLista.cliente_id;
-    const desc = qs('#nl-desc')?.value.trim();
-    const qtd  = Number(qs('#nl-qtd')?.value) || 1;
-    const und  = qs('#nl-und')?.value.trim() || 'un';
-    if (!cli)  { Toast.warning('Selecione o cliente'); return; }
-    if (!desc) { Toast.warning('Informe o item'); return; }
-    _novaLista.cliente_id = cli;
-    _novaLista.itens.push({ descricao: desc, quantidade: qtd, unidade: und });
-    renderListaCompras();
-    setTimeout(() => {
-      qs('#nl-desc').value = '';
-      qs('#nl-qtd').value  = '1';
-      qs('#nl-und').value  = '';
-      qs('#nl-desc')?.focus();
-    }, 30);
-  }
-
-  function removeItemNovaLista(i) {
-    _novaLista.itens.splice(i, 1);
-    renderListaCompras();
-  }
-
-  async function salvarNovaLista() {
-    if (!_novaLista.cliente_id || _novaLista.itens.length === 0) return;
-    Loading.show();
-    const ops = _novaLista.itens.map(it => ({
-      action: 'create',
-      sheet:  'lista_compras',
-      data: {
-        cliente_id:   _novaLista.cliente_id,
-        descricao:    it.descricao,
-        quantidade:   it.quantidade,
-        unidade:      it.unidade,
-        status:       'pendente',
-        data_criacao: DateUtil.today(),
-      },
-    }));
-    const res = await API.db.batch(ops);
-    Loading.hide();
-    if (res?.success) {
-      Toast.success(`${ops.length} item(s) adicionado(s)!`);
-      _novaLista = { cliente_id: '', itens: [], _aberto: false };
-      await openListaCompras();
-    } else {
-      Toast.error('Erro ao salvar lista');
-    }
-  }
-
-  // Toggle in-place: o item permanece visível, só muda o status
-  async function toggleComprado(id, comprado) {
-    const novoStatus = comprado ? 'comprado' : 'pendente';
-    // Otimista: atualiza cache local e rerendeniza imediato
-    const it = _listaCache.lista.find(l => l.id === id);
-    if (it) it.status = novoStatus;
-    renderListaCompras();
-    await API.db.update('lista_compras', id, { status: novoStatus });
-  }
-
-  // Mantido para compatibilidade (Home/etc) — agora apenas marca
-  async function marcarComprado(id) {
-    await toggleComprado(id, true);
-  }
-
-  async function deleteListaItem(id) {
-    Modal.confirm('Remover item da lista?', async () => {
-      _listaCache.lista = _listaCache.lista.filter(l => l.id !== id);
-      renderListaCompras();
-      await API.db.delete('lista_compras', id);
-    });
-  }
-
-  // Stub: o form antigo foi substituído pela Nova Lista
-  function openListaItemForm() { openNovaListaForm(); }
-  async function saveListaItem(e) { e.preventDefault(); }
 
   async function confirmDelete(id) {
     Modal.confirm('Excluir esta OS? Os itens serão devolvidos ao estoque.', async () => {
@@ -1879,9 +1615,6 @@ const OS = (() => {
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, mudarStatus,
-    openListaCompras, openListaItemForm, saveListaItem, marcarComprado, deleteListaItem,
-    openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
-    addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado,
     confirmDelete,
   };
 })();

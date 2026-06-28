@@ -31,10 +31,14 @@ const SHEET_HEADERS = {
   parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
   contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
-  estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo'],
-  compras:        ['id','fornecedor_id','data','valor_total','parcela_id','observacoes'],
-  compras_itens:  ['id','compra_id','descricao','estoque_id','quantidade','valor_unit','valor_total'],
+  estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo','categoria_id','estoque_minimo'],
+  compras:        ['id','fornecedor_id','data','valor_total','valor_bruto','desconto','parcela_id','observacoes'],
+  compras_itens:  ['id','compra_id','descricao','estoque_id','categoria_id','quantidade','valor_unit','valor_liq','valor_total'],
   lista_compras:  ['id','cliente_id','descricao','quantidade','unidade','estoque_id','status','data_criacao'],
+  // Razão (extrato) do estoque: toda entrada/saída/ajuste vira uma linha aqui.
+  // tipo: entrada|saida|ajuste · motivo: compra|uso_os|uso_interno|perda|ajuste|devolucao
+  // origem: compra|os|manual|inventario · origem_id: id da compra/OS (quando houver)
+  estoque_movimentacoes: ['id','estoque_id','tipo','motivo','quantidade','valor_unit','valor_total','origem','origem_id','data','observacoes'],
 };
 
 // ─── ROTEADOR ────────────────────────────────────────────────
@@ -68,6 +72,7 @@ function doPost(e) {
       case 'batch':           result = batch(data.operations); break;
       case 'fecharOS':        result = fecharOS(data); break;
       case 'registrarCompra': result = registrarCompra(data); break;
+      case 'registrarMovEstoque': result = registrarMovEstoque(data); break;
       case 'registrarFiado':  result = registrarFiado(data); break;
       case 'pagarParcela':      result = pagarParcela(data); break;
       case 'excluirLancamento': result = excluirLancamento(data.parcela_id); break;
@@ -243,45 +248,108 @@ function fecharOS(data) {
 }
 
 function registrarCompra(data) {
-  // data: { fornecedor_id, data, valor_total, parcelas_count, primeira_data_vencimento,
-  //         data_competencia, categoria_id, quem_pagou (opcional),
-  //         itens: [{descricao, estoque_id, quantidade, valor_unit, valor_total}], observacoes }
-  const compraData = {
+  // data: { fornecedor_id, data, valor_total (líquido), desconto, parcelas_count,
+  //         primeira_data_vencimento, data_competencia, categoria_id (fallback p/ parcela),
+  //         quem_pagou (opcional),
+  //         itens: [{descricao, estoque_id, categoria_id, quantidade, valor_unit, valor_total, unidade}],
+  //         observacoes }
+  const itens = data.itens || [];
+  // Bruto = soma dos itens; líquido = com o desconto da compra aplicado.
+  const bruto = itens.reduce((s, it) =>
+    s + Number(it.valor_total || (Number(it.quantidade || 0) * Number(it.valor_unit || 0))), 0);
+  const desconto = Number(data.desconto || 0);
+  const liquido = (data.valor_total !== undefined && data.valor_total !== '')
+    ? Number(data.valor_total)
+    : Math.max(0, bruto - desconto);
+  // Fator de rateio: cada item carrega sua fatia proporcional do desconto.
+  const ratio = bruto > 0 ? (liquido / bruto) : 1;
+
+  const compra = create('compras', {
     fornecedor_id: data.fornecedor_id,
     data:          data.data,
-    valor_total:   data.valor_total,
+    valor_total:   liquido,
+    valor_bruto:   bruto,
+    desconto:      desconto,
     observacoes:   data.observacoes || '',
-  };
-  const compra = create('compras', compraData);
+  });
   const compraId = compra.data.id;
 
-  // Itens da compra + entrada no estoque
-  (data.itens || []).forEach(item => {
-    create('compras_itens', { ...item, compra_id: compraId });
-    // Atualizar estoque
-    if (item.estoque_id) {
-      const estRec = read('estoque', item.estoque_id).data[0];
-      if (estRec) {
-        const novaQtd = Number(estRec.quantidade || 0) + Number(item.quantidade || 0);
-        update('estoque', item.estoque_id, { quantidade: novaQtd });
-      }
+  // Soma o valor líquido por categoria de item → categoria dominante (vai na parcela).
+  const catTotais = {};
+
+  // Itens da compra + entrada no estoque (custo médio ponderado) + movimentação
+  itens.forEach(item => {
+    const qtd       = Number(item.quantidade || 0);
+    const brutoItem = Number(item.valor_total || (qtd * Number(item.valor_unit || 0)));
+    const liqItem   = Math.round(brutoItem * ratio * 100) / 100;          // já com desconto rateado
+    const custoUnit = qtd > 0 ? Math.round((liqItem / qtd) * 100) / 100 : liqItem; // custo real unitário
+    const catItem   = item.categoria_id || '';
+    if (catItem) catTotais[catItem] = (catTotais[catItem] || 0) + liqItem;
+
+    // Resolve o item de estoque: vinculado, ou casa por descrição+unidade, ou cria novo.
+    let estId  = item.estoque_id || '';
+    let estRec = estId ? read('estoque', estId).data[0] : _acharEstoquePorDescricao(item.descricao, item.unidade);
+    if (estRec) {
+      estId = estRec.id;
+      const qOld = Number(estRec.quantidade || 0);
+      const aOld = Number(estRec.valor_unit || 0);
+      const qNew = qOld + qtd;
+      // Custo médio ponderado: (valor do estoque atual + valor da entrada) / qtd total.
+      const aNew = qNew > 0 ? Math.round(((qOld * aOld) + liqItem) / qNew * 100) / 100 : custoUnit;
+      const upd = { quantidade: qNew, valor_unit: aNew };
+      if (catItem && !estRec.categoria_id) upd.categoria_id = catItem;   // preenche só se faltava
+      if (data.fornecedor_id && !estRec.fornecedor_id) upd.fornecedor_id = data.fornecedor_id;
+      update('estoque', estId, upd);
     } else {
-      // Criar novo item no estoque
-      create('estoque', {
-        descricao:    item.descricao,
-        quantidade:   item.quantidade,
-        valor_unit:   item.valor_unit,
-        fornecedor_id:data.fornecedor_id,
-        unidade:      item.unidade || 'un',
-        data_entrada: data.data,
-        ativo:        true,
+      const novo = create('estoque', {
+        descricao:      item.descricao,
+        quantidade:     qtd,
+        valor_unit:     custoUnit,
+        fornecedor_id:  data.fornecedor_id || '',
+        unidade:        item.unidade || 'un',
+        categoria_id:   catItem,
+        estoque_minimo: 0,
+        data_entrada:   data.data,
+        ativo:          true,
       });
+      estId = novo.data.id;
     }
+
+    // Linha da compra: guarda a categoria do item + valor líquido (p/ relatório financeiro).
+    create('compras_itens', {
+      compra_id:   compraId,
+      descricao:   item.descricao,
+      estoque_id:  estId,
+      categoria_id:catItem,
+      quantidade:  qtd,
+      valor_unit:  Number(item.valor_unit || 0),
+      valor_liq:   liqItem,
+      valor_total: brutoItem,
+    });
+
+    // Movimentação de entrada no razão do estoque.
+    create('estoque_movimentacoes', {
+      estoque_id:  estId,
+      tipo:        'entrada',
+      motivo:      'compra',
+      quantidade:  qtd,
+      valor_unit:  custoUnit,
+      valor_total: liqItem,
+      origem:      'compra',
+      origem_id:   compraId,
+      data:        data.data,
+      observacoes: '',
+    });
   });
+
+  // Categoria que vai na parcela (a de maior valor; fallback p/ telas que não rateiam por item).
+  let parcelaCatId = data.categoria_id || '';
+  const catKeys = Object.keys(catTotais);
+  if (catKeys.length) parcelaCatId = catKeys.reduce((a, b) => (catTotais[a] >= catTotais[b] ? a : b));
 
   // Gerar parcelas a pagar
   const parcCount = data.parcelas_count || 1;
-  const valorParc = data.valor_total / parcCount;
+  const valorParc = liquido / parcCount;
   const fornRec = data.fornecedor_id ? read('clientes', data.fornecedor_id).data[0] : null;
   const fornNome = fornRec ? fornRec.nome : '';
   const dataPago = data.data || data.primeira_data_vencimento;
@@ -308,7 +376,7 @@ function registrarCompra(data) {
         data_pagamento:  dataPago,
         status:          'pago',
         conta_id:        '',  // saiu do bolso da pessoa, não da conta da empresa
-        categoria_id:    data.categoria_id || '',
+        categoria_id:    parcelaCatId,
         observacoes:     data.observacoes || '',
       });
     }
@@ -321,7 +389,7 @@ function registrarCompra(data) {
       grupo_id:        grupoIdCompra,
       cliente_id:      '',
       descricao:       'Fiado ' + data.quem_pagou + ' (entrada): Compra ' + fornNome,
-      valor:           data.valor_total,
+      valor:           liquido,
       data_competencia:data.data_competencia,
       data_vencimento: dataPago,
       data_pagamento:  dataPago,
@@ -339,7 +407,7 @@ function registrarCompra(data) {
       grupo_id:        grupoIdCompra,
       cliente_id:      '',
       descricao:       'Reembolso ' + data.quem_pagou + ': Compra ' + fornNome,
-      valor:           data.valor_total,
+      valor:           liquido,
       data_competencia:data.data_competencia,
       data_vencimento: data.primeira_data_vencimento,
       data_pagamento:  '',
@@ -352,7 +420,7 @@ function registrarCompra(data) {
     const fiado = create('fiado', {
       pessoa:          data.quem_pagou,
       descricao:       'Compra ' + fornNome,
-      valor:           data.valor_total,
+      valor:           liquido,
       data:            dataPago,
       parcela_pagar_id:reemb.data.id,
       status:          'pendente',
@@ -379,7 +447,7 @@ function registrarCompra(data) {
         data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
         data_pagamento:  '',
         status:          'pendente',
-        categoria_id:    data.categoria_id || '',
+        categoria_id:    parcelaCatId,
         observacoes:     data.observacoes || '',
       });
     }
@@ -419,6 +487,60 @@ function registrarFiado(data) {
   update('parcelas', parcelaPagar.data.id, { origem_id: fiado.data.id });
 
   return { success: true, fiado_id: fiado.data.id, parcela_id: parcelaPagar.data.id };
+}
+
+// Movimentação avulsa de estoque: baixa/perda/uso interno/uso em OS (saída),
+// entrada manual, ou ajuste de inventário (define qtd e/ou custo absolutos).
+// Sem efeito financeiro (a despesa já foi lançada na compra).
+function registrarMovEstoque(data) {
+  // data: { estoque_id, tipo (entrada|saida|ajuste), motivo, quantidade,
+  //         nova_quantidade, novo_valor_unit (p/ ajuste),
+  //         origem, origem_id, data, observacoes }
+  const estRec = read('estoque', data.estoque_id).data[0];
+  if (!estRec) return { success: false, error: 'Item de estoque não encontrado' };
+  const qOld = Number(estRec.quantidade || 0);
+  const aOld = Number(estRec.valor_unit || 0);
+  const hoje = data.data || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const r2 = n => Math.round(n * 100) / 100;
+  let tipo, motivo, qtdMov, custoMov, qNew;
+
+  if (data.tipo === 'ajuste') {
+    // Correção: aplica quantidade e/ou custo absolutos; registra a diferença de quantidade.
+    qNew = (data.nova_quantidade !== undefined && data.nova_quantidade !== '') ? Number(data.nova_quantidade) : qOld;
+    const aNew = (data.novo_valor_unit !== undefined && data.novo_valor_unit !== '') ? Number(data.novo_valor_unit) : aOld;
+    qtdMov = qNew - qOld;
+    custoMov = aNew;
+    tipo = 'ajuste'; motivo = 'ajuste';
+    update('estoque', data.estoque_id, { quantidade: qNew, valor_unit: aNew });
+  } else if (data.tipo === 'entrada') {
+    qtdMov = Number(data.quantidade || 0);
+    custoMov = (data.valor_unit !== undefined && data.valor_unit !== '') ? Number(data.valor_unit) : aOld;
+    qNew = qOld + qtdMov;
+    const aNew = qNew > 0 ? r2(((qOld * aOld) + (qtdMov * custoMov)) / qNew) : custoMov;
+    tipo = 'entrada'; motivo = data.motivo || 'entrada';
+    update('estoque', data.estoque_id, { quantidade: qNew, valor_unit: aNew });
+  } else {
+    // saída: baixa/perda/uso interno/uso em OS. Mantém o custo médio (não recalcula).
+    qtdMov = Number(data.quantidade || 0);
+    custoMov = aOld;
+    qNew = Math.max(0, qOld - qtdMov);
+    tipo = 'saida'; motivo = data.motivo || 'uso_interno';
+    update('estoque', data.estoque_id, { quantidade: qNew });
+  }
+
+  create('estoque_movimentacoes', {
+    estoque_id:  data.estoque_id,
+    tipo:        tipo,
+    motivo:      motivo,
+    quantidade:  Math.abs(qtdMov),
+    valor_unit:  custoMov,
+    valor_total: r2(Math.abs(qtdMov) * custoMov),
+    origem:      data.origem || 'manual',
+    origem_id:   data.origem_id || '',
+    data:        hoje,
+    observacoes: data.observacoes || (data.tipo === 'ajuste' ? 'Ajuste de inventário' : ''),
+  });
+  return { success: true, quantidade: qNew };
 }
 
 function pagarParcela(data) {
@@ -546,7 +668,20 @@ function excluirOS(osId) {
     if (item.estoque_id && item.tipo === 'material') {
       const estRec = read('estoque', item.estoque_id).data[0];
       if (estRec) {
-        update('estoque', item.estoque_id, { quantidade: Number(estRec.quantidade || 0) + Number(item.quantidade || 0) });
+        const qtd = Number(item.quantidade || 0);
+        update('estoque', item.estoque_id, { quantidade: Number(estRec.quantidade || 0) + qtd });
+        create('estoque_movimentacoes', {
+          estoque_id:  item.estoque_id,
+          tipo:        'entrada',
+          motivo:      'devolucao',
+          quantidade:  qtd,
+          valor_unit:  Number(estRec.valor_unit || 0),
+          valor_total: qtd * Number(estRec.valor_unit || 0),
+          origem:      'os',
+          origem_id:   osId,
+          data:        Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+          observacoes: 'Devolução por exclusão de OS',
+        });
       }
     }
     remove('os_itens', item.id);
@@ -610,6 +745,23 @@ function _findCategoria(nome) {
     const cats = sheetToRecords(getSheet('categorias'));
     return cats.find(c => c.nome === nome)?.id || '';
   } catch { return ''; }
+}
+
+// Acha um item ATIVO no estoque pela descrição (+unidade), p/ mesclar recompras
+// em vez de criar duplicatas. Comparação normalizada (case/espaços).
+function _acharEstoquePorDescricao(descricao, unidade) {
+  if (!descricao) return null;
+  const norm = s => String(s || '').trim().toLowerCase();
+  const alvo = norm(descricao);
+  const alvoUn = norm(unidade);
+  try {
+    const ests = sheetToRecords(getSheet('estoque'));
+    return ests.find(e =>
+      e.ativo !== false && e.ativo !== 'false' &&
+      norm(e.descricao) === alvo &&
+      (alvoUn ? norm(e.unidade) === alvoUn : true)
+    ) || null;
+  } catch { return null; }
 }
 
 // Repara parcelas onde conta_id e observacoes foram gravados invertidos
@@ -730,6 +882,16 @@ function initializeSheets() {
   ];
   cats.forEach(c => {
     if (!existingCat.find(ec => ec.nome === c.nome)) create('categorias', c);
+  });
+
+  // Categorias de estoque/material (tipo='saida') — usadas no item de estoque e no rateio
+  // por categoria da compra. Dedupe por nome+tipo: 'Elétrica'/'Hidráulica' podem coexistir
+  // com as categorias de OS de mesmo nome (tipo='os'), pois são contextos diferentes.
+  const catEstoque = ['Uso e consumo', 'Organização', 'EPI', 'Elétrica', 'Hidráulica'];
+  catEstoque.forEach(nome => {
+    if (!existingCat.find(ec => ec.nome === nome && ec.tipo === 'saida')) {
+      create('categorias', { nome: nome, tipo: 'saida', ativo: true });
+    }
   });
 
   // Contas iniciais (saldo_inicial fica zerado — usuário configura na UI)

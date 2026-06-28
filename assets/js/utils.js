@@ -448,6 +448,47 @@ function categoriaEfetivaId(p, osList, diarias) {
   return (p && p.categoria_id) || '';
 }
 
+// Agrupa os itens de compra por compra_id: { compraId: [itens] }. Usado p/ ratear
+// a despesa de uma compra entre as categorias dos seus itens nos relatórios.
+function agruparComprasItens(itens) {
+  const map = {};
+  (itens || []).forEach(it => {
+    if (!it.compra_id) return;
+    (map[it.compra_id] = map[it.compra_id] || []).push(it);
+  });
+  return map;
+}
+
+// Distribui o valor de uma parcela entre categorias (retorna [{categoria_id, valor}]
+// que soma p.valor). Para parcelas de COMPRA, rateia pela categoria de cada item
+// (proporcional ao valor_liq); para o resto, devolve a categoria efetiva única.
+// ctx = { osList, diarias, comprasItensByCompra }. Compras antigas (sem categoria nos
+// itens) caem no caminho único — retrocompatível.
+function distribuirCategorias(p, ctx) {
+  ctx = ctx || {};
+  const valor = Number((p && p.valor) || 0);
+  if (p && p.origem === 'compra' && p.origem_id && ctx.comprasItensByCompra) {
+    const itens = ctx.comprasItensByCompra[p.origem_id] || [];
+    if (itens.length) {
+      const porCat = {};
+      let total = 0;
+      itens.forEach(it => {
+        const v = Number((it.valor_liq !== null && it.valor_liq !== undefined && it.valor_liq !== '')
+          ? it.valor_liq : (it.valor_total || 0));
+        const cat = it.categoria_id || '';
+        porCat[cat] = (porCat[cat] || 0) + v;
+        total += v;
+      });
+      const cats = Object.keys(porCat);
+      // Só rateia se há base positiva E ao menos um item com categoria preenchida.
+      if (total > 0 && cats.some(c => c)) {
+        return cats.map(c => ({ categoria_id: c, valor: valor * (porCat[c] / total) }));
+      }
+    }
+  }
+  return [{ categoria_id: categoriaEfetivaId(p, ctx.osList, ctx.diarias), valor }];
+}
+
 // ─── Seletor de mês/ano (competência) ────────────────────────
 // Dois <select> (mês + ano) no lugar de <input type="month"> — sem digitar,
 // sem formato pra errar. value = 'YYYY-MM'. Use MonthPicker.value(id) para ler.

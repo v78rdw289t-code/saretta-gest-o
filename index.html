@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=2.7.2">
+  <link rel="stylesheet" href="assets/css/style.css?v=2.8.2">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=2.7.2">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=2.8.2">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=2.7.2">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=2.8.2">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=2.7.2" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=2.8.2" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=2.7.2" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=2.8.2" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=2.7.2" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=2.8.2" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -392,21 +392,34 @@
       </div>
       <div class="form-row">
         <div class="form-group">
+          <label>Categoria</label>
+          <select id="est-form-cat" class="input"></select>
+        </div>
+        <div class="form-group">
+          <label>Unidade</label>
+          <input type="text" id="est-form-und" class="input" placeholder="un, m, kg, L...">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
           <label>Quantidade</label>
           <input type="number" id="est-form-qtd"  class="input" step="0.01" min="0" value="0">
         </div>
         <div class="form-group">
-          <label>Valor Unitário</label>
+          <label>Custo unitário (médio)</label>
           <input type="number" id="est-form-unit" class="input" step="0.01" min="0" placeholder="R$">
         </div>
         <div class="form-group">
-          <label>Unidade</label>
-          <input type="text"   id="est-form-und"  class="input" placeholder="un, m, kg, L...">
+          <label>Estoque mínimo</label>
+          <input type="number" id="est-form-min"  class="input" step="0.01" min="0" value="0">
         </div>
         <div class="form-group">
           <label>Data de Entrada</label>
           <input type="date"   id="est-form-data" class="input">
         </div>
+      </div>
+      <div id="est-form-ajuste-hint" class="hidden" style="font-size:.74rem;color:var(--info);margin:-4px 0 10px;line-height:1.4">
+        💡 Alterar a <strong>quantidade</strong> ou o <strong>custo</strong> aqui gera uma movimentação de <strong>ajuste</strong> no histórico.
       </div>
       <div class="form-group">
         <label>Fornecedor</label>
@@ -424,6 +437,43 @@
     <div class="modal-footer">
       <button class="btn btn-primary btn-lg" onclick="Estoque.saveForm()">Salvar</button>
       <button class="btn btn-outline"        onclick="Modal.close('modal-estoque')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Baixa / Perda de estoque -->
+<div id="modal-baixa" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Dar baixa no estoque</h3>
+      <button class="modal-close" onclick="Modal.close('modal-baixa')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="baixa-id">
+      <p id="baixa-item" class="text-muted" style="margin-bottom:12px"></p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Motivo</label>
+          <select id="baixa-motivo" class="input">
+            <option value="uso_interno">Uso interno</option>
+            <option value="perda">Perda / Quebra</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Quantidade</label>
+          <input type="number" id="baixa-qtd" class="input" step="0.01" min="0.01" value="1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <input type="text" id="baixa-obs" class="input" placeholder="Opcional">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Estoque.saveBaixa()">Confirmar baixa</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-baixa')">Cancelar</button>
     </div>
   </div>
 </div>
@@ -461,15 +511,9 @@
           <input type="number" id="compra-parc" class="input" value="1" min="1">
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Competência</label>
-          <input type="month" id="compra-comp" class="input">
-        </div>
-        <div class="form-group">
-          <label>Categoria</label>
-          <select id="compra-cat" class="input"></select>
-        </div>
+      <div class="form-group">
+        <label>Competência</label>
+        <input type="month" id="compra-comp" class="input">
       </div>
       <div class="form-group">
         <label>Observações</label>
@@ -488,6 +532,10 @@
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
       <div style="font-size:.88rem;font-weight:800;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Itens da Compra</div>
+      <div class="form-group">
+        <label>Categoria do item</label>
+        <select id="item-cat" class="input"></select>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label>Descrição</label>
@@ -884,21 +932,21 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=2.7.2"></script>
-<script src="assets/js/utils.js?v=2.7.2"></script>
-<script src="assets/js/notif.js?v=2.7.2"></script>
-<script src="assets/js/home.js?v=2.7.2"></script>
-<script src="assets/js/os.js?v=2.7.2"></script>
-<script src="assets/js/financeiro.js?v=2.7.2"></script>
-<script src="assets/js/clientes.js?v=2.7.2"></script>
-<script src="assets/js/estoque.js?v=2.7.2"></script>
-<script src="assets/js/compras.js?v=2.7.2"></script>
-<script src="assets/js/fiado.js?v=2.7.2"></script>
-<script src="assets/js/insights.js?v=2.7.2"></script>
-<script src="assets/js/config.js?v=2.7.2"></script>
+<script src="assets/js/api.js?v=2.8.2"></script>
+<script src="assets/js/utils.js?v=2.8.2"></script>
+<script src="assets/js/notif.js?v=2.8.2"></script>
+<script src="assets/js/home.js?v=2.8.2"></script>
+<script src="assets/js/os.js?v=2.8.2"></script>
+<script src="assets/js/financeiro.js?v=2.8.2"></script>
+<script src="assets/js/clientes.js?v=2.8.2"></script>
+<script src="assets/js/estoque.js?v=2.8.2"></script>
+<script src="assets/js/compras.js?v=2.8.2"></script>
+<script src="assets/js/fiado.js?v=2.8.2"></script>
+<script src="assets/js/insights.js?v=2.8.2"></script>
+<script src="assets/js/config.js?v=2.8.2"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=2.7.2"></script>
-<script src="assets/js/app.js?v=2.7.2"></script>
+<script src="assets/js/pdf.js?v=2.8.2"></script>
+<script src="assets/js/app.js?v=2.8.2"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

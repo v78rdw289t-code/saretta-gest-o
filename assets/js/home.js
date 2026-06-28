@@ -97,10 +97,21 @@ const Home = (() => {
         </button>
       </div>
 
-      <!-- Lista de Compras — botão destacado -->
-      <button class="btn btn-full compras-btn-home" onclick="App.navigate('os').then(() => OS.openListaCompras())">
-        🛒 Lista de Compras
-      </button>
+      <!-- Estoque — card-hub do módulo (acesso + lançar compra + lista + resumo) -->
+      <div class="card estq-card">
+        <div class="estq-head" onclick="App.navigate('estoque')">
+          <span class="estq-icon">📦</span>
+          <div style="flex:1;min-width:0">
+            <div class="estq-title">Estoque</div>
+            <div class="estq-sub" id="home-estoque-info">—</div>
+          </div>
+          <span class="entity-chevron">›</span>
+        </div>
+        <div class="estq-actions">
+          <button onclick="App.navigate('compras').then(() => Compras.openForm())">🛒 Lançar compra</button>
+          <button onclick="Estoque.goTab('lista')">📝 Lista</button>
+        </div>
+      </div>
 
       <div class="home-section-head">
         <h2 class="home-section-title">💡 Resumo de hoje</h2>
@@ -129,6 +140,23 @@ const Home = (() => {
       return;
     }
     loadOSAndamento();
+    loadEstoqueCard();
+  }
+
+  // Preenche o resumo do card de Estoque na home (nº de itens + quantos a repor).
+  async function loadEstoqueCard() {
+    const el = qs('#home-estoque-info');
+    if (!el) return;
+    const res = await API.db.read('estoque');
+    const itens = (res?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+    const repor = itens.filter(e => {
+      const m = Number(e.estoque_minimo || 0);
+      return m > 0 && Number(e.quantidade || 0) <= m;
+    }).length;
+    el.innerHTML = itens.length === 0
+      ? 'Nenhum item cadastrado'
+      : `${itens.length} ${itens.length === 1 ? 'item' : 'itens'}` +
+        (repor > 0 ? ` · <span class="repor">${repor} a repor</span>` : ' · tudo em ordem');
   }
 
   // Calcula stats no FRONTEND a partir das sheets já em cache.

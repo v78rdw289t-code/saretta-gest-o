@@ -488,11 +488,12 @@ const Insights = (() => {
   }
 
   async function loadInsights() {
-    const shown = Loading.maybeShow('parcelas', 'os', 'diarias');
-    const [parRes, osRes, diRes] = await Promise.all([
+    const shown = Loading.maybeShow('parcelas', 'os', 'diarias', 'compras_itens');
+    const [parRes, osRes, diRes, ciRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
       API.db.read('diarias'),
+      API.db.read('compras_itens'),
     ]);
     if (shown) Loading.hide();
 
@@ -500,6 +501,7 @@ const Insights = (() => {
       parcelas: parRes?.data || [],
       osList:   osRes?.data  || [],
       diarias:  diRes?.data  || [],
+      comprasItensByCompra: agruparComprasItens(ciRes?.data || []),
     };
 
     // Custo fixo mensal (config) — base do custeio por absorção
@@ -676,12 +678,17 @@ const Insights = (() => {
   function _categoriaIdEfetiva(p) {
     return categoriaEfetivaId(p, _cache.osList, _cache.diarias);
   }
+  function _ctxCat() {
+    return { osList: _cache.osList, diarias: _cache.diarias, comprasItensByCompra: _cache.comprasItensByCompra };
+  }
 
   function agruparPorCategoria(parcelas) {
     const out = {};
     parcelas.forEach(p => {
-      const k = App.categoriaNome(_categoriaIdEfetiva(p)) || 'Sem categoria';
-      out[k] = (out[k] || 0) + Number(p.valor || 0);
+      distribuirCategorias(p, _ctxCat()).forEach(({ categoria_id, valor }) => {
+        const k = App.categoriaNome(categoria_id) || 'Sem categoria';
+        out[k] = (out[k] || 0) + Number(valor || 0);
+      });
     });
     return Object.entries(out).sort((a, b) => b[1] - a[1]);
   }

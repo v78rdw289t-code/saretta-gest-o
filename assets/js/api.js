@@ -21,10 +21,11 @@ const API = (() => {
     delete:          (body) => [body.sheet],
     batch:           (body) => Array.from(new Set((body.operations || []).map(op => op.sheet).filter(Boolean))),
     fecharOS:        ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias'],
-    registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'parcelas', 'fiado'],
+    registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado'],
+    registrarMovEstoque: () => ['estoque', 'estoque_movimentacoes'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
     pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
-    excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque'],
+    excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque', 'estoque_movimentacoes'],
     excluirLancamento:  ()     => ['parcelas', 'fiado'],
   };
 
@@ -255,6 +256,7 @@ const API = (() => {
     repairDB() { return get('repairDB', {}, false); },
     fecharOS(data) { return post('fecharOS', data); },
     registrarCompra(data) { return post('registrarCompra', data); },
+    registrarMovEstoque(data) { return post('registrarMovEstoque', data); },
     registrarFiado(data) { return post('registrarFiado', data); },
     pagarParcela(data) { return post('pagarParcela', data); },
     excluirOS(id) { return post('excluirOS', { id }); },

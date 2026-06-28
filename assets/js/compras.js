@@ -21,13 +21,7 @@ const Compras = (() => {
   function renderList() {
     const section = qs('#page-compras');
     section.innerHTML = `
-      <div class="section-tabs">
-        <button class="section-tab" onclick="App.navigate('financeiro')">↓ Receber</button>
-        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('pagar'),50)">↑ Pagar</button>
-        <button class="section-tab" onclick="App.navigate('fiado')">Fiado</button>
-        <button class="section-tab active" onclick="App.navigate('compras')">Compras</button>
-        <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('resumo'),50)">Resumo</button>
-      </div>
+      ${Estoque.tabsHTML('compras')}
       <div class="page-header">
         <h1>Compras</h1>
         <button class="btn btn-primary" onclick="Compras.openForm()">+ Nova Compra</button>
@@ -158,7 +152,7 @@ const Compras = (() => {
     qs('#compra-venc').value      = DateUtil.today();
     qs('#compra-comp').value      = DateUtil.today().substring(0, 7);
     qs('#compra-parc').value      = '1';
-    qs('#compra-cat').innerHTML   = App.categoriaOptions('saida');
+    qs('#item-cat').innerHTML     = '<option value="">— Categoria —</option>' + App.categoriaOptions('saida');
     qs('#compra-obs').value       = '';
     if (qs('#compra-desconto')) qs('#compra-desconto').value = '0';
     const qp = qs('#compra-quempagou');
@@ -177,12 +171,14 @@ const Compras = (() => {
     const container = qs('#compra-itens-list');
     if (!container) return;
     container.innerHTML = itensForm.length === 0 ? '<p class="text-muted">Nenhum item</p>' :
-      itensForm.map((item, i) => `
+      itensForm.map((item, i) => {
+        const cat = item.categoria_id ? (App.getCategorias().find(c => String(c.id) === String(item.categoria_id))?.nome || '') : '';
+        return `
         <div class="item-row">
-          <span>${item.descricao} × ${item.quantidade} ${item.unidade||''} = ${Fmt.currency(item.valor_total)}</span>
+          <span>${item.descricao} × ${item.quantidade} ${item.unidade||''}${cat ? ' · <em style="color:var(--text-muted)">'+cat+'</em>' : ''} = ${Fmt.currency(item.valor_total)}</span>
           <button type="button" class="btn btn-sm btn-danger" onclick="Compras.removeItem(${i})">✕</button>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     const subtotal  = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
     const desconto  = Number(qs('#compra-desconto')?.value) || 0;
     const totalFinal = Math.max(0, subtotal - desconto);
@@ -196,8 +192,9 @@ const Compras = (() => {
     const unit  = Number(qs('#item-unit-val').value) || 0;
     const und   = qs('#item-und').value.trim() || 'un';
     const total = qtd * unit;
+    const catId = qs('#item-cat')?.value || '';
     if (!desc) { Toast.warning('Informe a descrição do item'); return; }
-    itensForm.push({ descricao: desc, quantidade: qtd, valor_unit: unit, valor_total: total, unidade: und });
+    itensForm.push({ descricao: desc, quantidade: qtd, valor_unit: unit, valor_total: total, unidade: und, categoria_id: catId });
     qs('#item-desc').value = '';
     qs('#item-qtd').value  = '1';
     qs('#item-unit-val').value = '';
@@ -215,7 +212,6 @@ const Compras = (() => {
     const venc      = qs('#compra-venc').value;
     const comp      = qs('#compra-comp').value + '-01';
     const parc      = Number(qs('#compra-parc').value) || 1;
-    const catId     = qs('#compra-cat').value;
     const obs       = qs('#compra-obs').value;
     const quemPagou = qs('#compra-quempagou')?.value || '';
     const desconto  = Number(qs('#compra-desconto')?.value) || 0;
@@ -227,7 +223,7 @@ const Compras = (() => {
     const res = await API.db.registrarCompra({
       fornecedor_id: fornId, data, valor_total: total,
       parcelas_count: parc, primeira_data_vencimento: venc,
-      data_competencia: comp, categoria_id: catId,
+      data_competencia: comp, desconto: desconto,
       quem_pagou: quemPagou || undefined,
       itens: itensForm, observacoes: obs,
     });

@@ -5,6 +5,7 @@
 const Financeiro = (() => {
   let allParcelas = [];
   let allOS = [], allDiarias = []; // p/ resolver a categoria efetiva das parcelas de OS
+  let comprasItensByCompra = {};   // p/ ratear a despesa da compra pelas categorias dos itens
   let currentTab = 'receber'; // receber | pagar | resumo
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
@@ -57,19 +58,23 @@ const Financeiro = (() => {
   async function loadData() {
     const shown = Loading.maybeShow('parcelas');
     // OS + sessões são usadas só p/ resolver a categoria efetiva das parcelas de OS
-    const [res, osRes, diRes] = await Promise.all([
+    const [res, osRes, diRes, ciRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
       API.db.read('diarias'),
+      API.db.read('compras_itens'),
     ]);
     if (shown) Loading.hide();
     allParcelas = res?.data || [];
     allOS       = osRes?.data || [];
     allDiarias  = diRes?.data || [];
+    comprasItensByCompra = agruparComprasItens(ciRes?.data || []);
   }
 
   // Categoria efetiva de uma parcela (sessões → OS → parcela) — utils.js
   function _catEfetivaId(p) { return categoriaEfetivaId(p, allOS, allDiarias); }
+  // Contexto p/ ratear despesa de compra pelas categorias dos itens — utils.js
+  function _ctxCat() { return { osList: allOS, diarias: allDiarias, comprasItensByCompra }; }
 
   function renderView() {
     const section = qs('#page-financeiro');
@@ -644,9 +649,11 @@ const Financeiro = (() => {
     const byCategoria = (arr) => {
       const map = {};
       arr.forEach(p => {
-        const nome = App.categoriaNome(_catEfetivaId(p));
-        const k = (nome && nome !== '—') ? nome : 'Sem Categoria';
-        map[k] = (map[k] || 0) + Number(p.valor || 0);
+        distribuirCategorias(p, _ctxCat()).forEach(({ categoria_id, valor }) => {
+          const nome = App.categoriaNome(categoria_id);
+          const k = (nome && nome !== '—') ? nome : 'Sem Categoria';
+          map[k] = (map[k] || 0) + Number(valor || 0);
+        });
       });
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     };
