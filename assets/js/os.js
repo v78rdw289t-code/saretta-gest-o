@@ -196,6 +196,11 @@ const OS = (() => {
     const diarias = allDiarias.filter(d => d.os_id === id)
                                .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === id);
+    // Parcelas (lançamentos financeiros) geradas por esta OS — origem='os'
+    const parcRes  = await API.db.read('parcelas');
+    const parcelas = (parcRes?.data || [])
+      .filter(p => p.origem === 'os' && p.origem_id === id)
+      .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1);
     const section = qs('#page-os');
     const cliente = App.clienteNome(currentOS.cliente_id);
 
@@ -307,9 +312,49 @@ const OS = (() => {
             </div>` : ''}
         </div>
       </div>
+
+      <!-- Parcelas geradas por esta OS — clicáveis, levam para editar no Financeiro -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3>Parcelas geradas</h3>
+          <span class="badge badge-info">${parcelas.length}</span>
+        </div>
+        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
+          ${parcelas.length === 0
+            ? `<div class="entity-empty">${currentOS.status === 'fechado' ? 'Nenhuma parcela vinculada.' : 'Nenhuma — a parcela é gerada ao fechar a OS.'}</div>`
+            : parcelas.map(p => {
+                const venc = p.data_vencimento ? Fmt.date(p.data_vencimento) : '—';
+                const atrasada = p.status === 'pendente' && String(p.data_vencimento || '').substring(0, 10) < DateUtil.today();
+                return `
+                  <div class="entity-item" onclick="OS.abrirParcela('${p.id}')">
+                    <div class="entity-info">
+                      <div class="entity-name">${p.descricao || (p.tipo === 'pagar' ? 'A pagar' : 'A receber')}</div>
+                      <div class="entity-sub">venc. ${venc}${atrasada ? ' · <span style="color:var(--danger)">atrasada</span>' : ''}</div>
+                      <div class="entity-badges">${statusBadge(p.status)}</div>
+                    </div>
+                    <div class="entity-right">
+                      <span class="entity-value">${Fmt.currency(p.valor)}</span>
+                      <span class="entity-chevron">›</span>
+                    </div>
+                  </div>`;
+              }).join('')}
+        </div>
+      </div>
     `;
 
     // Renderiza a calculadora de valor (se a OS ainda não foi fechada)
+  }
+
+  // Abre uma parcela gerada por esta OS para edição (no módulo Financeiro).
+  async function abrirParcela(parcelaId) {
+    if (!parcelaId) return;
+    // Sincroniza o hash p/ 'financeiro' ANTES de navegar (replaceState NÃO dispara
+    // hashchange) — assim o modal de edição não é fechado pelo listener de "voltar".
+    if ((location.hash || '').replace(/^#/, '') !== 'financeiro') {
+      history.replaceState(null, '', '#financeiro');
+    }
+    await App.navigate('financeiro'); // carrega allParcelas no Financeiro
+    Financeiro.editarParcela(parcelaId);
   }
 
   // ─── CALCULADORA DE VALOR (removida do detalhe) ─────────
@@ -1826,7 +1871,7 @@ const OS = (() => {
   }
 
   return {
-    render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, openForm, saveForm,
+    render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, saveForm,
     openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,

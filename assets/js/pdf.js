@@ -162,7 +162,7 @@ const Doc = (() => {
     const cfg  = await Calculator.getConfig();
     const emp  = _empresa(cfg);
     const hoje = new Date().toLocaleDateString('pt-BR');
-    const logo = 'assets/img/logo-app.png?v=2.7.1';
+    const logo = 'assets/img/logo-app.png?v=2.7.2';
     const resultado = (d.totalReceitas || 0) - (d.totalDespesas || 0);
     const corResult = resultado >= 0 ? '#1a7f37' : '#c81e1e';
 
