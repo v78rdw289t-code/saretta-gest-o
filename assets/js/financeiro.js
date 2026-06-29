@@ -1424,21 +1424,21 @@ const Financeiro = (() => {
 
     const reais = p => p.origem !== 'transferencia';
     const sum   = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
-    const byComp = (tipo) => allParcelas.filter(p => p.tipo === tipo && reais(p) && String(p.data_competencia || '').startsWith(mes));
+    // Regime de CAIXA: só o que foi efetivamente recebido/pago no mês, pela data de pagamento.
+    // (NÃO usa competência — evita listar parcelas futuras ainda não pagas e datas presas no dia 01)
     const pagoNoMes = (tipo) => allParcelas.filter(p => p.tipo === tipo && p.status === 'pago' && reais(p) && String(p.data_pagamento || '').startsWith(mes));
-    const sortComp = arr => [...arr].sort((a, b) => (a.data_competencia || '') < (b.data_competencia || '') ? -1 : 1);
+    const sortPag = arr => [...arr].sort((a, b) => (a.data_pagamento || '') < (b.data_pagamento || '') ? -1 : 1);
 
-    const rec = byComp('receber'), pag = byComp('pagar');
-    if (rec.length === 0 && pag.length === 0) { Toast.warning('Sem lançamentos em ' + label); return; }
+    const rec = pagoNoMes('receber'), pag = pagoNoMes('pagar');
+    if (rec.length === 0 && pag.length === 0) { Toast.warning('Sem recebimentos ou pagamentos em ' + label); return; }
 
     // Resolve a categoria efetiva (sessões → OS → parcela) já no nome p/ o PDF.
-    const enrich = arr => sortComp(arr).map(p => ({ ...p, categoriaNome: App.categoriaNome(_catEfetivaId(p)) }));
+    const enrich = arr => sortPag(arr).map(p => ({ ...p, categoriaNome: App.categoriaNome(_catEfetivaId(p)) }));
 
     await Doc.relatorioFinanceiro({
       periodoLabel:  label,
       receitasList:  enrich(rec), totalReceitas: sum(rec),
       despesasList:  enrich(pag), totalDespesas: sum(pag),
-      recebido: sum(pagoNoMes('receber')), pago: sum(pagoNoMes('pagar')),
     });
   }
 

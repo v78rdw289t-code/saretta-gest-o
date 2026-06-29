@@ -169,10 +169,9 @@ const Doc = (() => {
     const catNome = (id) => { const n = App.categoriaNome(id); return (n && n !== '—') ? n : '—'; };
     const linhas = (arr) => arr.map(p => `
       <tr>
-        <td>${Fmt.date(p.data_competencia)}</td>
+        <td>${Fmt.date(p.data_pagamento)}</td>
         <td>${p.descricao || '—'}</td>
         <td>${p.categoriaNome || catNome(p.categoria_id)}</td>
-        <td class="r">${p.status === 'pago' ? '✓' : '○'}</td>
         <td class="r">${Fmt.currency(p.valor || 0)}</td>
       </tr>`).join('');
 
@@ -181,10 +180,10 @@ const Doc = (() => {
         <div class="doc-bloco-titulo">${titulo}</div>
         ${arr.length ? `
         <table class="doc-table">
-          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="r">Pg</th><th class="r">Valor</th></tr></thead>
+          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="r">Valor</th></tr></thead>
           <tbody>
             ${linhas(arr)}
-            <tr class="doc-tr-total"><td colspan="4">Total ${titulo.toLowerCase()} (${arr.length})</td><td class="r">${Fmt.currency(total)}</td></tr>
+            <tr class="doc-tr-total"><td colspan="3">Total ${titulo.toLowerCase()} (${arr.length})</td><td class="r">${Fmt.currency(total)}</td></tr>
           </tbody>
         </table>` : '<p class="doc-cli-info">Nenhum lançamento no período.</p>'}
       </section>`;
@@ -206,14 +205,13 @@ const Doc = (() => {
         </header>
 
         <section class="doc-resumo" style="margin-top:0;margin-bottom:14px">
-          <div class="doc-row"><span>Receitas (competência)</span><span>${Fmt.currency(d.totalReceitas || 0)}</span></div>
-          <div class="doc-row"><span>Despesas (competência)</span><span>${Fmt.currency(d.totalDespesas || 0)}</span></div>
-          <div class="doc-row doc-total"><span>Resultado</span><span style="color:${corResult}">${Fmt.currency(resultado)}</span></div>
-          <div class="doc-row" style="font-size:11px;color:#666"><span>Realizado no caixa — recebido / pago</span><span>${Fmt.currency(d.recebido || 0)} / ${Fmt.currency(d.pago || 0)}</span></div>
+          <div class="doc-row"><span>Recebimentos</span><span>${Fmt.currency(d.totalReceitas || 0)}</span></div>
+          <div class="doc-row"><span>Pagamentos</span><span>${Fmt.currency(d.totalDespesas || 0)}</span></div>
+          <div class="doc-row doc-total"><span>Saldo do período</span><span style="color:${corResult}">${Fmt.currency(resultado)}</span></div>
         </section>
 
-        ${secao('Receitas', d.receitasList || [], d.totalReceitas || 0)}
-        ${secao('Despesas', d.despesasList || [], d.totalDespesas || 0)}
+        ${secao('Recebimentos', d.receitasList || [], d.totalReceitas || 0)}
+        ${secao('Pagamentos', d.despesasList || [], d.totalDespesas || 0)}
 
         <footer class="doc-foot">
           <div class="doc-foot-slogan">${emp.slogan}</div>
