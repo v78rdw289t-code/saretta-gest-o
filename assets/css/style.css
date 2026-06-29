@@ -528,7 +528,7 @@ img { max-width: 100%; }
 
 /* Botão destaque Lista de Compras */
 /* Card-hub do Estoque na home (acesso + lançar compra + lista + resumo) */
-.estq-card { padding: 0; overflow: hidden; margin-bottom: 16px; }
+.estq-card { padding: 0; overflow: hidden; margin: 18px 0 16px; }
 .estq-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
 .estq-icon {
   width: 46px; height: 46px; border-radius: 13px; flex: 0 0 auto;

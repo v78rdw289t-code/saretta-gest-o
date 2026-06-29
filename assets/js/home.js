@@ -175,18 +175,20 @@ const Home = (() => {
     if (!el) return;
     const res = await API.db.read('parcelas');
     const todas = (res?.data || []).filter(p => p.origem !== 'transferencia');
-    // Ordena pelos mais recentes pela data mais relevante de cada lançamento
-    const dataRef = p => String(p.data_pagamento || p.data_vencimento || p.data_competencia || '').substring(0, 10);
-    const ordenadas = todas
-      .filter(p => dataRef(p))
-      .sort((a, b) => (dataRef(a) < dataRef(b) ? 1 : -1))
-      .slice(0, 6);
+    // Ordem de INSERÇÃO: as parcelas voltam na ordem das linhas da planilha
+    // (o backend faz appendRow no fim). As últimas inseridas estão no fim do
+    // array → pega as últimas e inverte p/ mostrar a mais nova primeiro.
+    // (Não ordena por data de venc./pagto — senão parcelas futuras a pagar
+    //  subiriam pro topo mesmo tendo sido lançadas há muito tempo.)
+    const ordenadas = todas.slice(-6).reverse();
 
     if (ordenadas.length === 0) {
       el.innerHTML = '<p class="lanc-empty">Nenhum lançamento ainda</p>';
       return;
     }
 
+    // Data exibida (não é critério de ordem): pago → pagamento; senão venc./comp.
+    const dataRef = p => String(p.data_pagamento || p.data_vencimento || p.data_competencia || '').substring(0, 10);
     el.innerHTML = ordenadas.map(p => {
       const receita = p.tipo === 'receber';
       const pago    = p.status === 'pago';
