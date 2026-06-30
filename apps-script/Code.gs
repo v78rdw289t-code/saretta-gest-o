@@ -6,15 +6,26 @@
 const SPREADSHEET_ID = ''; // <- PREENCHA COM O ID DA PLANILHA
 
 // ─── SEGURANÇA ───────────────────────────────────────────────
-// Defina um token secreto (qualquer texto difícil de adivinhar) e cadastre
-// o MESMO valor em Configurações no app. Enquanto ficar vazio, o acesso
-// continua aberto (compatível com versões antigas). Assim que preencher,
-// só requisições com o token correto são aceitas.
-const API_TOKEN = ''; // <- ex: 'saretta-7f3a9c2e...' (e cole o mesmo no app)
+// O token de acesso NÃO fica no código (assim não vaza no repositório).
+// Defina-o nas PROPRIEDADES DO SCRIPT:
+//   Apps Script → ⚙ Configurações do projeto → Propriedades do script →
+//   Adicionar propriedade:  nome = API_TOKEN   valor = (seu token secreto)
+// e cadastre o MESMO valor em Configurações → Conexão no app.
+// Enquanto a propriedade ficar vazia/ausente, o acesso continua aberto
+// (compatível com versões antigas). Mudar o valor da propriedade vale na
+// hora — não precisa republicar de novo (só republique 1x p/ subir ESTE código).
+function getApiToken() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty('API_TOKEN') || '';
+  } catch (e) {
+    return '';
+  }
+}
 
 function checkAuth(token) {
-  if (!API_TOKEN) return;                  // token não configurado → acesso aberto (retrocompat)
-  if (token !== API_TOKEN) throw new Error('Não autorizado (token inválido)');
+  const apiToken = getApiToken();
+  if (!apiToken) return;                   // token não definido → acesso aberto (retrocompat)
+  if (token !== apiToken) throw new Error('Não autorizado (token inválido)');
 }
 
 const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
