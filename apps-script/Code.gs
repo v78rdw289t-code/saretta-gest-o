@@ -16,7 +16,7 @@ const SPREADSHEET_ID = ''; // <- PREENCHA COM O ID DA PLANILHA
 // hora — não precisa republicar de novo (só republique 1x p/ subir ESTE código).
 function getApiToken() {
   try {
-    return PropertiesService.getScriptProperties().getProperty('API_TOKEN') || '';
+    return (PropertiesService.getScriptProperties().getProperty('API_TOKEN') || '').trim();
   } catch (e) {
     return '';
   }
@@ -25,7 +25,9 @@ function getApiToken() {
 function checkAuth(token) {
   const apiToken = getApiToken();
   if (!apiToken) return;                   // token não definido → acesso aberto (retrocompat)
-  if (token !== apiToken) throw new Error('Não autorizado (token inválido)');
+  // .trim() dos DOIS lados: robusto a espaço/quebra-de-linha colado sem querer
+  // (o app já faz trim no setToken; aqui garante que o backend também faça).
+  if (String(token || '').trim() !== apiToken) throw new Error('Não autorizado (token inválido)');
 }
 
 const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
