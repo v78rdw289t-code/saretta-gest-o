@@ -231,7 +231,7 @@ const Compras = (() => {
 
     if (res?.success) {
       const msg = quemPagou
-        ? `Compra registrada! Fiado de ${quemPagou} gerado.`
+        ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
         : 'Compra registrada! Estoque e financeiro atualizados.';
       Toast.success(msg);
       Modal.close('modal-compra');

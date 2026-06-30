@@ -409,6 +409,15 @@ async function nextOSNumber() {
 }
 
 // ─── Status badge ────────────────────────────────────────────
+// Origens de parcela que são MOVIMENTO de caixa, não receita/despesa do
+// resultado (P&L): transferências entre contas e os movimentos da ficha do
+// sócio (empréstimo e acerto). Servem só para acertar saldo de conta.
+function origemForaResultado(origem) {
+  return origem === 'transferencia' ||
+         origem === 'fiado_emprestimo' ||
+         origem === 'fiado_acerto';
+}
+
 function statusBadge(status) {
   const map = {
     rascunho:  ['badge-secondary', 'Rascunho'],

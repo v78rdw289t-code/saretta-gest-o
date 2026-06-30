@@ -52,6 +52,10 @@ const SHEET_HEADERS = {
   // tipo: entrada|saida|ajuste · motivo: compra|uso_os|uso_interno|perda|ajuste|devolucao
   // origem: compra|os|manual|inventario · origem_id: id da compra/OS (quando houver)
   estoque_movimentacoes: ['id','estoque_id','tipo','motivo','quantidade','valor_unit','valor_total','origem','origem_id','data','observacoes'],
+  // Razão (extrato/ficha) da conta-corrente de cada sócio.
+  // direcao: empresa_deve (+, a empresa deve ao sócio) | socio_deve (−, o sócio deve à empresa)
+  // motivo: despesa_bolso | emprestimo | acerto | ajuste · status: ativo | acertado
+  fiado_mov:      ['id','pessoa','data','direcao','motivo','descricao','valor','parcela_id','conta_id','status','grupo_id','observacoes'],
 };
 
 // ─── ROTEADOR ────────────────────────────────────────────────
@@ -87,6 +91,9 @@ function doPost(e) {
       case 'registrarCompra': result = registrarCompra(data); break;
       case 'registrarMovEstoque': result = registrarMovEstoque(data); break;
       case 'registrarFiado':  result = registrarFiado(data); break;
+      case 'registrarEmprestimoSocio': result = registrarEmprestimoSocio(data); break;
+      case 'registrarFiadoMovManual':  result = registrarFiadoMovManual(data); break;
+      case 'acertarFiado':    result = acertarFiado(data); break;
       case 'pagarParcela':      result = pagarParcela(data); break;
       case 'excluirLancamento': result = excluirLancamento(data.parcela_id); break;
       case 'excluirOS':         result = excluirOS(data.id); break;
@@ -372,8 +379,9 @@ function registrarCompra(data) {
   const grupoIdCompra = Utilities.getUuid();
 
   if (data.quem_pagou) {
-    // Caminho fiado: a pessoa já pagou do bolso.
-    // Parcelas da compra marcadas como pago (a despesa aconteceu).
+    // Sócio pagou a compra do bolso. A despesa real CONTA no resultado
+    // (conta_id='' = não saiu da conta da empresa); a dívida com o sócio
+    // vira movimento na ficha. SEM receita fantasma de "Devolução de fiado".
     let primeiraVenc = new Date(data.primeira_data_vencimento);
     for (let i = 0; i < parcCount; i++) {
       const venc = new Date(primeiraVenc);
@@ -395,55 +403,17 @@ function registrarCompra(data) {
         observacoes:     data.observacoes || '',
       });
     }
-    // Receita-fiado: neutraliza a saída no caixa (pessoa cobriu)
-    const catDevFiado = _findCategoria('Devolução de fiado');
-    create('parcelas', {
-      tipo:            'receber',
-      origem:          'fiado_pago',
-      origem_id:       compraId,
-      grupo_id:        grupoIdCompra,
-      cliente_id:      '',
-      descricao:       'Fiado ' + data.quem_pagou + ' (entrada): Compra ' + fornNome,
-      valor:           liquido,
-      data_competencia:data.data_competencia,
-      data_vencimento: dataPago,
-      data_pagamento:  dataPago,
-      status:          'pago',
-      conta_id:        '',
-      categoria_id:    catDevFiado,
-      observacoes:     'Cobertura de compra paga por ' + data.quem_pagou,
+    // Ficha do sócio: empresa passa a dever a ele
+    _fiadoMovCreate({
+      pessoa:      data.quem_pagou,
+      data:        dataPago,
+      direcao:     'empresa_deve',
+      motivo:      'despesa_bolso',
+      descricao:   'Compra ' + fornNome,
+      valor:       liquido,
+      grupo_id:    grupoIdCompra,
+      observacoes: data.observacoes || '',
     });
-    // Reembolso pendente (empresa deve à pessoa)
-    const catFiado = _findCategoria('Fiado ' + data.quem_pagou);
-    const reemb = create('parcelas', {
-      tipo:            'pagar',
-      origem:          'fiado',
-      origem_id:       '',
-      grupo_id:        grupoIdCompra,
-      cliente_id:      '',
-      descricao:       'Reembolso ' + data.quem_pagou + ': Compra ' + fornNome,
-      valor:           liquido,
-      data_competencia:data.data_competencia,
-      data_vencimento: data.primeira_data_vencimento,
-      data_pagamento:  '',
-      status:          'pendente',
-      conta_id:        '',
-      categoria_id:    catFiado,
-      observacoes:     data.observacoes || '',
-    });
-    // Registro fiado vinculado ao reembolso
-    const fiado = create('fiado', {
-      pessoa:          data.quem_pagou,
-      descricao:       'Compra ' + fornNome,
-      valor:           liquido,
-      data:            dataPago,
-      parcela_pagar_id:reemb.data.id,
-      status:          'pendente',
-      observacoes:     data.observacoes || '',
-    });
-    if (fiado?.data?.id) {
-      update('parcelas', reemb.data.id, { origem_id: fiado.data.id });
-    }
   } else {
     // Caminho normal: parcelas pendentes
     let primeiraVenc = new Date(data.primeira_data_vencimento);
@@ -502,6 +472,173 @@ function registrarFiado(data) {
   update('parcelas', parcelaPagar.data.id, { origem_id: fiado.data.id });
 
   return { success: true, fiado_id: fiado.data.id, parcela_id: parcelaPagar.data.id };
+}
+
+// ============================================================
+// FICHA DO SÓCIO (conta-corrente: Rodrigo / Odinei)
+// Razão de movimentos em 'fiado_mov'. Saldo na PERSPECTIVA DA EMPRESA:
+//   empresa_deve (+) = a empresa deve ao sócio (ele cobriu despesa do bolso)
+//   socio_deve   (−) = o sócio deve à empresa (a empresa emprestou pra ele)
+// ============================================================
+
+function _hojeStr() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function _fiadoMovCreate(o) {
+  return create('fiado_mov', {
+    pessoa:      String(o.pessoa || '').toLowerCase(),
+    data:        o.data || _hojeStr(),
+    direcao:     o.direcao,
+    motivo:      o.motivo,
+    descricao:   o.descricao || '',
+    valor:       Number(o.valor || 0),
+    parcela_id:  o.parcela_id || '',
+    conta_id:    o.conta_id || '',
+    status:      o.status || 'ativo',
+    grupo_id:    o.grupo_id || '',
+    observacoes: o.observacoes || '',
+  });
+}
+
+// Saldo atual da ficha (perspectiva empresa, + = empresa deve ao sócio).
+// Inclui o "saldo inicial" do modelo antigo: reembolsos de fiado ainda pendentes.
+function _fiadoSaldoPessoa(pessoa) {
+  pessoa = String(pessoa || '').toLowerCase();
+  var saldo = 0;
+  // Modelo antigo: registros 'fiado' pendentes = empresa deve
+  sheetToRecords(getSheet('fiado')).forEach(function(f) {
+    if (String(f.pessoa || '').toLowerCase() === pessoa && f.status === 'pendente') {
+      saldo += Number(f.valor || 0);
+    }
+  });
+  // Modelo novo: movimentos ativos
+  sheetToRecords(getSheet('fiado_mov')).forEach(function(m) {
+    if (String(m.pessoa || '').toLowerCase() === pessoa && m.status === 'ativo') {
+      saldo += (m.direcao === 'socio_deve' ? -1 : 1) * Number(m.valor || 0);
+    }
+  });
+  return Math.round(saldo * 100) / 100;
+}
+
+// Empresa empresta dinheiro a um sócio. Sai de uma conta real (NÃO é despesa,
+// fica fora do resultado como uma transferência) e o sócio passa a dever.
+function registrarEmprestimoSocio(data) {
+  // data: { pessoa, valor, conta_id, data, descricao, observacoes }
+  var valor = Number(data.valor || 0);
+  if (!valor) return { success: false, error: 'Valor inválido' };
+  if (!data.conta_id) return { success: false, error: 'Selecione a conta de onde sai o dinheiro' };
+  var dataMov = data.data || _hojeStr();
+  var desc = data.descricao || ('Empréstimo a ' + data.pessoa);
+  var grupoId = Utilities.getUuid();
+  var parc = create('parcelas', {
+    tipo:            'pagar',
+    origem:          'fiado_emprestimo',
+    origem_id:       '',
+    grupo_id:        grupoId,
+    cliente_id:      '',
+    descricao:       desc,
+    valor:           valor,
+    data_competencia:dataMov.substring(0, 7) + '-01',
+    data_vencimento: dataMov,
+    data_pagamento:  dataMov,
+    status:          'pago',
+    categoria_id:    '',
+    conta_id:        data.conta_id,
+    observacoes:     data.observacoes || '',
+  });
+  var mov = _fiadoMovCreate({
+    pessoa: data.pessoa, data: dataMov, direcao: 'socio_deve', motivo: 'emprestimo',
+    descricao: desc, valor: valor, parcela_id: parc.data.id, conta_id: data.conta_id,
+    grupo_id: grupoId, observacoes: data.observacoes || '',
+  });
+  return { success: true, mov_id: mov.data.id, parcela_id: parc.data.id };
+}
+
+// Movimento manual avulso na ficha (ajuste), sem efeito em conta da empresa.
+function registrarFiadoMovManual(data) {
+  // data: { pessoa, direcao, valor, data, descricao, observacoes }
+  var valor = Number(data.valor || 0);
+  if (!valor) return { success: false, error: 'Valor inválido' };
+  if (data.direcao !== 'empresa_deve' && data.direcao !== 'socio_deve') {
+    return { success: false, error: 'Direção inválida' };
+  }
+  var mov = _fiadoMovCreate({
+    pessoa: data.pessoa, data: data.data || _hojeStr(), direcao: data.direcao,
+    motivo: 'ajuste', descricao: data.descricao || 'Ajuste manual', valor: valor,
+    observacoes: data.observacoes || '',
+  });
+  return { success: true, mov_id: mov.data.id };
+}
+
+// Acerto: zera o saldo da ficha. Mexe numa conta real pelo LÍQUIDO e arquiva
+// tudo (movimentos novos viram 'acertado'; fiados antigos pendentes viram
+// 'quitado' e suas parcelas pendentes são removidas — o acerto cobre o caixa).
+function acertarFiado(data) {
+  // data: { pessoa, conta_id, data, observacoes }
+  var pessoa = String(data.pessoa || '').toLowerCase();
+  var saldo = _fiadoSaldoPessoa(pessoa);
+  if (Math.abs(saldo) < 0.005) return { success: false, error: 'Nada a acertar (saldo zero)' };
+  var dataMov = data.data || _hojeStr();
+  var grupoId = Utilities.getUuid();
+  var valor = Math.round(Math.abs(saldo) * 100) / 100;
+  var empresaDevia = saldo > 0; // empresa paga o sócio
+  var pessoaFmt = pessoa.charAt(0).toUpperCase() + pessoa.slice(1);
+  var descAcerto = 'Acerto de fiado — ' + pessoaFmt + ' (já acertado em ' +
+                   dataMov.split('-').reverse().join('/') + ')';
+
+  // 1) Movimento real na conta da empresa (fora do resultado)
+  if (data.conta_id) {
+    create('parcelas', {
+      tipo:            empresaDevia ? 'pagar' : 'receber',
+      origem:          'fiado_acerto',
+      origem_id:       '',
+      grupo_id:        grupoId,
+      cliente_id:      '',
+      descricao:       descAcerto,
+      valor:           valor,
+      data_competencia:dataMov.substring(0, 7) + '-01',
+      data_vencimento: dataMov,
+      data_pagamento:  dataMov,
+      status:          'pago',
+      categoria_id:    '',
+      conta_id:        data.conta_id,
+      observacoes:     data.observacoes || '',
+    });
+  }
+
+  // 2) Arquiva o modelo antigo: fiados pendentes viram quitado; parcela
+  //    pendente vinculada é removida (o caixa já foi coberto no passo 1).
+  sheetToRecords(getSheet('fiado')).forEach(function(f) {
+    if (String(f.pessoa || '').toLowerCase() === pessoa && f.status === 'pendente') {
+      update('fiado', f.id, { status: 'quitado' });
+      if (f.parcela_pagar_id) {
+        var pr = read('parcelas', f.parcela_pagar_id).data[0];
+        if (pr && pr.origem === 'fiado' && pr.status === 'pendente') {
+          try { remove('parcelas', f.parcela_pagar_id); } catch (e) {}
+        }
+      }
+    }
+  });
+
+  // 3) Arquiva os movimentos novos ativos
+  sheetToRecords(getSheet('fiado_mov')).forEach(function(m) {
+    if (String(m.pessoa || '').toLowerCase() === pessoa && m.status === 'ativo') {
+      update('fiado_mov', m.id, { status: 'acertado' });
+    }
+  });
+
+  // 4) Linha de acerto no extrato (informativa, já arquivada; direção contrária
+  //    ao saldo para deixar explícito que zerou)
+  _fiadoMovCreate({
+    pessoa: pessoa, data: dataMov,
+    direcao: empresaDevia ? 'socio_deve' : 'empresa_deve',
+    motivo: 'acerto', descricao: descAcerto, valor: valor,
+    conta_id: data.conta_id || '', status: 'acertado', grupo_id: grupoId,
+    observacoes: data.observacoes || '',
+  });
+
+  return { success: true, valor: valor, empresa_pagou: empresaDevia };
 }
 
 // Movimentação avulsa de estoque: baixa/perda/uso interno/uso em OS (saída),
@@ -669,6 +806,17 @@ function excluirLancamento(parcelaId) {
       try { remove('fiado', p.origem_id); } catch(e) {}
     }
   });
+  // Exclui movimentos da ficha vinculados (por parcela_id ou pelo mesmo grupo_id)
+  try {
+    var grupoIds = {};
+    grupo.forEach(function(p) { grupoIds[p.id] = true; });
+    sheetToRecords(getSheet('fiado_mov')).forEach(function(m) {
+      if ((m.parcela_id && grupoIds[m.parcela_id]) ||
+          (parc.grupo_id && m.grupo_id === parc.grupo_id)) {
+        try { remove('fiado_mov', m.id); } catch(e) {}
+      }
+    });
+  } catch(e) {}
   grupo.forEach(function(p) {
     try { remove('parcelas', p.id); } catch(e) {}
   });

@@ -384,7 +384,7 @@ const Financeiro = (() => {
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     const em7  = new Date(hoje); em7.setDate(em7.getDate() + 7);
 
-    const baseTipo = allParcelas.filter(p => p.tipo === tipo && p.origem !== 'transferencia');
+    const baseTipo = allParcelas.filter(p => p.tipo === tipo && !origemForaResultado(p.origem));
 
     // ── STAT CARDS ──
     // Pendente e Vencido: sempre totais gerais (ignoram o filtro de período —
@@ -611,7 +611,7 @@ const Financeiro = (() => {
     const antDate  = new Date(ano, m - 2, 1);
     const mesAnt   = antDate.toISOString().substring(0, 7);
 
-    const reais = p => p.origem !== 'transferencia';
+    const reais = p => !origemForaResultado(p.origem);
 
     const filterComp  = (tipo, m2) => allParcelas.filter(p => p.tipo === tipo && reais(p) && String(p.data_competencia||'').startsWith(m2));
     const filterCaixa = (tipo, m2) => allParcelas.filter(p => p.tipo === tipo && p.status === 'pago' && reais(p) && String(p.data_pagamento||'').startsWith(m2));
@@ -982,59 +982,33 @@ const Financeiro = (() => {
       return;
     }
 
-    // Caminho especial: fiado integrado
+    // Caminho especial: sócio pagou a despesa do bolso (ficha).
+    // A despesa real CONTA no resultado (conta_id='' = não saiu da conta da
+    // empresa) e a dívida com o sócio vira movimento na ficha. SEM receita
+    // fantasma de "Devolução de fiado".
     if (tipo === 'pagar' && quemPagou) {
       const dataPago = pagto || venc || DateUtil.today();
-      // Busca categoria "Fiado" (antigo "Devolução de fiado") para a parcela de entrada
-      const catDevFiado = App.getCategorias().find(c => c.nome === 'Fiado')?.id
-                       || App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
-      // Busca "Fiado <Pessoa>" para o reembolso (ex: "Fiado Rodrigo")
-      // quemPagou vem minúsculo do select → capitalizar para casar com a categoria
-      const quemFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
-      const catFiadoPessoa = App.getCategorias().find(c => c.nome === `Fiado ${quemFmt}`)?.id || '';
-      // grupo_id único para vincular as 3 parcelas — permite exclusão em conjunto
       const grupoId = (crypto?.randomUUID?.() ||
         'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
           const r = Math.random() * 16 | 0;
           return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
         }));
       Loading.show();
-      // Para fiado integrado: a despesa real e a receita-fiado entram/saem
-      // numa "conta virtual" do colaborador (não na conta da empresa).
-      // 1ª parcela — A despesa real (saiu do caixa)
+      // Despesa real (saiu do bolso do sócio, não da conta da empresa)
       const desp = await API.db.create('parcelas', {
-        tipo: 'pagar', origem: 'fiado_pago', origem_id: '', grupo_id: grupoId,
+        tipo: 'pagar', origem: 'manual', origem_id: '', grupo_id: grupoId,
         cliente_id: cliente, descricao: desc, valor,
         data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
         status: 'pago', categoria_id: categoria, conta_id: '', observacoes: obs,
       });
-      // 2ª parcela — A receita-fiado (entrou no caixa, do bolso)
-      const rec = await API.db.create('parcelas', {
-        tipo: 'receber', origem: 'fiado_pago', origem_id: '', grupo_id: grupoId,
-        cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${desc}`, valor,
-        data_competencia: compFull, data_vencimento: dataPago, data_pagamento: dataPago,
-        status: 'pago', categoria_id: catDevFiado, conta_id: '', observacoes: `Cobertura de despesa paga por ${quemPagou}`,
+      // Movimento na ficha: empresa passa a dever ao sócio
+      await API.db.create('fiado_mov', {
+        pessoa: quemPagou, data: dataPago, direcao: 'empresa_deve', motivo: 'despesa_bolso',
+        descricao: desc, valor, parcela_id: desp?.data?.id || '', conta_id: '',
+        status: 'ativo', grupo_id: grupoId, observacoes: obs,
       });
-      // 3ª parcela — A pagar de reembolso (futuro)
-      const reemb = await API.db.create('parcelas', {
-        tipo: 'pagar', origem: 'fiado', origem_id: '', grupo_id: grupoId,
-        cliente_id: '', descricao: `Reembolso ${quemPagou}: ${desc}`, valor,
-        data_competencia: compFull, data_vencimento: venc || dataPago, data_pagamento: '',
-        status: 'pendente', categoria_id: catFiadoPessoa, conta_id: '', observacoes: obs,
-      });
-      // Registro fiado vinculado à parcela de reembolso
-      if (reemb?.data?.id) {
-        const fia = await API.db.create('fiado', {
-          pessoa: quemPagou, descricao: desc, valor, data: dataPago,
-          parcela_pagar_id: reemb.data.id, status: 'pendente', observacoes: obs,
-        });
-        // Sincroniza origem_id na parcela #3 pra apontar pro fiado
-        if (fia?.data?.id) {
-          await API.db.update('parcelas', reemb.data.id, { origem_id: fia.data.id });
-        }
-      }
       Loading.hide();
-      Toast.success(`Lançado! 3 entradas + fiado de ${quemPagou} criados.`);
+      Toast.success(`Lançado! Despesa registrada e ${quemPagou} vai pra ficha.`);
       Modal.close('modal-manual-lancamento');
       await loadData();
       renderView();
@@ -1101,50 +1075,25 @@ const Financeiro = (() => {
     if (!data) { Toast.warning('Informe a data de pagamento'); return; }
     if (!quemPagou && !conta) { Toast.warning('Selecione a conta'); return; }
 
-    // ── Caminho fiado: colaborador pagou do bolso ──────────────
+    // ── Caminho ficha: sócio pagou esta despesa do bolso ──────────
+    // A despesa continua contando no resultado (vira paga, sem conta da
+    // empresa) e a dívida com o sócio vira movimento na ficha.
     if (quemPagou) {
       const p = allParcelas.find(x => x.id === id);
       if (!p) return;
       const quemFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
-      const compStr = data.substring(0, 7) + '-01';
-      const catFiado      = App.getCategorias().find(c => c.nome === 'Fiado')?.id
-                         || App.getCategorias().find(c => c.nome === 'Devolução de fiado')?.id || '';
-      const catFiadoPessoa= App.getCategorias().find(c => c.nome === `Fiado ${quemFmt}`)?.id || '';
-      const grupoId = (crypto?.randomUUID?.() ||
-        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = Math.random() * 16 | 0;
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-        }));
 
       Loading.show();
-      // 1. Marca a despesa original como paga (pelo colaborador — sem conta da empresa)
+      // 1. Marca a despesa como paga pelo sócio (sem conta da empresa)
       await API.db.update('parcelas', id, { status: 'pago', data_pagamento: data, conta_id: '' });
-      // 2. Receita-fiado: dinheiro que "entrou" do bolso do colaborador
-      await API.db.create('parcelas', {
-        tipo: 'receber', origem: 'fiado_pago', origem_id: '', grupo_id: grupoId,
-        cliente_id: '', descricao: `Fiado ${quemPagou} (entrada): ${p.descricao}`, valor: p.valor,
-        data_competencia: compStr, data_vencimento: data, data_pagamento: data,
-        status: 'pago', categoria_id: catFiado, conta_id: '', observacoes: '',
+      // 2. Movimento na ficha: empresa passa a dever ao sócio
+      await API.db.create('fiado_mov', {
+        pessoa: quemPagou, data, direcao: 'empresa_deve', motivo: 'despesa_bolso',
+        descricao: p.descricao, valor: p.valor, parcela_id: id, conta_id: '',
+        status: 'ativo', grupo_id: p.grupo_id || '', observacoes: '',
       });
-      // 3. Reembolso: empresa deve ao colaborador
-      const reemb = await API.db.create('parcelas', {
-        tipo: 'pagar', origem: 'fiado', origem_id: '', grupo_id: grupoId,
-        cliente_id: '', descricao: `Reembolso ${quemFmt}: ${p.descricao}`, valor: p.valor,
-        data_competencia: compStr, data_vencimento: data, data_pagamento: '',
-        status: 'pendente', categoria_id: catFiadoPessoa, conta_id: '', observacoes: '',
-      });
-      // 4. Registro fiado vinculado ao reembolso
-      if (reemb?.data?.id) {
-        const fia = await API.db.create('fiado', {
-          pessoa: quemPagou, descricao: p.descricao, valor: p.valor, data,
-          parcela_pagar_id: reemb.data.id, status: 'pendente', observacoes: '',
-        });
-        if (fia?.data?.id) {
-          await API.db.update('parcelas', reemb.data.id, { origem_id: fia.data.id });
-        }
-      }
       Loading.hide();
-      Toast.success(`Fiado ${quemFmt} registrado! Reembolso pendente criado.`);
+      Toast.success(`Pago por ${quemFmt} — foi pra ficha dele.`);
       Modal.close('modal-pagamento');
       await loadData();
       filtrar();
@@ -1167,12 +1116,13 @@ const Financeiro = (() => {
     const p = allParcelas.find(x => x.id === id);
     if (!p) return;
 
-    // Parcelas geradas por fiado devem ser editadas pelo módulo Fiado
-    // para manter o registro fiado sincronizado.
+    // Parcelas do modelo antigo de fiado (reembolso pendente) entram na ficha
+    // do sócio como "saldo anterior" — são resolvidas por um Acerto, não
+    // editadas avulsas. Abre a ficha em vez de editar a parcela solta.
     if (p.origem === 'fiado' && p.origem_id) {
       Modal.confirm(
-        'Esta parcela é de um fiado. Para manter os registros sincronizados, edite pelo módulo Fiado. Deseja abrir agora?',
-        () => { App.navigate('fiado'); setTimeout(() => Fiado.openForm(p.origem_id), 200); }
+        'Esta é uma parcela de fiado antigo. Ela agora aparece na Ficha do sócio e é resolvida com um Acerto. Abrir a Ficha?',
+        () => { App.navigate('fiado'); }
       );
       return;
     }
@@ -1422,7 +1372,7 @@ const Financeiro = (() => {
     const nomeMs = new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
     const label  = nomeMs.charAt(0).toUpperCase() + nomeMs.slice(1);
 
-    const reais = p => p.origem !== 'transferencia';
+    const reais = p => !origemForaResultado(p.origem);
     const sum   = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
     // Regime de CAIXA: só o que foi efetivamente recebido/pago no mês, pela data de pagamento.
     // (NÃO usa competência — evita listar parcelas futuras ainda não pagas e datas presas no dia 01)

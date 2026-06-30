@@ -21,12 +21,15 @@ const API = (() => {
     delete:          (body) => [body.sheet],
     batch:           (body) => Array.from(new Set((body.operations || []).map(op => op.sheet).filter(Boolean))),
     fecharOS:        ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias'],
-    registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado'],
+    registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado', 'fiado_mov'],
     registrarMovEstoque: () => ['estoque', 'estoque_movimentacoes'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
+    registrarEmprestimoSocio: () => ['fiado_mov', 'parcelas', 'contas'],
+    registrarFiadoMovManual:  () => ['fiado_mov'],
+    acertarFiado:    ()     => ['fiado_mov', 'fiado', 'parcelas', 'contas'],
     pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
     excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque', 'estoque_movimentacoes'],
-    excluirLancamento:  ()     => ['parcelas', 'fiado'],
+    excluirLancamento:  ()     => ['parcelas', 'fiado', 'fiado_mov'],
   };
 
   function invalidateSheets(sheets) {
@@ -258,6 +261,9 @@ const API = (() => {
     registrarCompra(data) { return post('registrarCompra', data); },
     registrarMovEstoque(data) { return post('registrarMovEstoque', data); },
     registrarFiado(data) { return post('registrarFiado', data); },
+    registrarEmprestimoSocio(data) { return post('registrarEmprestimoSocio', data); },
+    registrarFiadoMovManual(data) { return post('registrarFiadoMovManual', data); },
+    acertarFiado(data) { return post('acertarFiado', data); },
     pagarParcela(data) { return post('pagarParcela', data); },
     excluirOS(id) { return post('excluirOS', { id }); },
     excluirLancamento(parcelaId) { return post('excluirLancamento', { parcela_id: parcelaId }); },

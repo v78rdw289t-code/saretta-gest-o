@@ -92,7 +92,7 @@ const Clientes = (() => {
     ]);
     const osList   = (osRes?.data || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
     const allParc  = parRes?.data || [];
-    const _origemFiado = o => o === 'fiado' || o === 'fiado_pago' || o === 'transferencia';
+    const _origemFiado = o => o === 'fiado' || o === 'fiado_pago' || origemForaResultado(o);
     const isForn   = c.tipo === 'fornecedor';
 
     // ── Fornecedor: todos os lançamentos a pagar (sem filtro de origem) ──

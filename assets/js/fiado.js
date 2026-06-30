@@ -1,271 +1,285 @@
 // ============================================================
-// FIADO
+// FICHA DOS SÓCIOS (conta-corrente: Rodrigo / Odinei)
+// Cada sócio tem uma ficha com extrato de movimentos (razão 'fiado_mov').
+// Saldo na PERSPECTIVA DA EMPRESA:
+//   > 0  → a empresa deve ao sócio (ele cobriu despesa do bolso)
+//   < 0  → o sócio deve à empresa (a empresa emprestou pra ele)
+// "Saldo inicial" = reembolsos do modelo antigo ('fiado') ainda pendentes.
 // ============================================================
 
 const Fiado = (() => {
-  let allFiado    = [];
-  let allParcelas = [];
+  const PESSOAS = ['rodrigo', 'odinei'];
+  let allMov      = [];  // fiado_mov (modelo novo)
+  let allFiadoOld = [];  // sheet 'fiado' (modelo antigo — vira saldo inicial)
+  let _pessoa     = 'rodrigo';
 
   async function render() {
     await loadData();
-    renderList();
+    renderView();
   }
 
   async function loadData() {
-    const shown = Loading.maybeShow('fiado', 'parcelas');
-    const [fRes, pRes] = await Promise.all([
+    const shown = Loading.maybeShow('fiado_mov', 'fiado');
+    const [mRes, fRes] = await Promise.all([
+      API.db.read('fiado_mov'),
       API.db.read('fiado'),
-      API.db.read('parcelas'),
-      App.loadGlobals(), // garante que App.getContas() esteja populado para o modal de quitação
+      App.loadGlobals(), // popula App.getContas() p/ os modais
     ]);
     if (shown) Loading.hide();
-    // Normaliza 'pessoa' para minúsculo (entradas antigas ou via compras podem ter 'Rodrigo' capitalizado)
-    allFiado    = (fRes?.data || [])
-      .map(f => ({ ...f, pessoa: (f.pessoa || '').toLowerCase() }))
-      .sort((a, b) => a.data > b.data ? -1 : 1);
-    allParcelas = pRes?.data || [];
+    allMov = (mRes?.data || []).map(m => ({ ...m, pessoa: (m.pessoa || '').toLowerCase() }));
+    allFiadoOld = (fRes?.data || []).map(f => ({ ...f, pessoa: (f.pessoa || '').toLowerCase() }));
   }
 
-  // Acessa a parcela vinculada a um fiado (fonte da verdade para valor/vencimento/categoria/competência)
-  function getParcela(fiado) {
-    if (!fiado?.parcela_pagar_id) return null;
-    return allParcelas.find(p => p.id === fiado.parcela_pagar_id) || null;
+  const cap = p => (p || '').charAt(0).toUpperCase() + (p || '').slice(1);
+
+  // ─── Saldos ──────────────────────────────────────────────────
+  function saldoInicial(pessoa) {
+    return allFiadoOld
+      .filter(f => f.pessoa === pessoa && f.status === 'pendente')
+      .reduce((s, f) => s + Number(f.valor || 0), 0);
+  }
+  function saldoMov(pessoa) {
+    return allMov
+      .filter(m => m.pessoa === pessoa && m.status === 'ativo')
+      .reduce((s, m) => s + (m.direcao === 'socio_deve' ? -1 : 1) * Number(m.valor || 0), 0);
+  }
+  function saldo(pessoa) {
+    return Math.round((saldoInicial(pessoa) + saldoMov(pessoa)) * 100) / 100;
   }
 
-  // Valor "ao vivo" do fiado — prefere o da parcela (caso tenha sido editado em outro lugar)
-  function valorVivo(fiado) {
-    const p = getParcela(fiado);
-    return Number((p?.valor ?? fiado.valor) || 0);
+  // ─── Extrato (movimentos da pessoa, mais recente primeiro) ───
+  function movsDaPessoa(pessoa) {
+    return allMov
+      .filter(m => m.pessoa === pessoa)
+      .sort((a, b) => (a.data || '') < (b.data || '') ? 1 : -1);
   }
 
-  function renderList(filtro = '') {
-    let items = allFiado;
-    if (filtro) items = items.filter(f => f.pessoa === filtro);
+  const MOTIVO = {
+    despesa_bolso: { ico: '🛒', label: 'Pagou do bolso' },
+    emprestimo:    { ico: '💵', label: 'Empréstimo' },
+    acerto:        { ico: '✅', label: 'Acerto' },
+    ajuste:        { ico: '✏️', label: 'Ajuste' },
+  };
 
-    const totalRodrigo = allFiado.filter(f => f.pessoa === 'rodrigo' && f.status === 'pendente').reduce((s, f) => s + valorVivo(f), 0);
-    const totalOdinei  = allFiado.filter(f => f.pessoa === 'odinei'  && f.status === 'pendente').reduce((s, f) => s + valorVivo(f), 0);
-
+  // ─── View ────────────────────────────────────────────────────
+  function renderView() {
     const section = qs('#page-fiado');
+    const s = saldo(_pessoa);
+    const empresaDeve = s > 0;
+    const zerado = Math.abs(s) < 0.005;
+
+    const saldoLabel = zerado
+      ? 'Tudo certo · saldo zerado'
+      : (empresaDeve ? `A empresa deve a ${cap(_pessoa)}` : `${cap(_pessoa)} deve à empresa`);
+    const saldoCls = zerado ? 'is-zero' : (empresaDeve ? 'is-deve' : 'is-haver');
+
+    const ini = saldoInicial(_pessoa);
+    const movs = movsDaPessoa(_pessoa);
+
     section.innerHTML = `
       <div class="section-tabs">
         <button class="section-tab" onclick="App.navigate('financeiro')">↓ Receber</button>
         <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('pagar'),50)">↑ Pagar</button>
-        <button class="section-tab active" onclick="App.navigate('fiado')">Fiado</button>
+        <button class="section-tab active" onclick="App.navigate('fiado')">Ficha</button>
         <button class="section-tab" onclick="App.navigate('compras')">Compras</button>
         <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('resumo'),50)">Resumo</button>
       </div>
       <div class="page-header">
-        <h1>Fiado</h1>
-        <button class="btn btn-primary" onclick="Fiado.openForm()">+ Novo</button>
+        <h1>Ficha dos Sócios</h1>
       </div>
-      <div class="stats-grid mb-4">
-        <div class="stat-card stat-blue">
-          <div class="stat-label">Deve ao Rodrigo</div>
-          <div class="stat-value">${Fmt.currency(totalRodrigo)}</div>
-          ${totalRodrigo > 0 ? `
-            <button class="btn btn-sm" style="margin-top:8px;width:100%;background:rgba(255,255,255,.18);color:inherit;border:1px solid rgba(255,255,255,.3)"
-              onclick="event.stopPropagation();Fiado.openQuitarTudo('rodrigo')">Quitar Rodrigo</button>
-          ` : ''}
-        </div>
-        <div class="stat-card stat-orange">
-          <div class="stat-label">Deve ao Odinei</div>
-          <div class="stat-value">${Fmt.currency(totalOdinei)}</div>
-          ${totalOdinei > 0 ? `
-            <button class="btn btn-sm" style="margin-top:8px;width:100%;background:rgba(255,255,255,.18);color:inherit;border:1px solid rgba(255,255,255,.3)"
-              onclick="event.stopPropagation();Fiado.openQuitarTudo('odinei')">Quitar Odinei</button>
-          ` : ''}
-        </div>
-        <div class="stat-card stat-red">
-          <div class="stat-label">Total a Pagar</div>
-          <div class="stat-value">${Fmt.currency(totalRodrigo + totalOdinei)}</div>
-        </div>
-      </div>
+
       <div class="tab-bar mb-3">
-        <button class="tab-btn ${filtro===''       ?'active':''}" onclick="Fiado.renderList('')">Todos</button>
-        <button class="tab-btn ${filtro==='rodrigo'?'active':''}" onclick="Fiado.renderList('rodrigo')">Rodrigo</button>
-        <button class="tab-btn ${filtro==='odinei' ?'active':''}" onclick="Fiado.renderList('odinei')">Odinei</button>
+        ${PESSOAS.map(p => {
+          const sp = saldo(p);
+          const sub = Math.abs(sp) < 0.005 ? 'zerado'
+            : (sp > 0 ? `empresa deve ${Fmt.currency(sp)}` : `deve ${Fmt.currency(-sp)}`);
+          return `<button class="tab-btn ${_pessoa === p ? 'active' : ''}" onclick="Fiado.switchPessoa('${p}')">
+                    ${cap(p)}<span class="ficha-tab-sub">${sub}</span>
+                  </button>`;
+        }).join('')}
       </div>
+
+      <div class="ficha-saldo-card ${saldoCls}">
+        <div class="ficha-saldo-label">${saldoLabel}</div>
+        <div class="ficha-saldo-value">${zerado ? Fmt.currency(0) : Fmt.currency(Math.abs(s))}</div>
+        ${ini > 0 ? `<div class="ficha-saldo-ini">Inclui ${Fmt.currency(ini)} de fiado anterior</div>` : ''}
+        <div class="ficha-actions">
+          <button class="btn btn-sm ficha-btn-emp" onclick="Fiado.openEmprestimo()">💵 Emprestar</button>
+          <button class="btn btn-sm ficha-btn-aj" onclick="Fiado.openAjuste()">✏️ Ajuste</button>
+          ${zerado ? '' : `<button class="btn btn-sm ficha-btn-ac" onclick="Fiado.openAcerto()">✅ Acerto</button>`}
+        </div>
+      </div>
+
+      <div class="ficha-extrato-head">Movimentações</div>
       <div class="entity-list">
-        ${items.length === 0
-          ? '<div class="entity-empty">Nenhum registro de fiado</div>'
-          : items.map(f => `
-            <div class="entity-item" onclick="Fiado.tapCard('${f.id}')">
-              <div class="avatar ${f.pessoa === 'rodrigo' ? 'av-blue' : 'av-orange'}">${getInitials(f.pessoa)}</div>
-              <div class="entity-info">
-                <div class="entity-name">${f.descricao}</div>
-                <div class="entity-sub">${Fmt.date(f.data)} · <strong>${f.pessoa}</strong></div>
-              </div>
-              <div class="entity-right">
-                <span class="entity-value text-red">${Fmt.currency(valorVivo(f))}</span>
-                ${statusBadge(f.status)}
-              </div>
-            </div>
-          `).join('')}
+        ${movs.length === 0 && ini === 0
+          ? '<div class="entity-empty">Nenhuma movimentação ainda</div>'
+          : movs.map(m => movRow(m)).join('') +
+            (ini > 0 ? `
+              <div class="entity-item ficha-mov is-ini">
+                <div class="ficha-mov-ico">📋</div>
+                <div class="entity-info">
+                  <div class="entity-name">Saldo anterior (fiado)</div>
+                  <div class="entity-sub">modelo antigo · pendente</div>
+                </div>
+                <div class="entity-right">
+                  <span class="entity-value ficha-v-deve">+${Fmt.currency(ini)}</span>
+                </div>
+              </div>` : '')
+        }
       </div>
     `;
   }
 
-  function openForm(id = null) {
-    const f = id ? allFiado.find(x => x.id === id) : null;
-    const p = f ? getParcela(f) : null;
-
-    qs('#fiado-form-id').value     = id || '';
-    qs('#fiado-form-pessoa').value = f?.pessoa || 'rodrigo';
-    qs('#fiado-form-desc').value   = f?.descricao || '';
-    qs('#fiado-form-valor').value  = p?.valor ?? f?.valor ?? '';
-    qs('#fiado-form-data').value   = Fmt.dateInput(f?.data) || DateUtil.today();
-    qs('#fiado-form-venc').value   = Fmt.dateInput(p?.data_vencimento) || Fmt.dateInput(f?.data) || DateUtil.today();
-    qs('#fiado-form-obs').value    = f?.observacoes || '';
-    if (qs('#modal-fiado-title')) qs('#modal-fiado-title').textContent = id ? 'Editar Fiado' : 'Novo Fiado';
-    if (qs('#fiado-alert-new'))   qs('#fiado-alert-new').style.display = id ? 'none' : '';
-    Modal.open('modal-fiado');
+  function movRow(m) {
+    const info = MOTIVO[m.motivo] || { ico: '•', label: m.motivo || '' };
+    const empresaDeve = m.direcao === 'empresa_deve';
+    const sinal = empresaDeve ? '+' : '−';
+    const vcls  = empresaDeve ? 'ficha-v-deve' : 'ficha-v-haver';
+    const acertado = m.status === 'acertado';
+    return `
+      <div class="entity-item ficha-mov ${acertado ? 'is-acertado' : ''}" onclick="Fiado.tapMov('${m.id}')">
+        <div class="ficha-mov-ico">${info.ico}</div>
+        <div class="entity-info">
+          <div class="entity-name">${m.descricao || info.label}</div>
+          <div class="entity-sub">${Fmt.date(m.data)} · ${info.label}${acertado ? ' · <strong>já acertado</strong>' : ''}</div>
+        </div>
+        <div class="entity-right">
+          <span class="entity-value ${vcls}">${sinal}${Fmt.currency(Number(m.valor || 0))}</span>
+          ${acertado ? '<span class="badge badge-success">acertado</span>' : ''}
+        </div>
+      </div>`;
   }
 
-  async function saveForm() {
-    const id     = qs('#fiado-form-id').value;
-    const pessoa = qs('#fiado-form-pessoa').value;
-    const desc   = qs('#fiado-form-desc').value.trim();
-    const valor  = Number(qs('#fiado-form-valor').value) || 0;
-    const data   = qs('#fiado-form-data').value;
-    const venc   = qs('#fiado-form-venc').value;
-    const obs    = qs('#fiado-form-obs').value;
+  function switchPessoa(p) { _pessoa = p; renderView(); }
 
-    if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
-
+  // ─── Emprestar (empresa → sócio) ─────────────────────────────
+  function openEmprestimo() {
+    qs('#femp-pessoa').value = _pessoa;
+    qs('#femp-pessoa-label').textContent = cap(_pessoa);
+    qs('#femp-valor').value = '';
+    qs('#femp-desc').value  = '';
+    qs('#femp-data').value  = DateUtil.today();
+    qs('#femp-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
+    Modal.open('modal-fiado-emprestimo');
+  }
+  async function confirmEmprestimo() {
+    const pessoa = qs('#femp-pessoa').value;
+    const valor  = Number(qs('#femp-valor').value) || 0;
+    const conta  = qs('#femp-conta').value;
+    const data   = qs('#femp-data').value;
+    const desc   = qs('#femp-desc').value.trim();
+    if (!valor) { Toast.warning('Informe o valor'); return; }
+    if (!conta) { Toast.warning('Selecione a conta de onde sai o dinheiro'); return; }
     Loading.show();
-    let res;
-    if (id) {
-      const fiado = allFiado.find(f => f.id === id);
-      const ops = [
-        { action: 'update', sheet: 'fiado', id,
-          data: { pessoa, descricao: desc, valor, data, observacoes: obs } },
-      ];
-      if (fiado?.parcela_pagar_id) {
-        ops.push({
-          action: 'update', sheet: 'parcelas', id: fiado.parcela_pagar_id,
-          data: {
-            descricao:        'Fiado - ' + pessoa + ' - ' + desc,
-            valor,
-            data_competencia: data,
-            data_vencimento:  venc,
-            observacoes:      obs,
-          },
-        });
-      }
-      res = await API.db.batch(ops);
-      if (res?.success) res.success = res.results?.every(r => r?.success);
-    } else {
-      res = await API.db.registrarFiado({ pessoa, descricao: desc, valor, data, data_vencimento: venc, observacoes: obs });
-    }
-    Loading.hide();
-
-    if (res?.success) {
-      Toast.success(id ? 'Fiado atualizado!' : 'Fiado registrado! Conta a pagar gerada.');
-      Modal.close('modal-fiado');
-      await loadData(); renderList();
-    } else Toast.error('Erro: ' + (res?.error || 'falha ao salvar'));
-  }
-
-  async function quitar(fiadoId, parcelaId) {
-    Modal.confirm('Quitar este fiado? O pagamento será registrado no financeiro.', async () => {
-      const ops = [
-        { action: 'update', sheet: 'fiado', id: fiadoId, data: { status: 'quitado' } },
-      ];
-      if (parcelaId) {
-        ops.push({ action: 'update', sheet: 'parcelas', id: parcelaId, data: { status: 'pago', data_pagamento: DateUtil.today() } });
-      }
-      await API.db.batch(ops);
-      Toast.success('Fiado quitado!');
-      await loadData(); renderList();
+    const res = await API.db.registrarEmprestimoSocio({
+      pessoa, valor, conta_id: conta, data,
+      descricao: desc || `Empréstimo a ${cap(pessoa)}`,
     });
+    Loading.hide();
+    if (res?.success) {
+      Toast.success(`Empréstimo de ${Fmt.currency(valor)} para ${cap(pessoa)} registrado.`);
+      Modal.close('modal-fiado-emprestimo');
+      _pessoa = pessoa;
+      await loadData(); renderView();
+    } else Toast.error('Erro: ' + (res?.error || 'falha ao registrar'));
   }
 
-  // Abre o modal de quitação em lote.
-  // pessoa = '' → quita TODOS os pendentes de todas as pessoas
-  // pessoa = 'rodrigo' | 'odinei' → quita só dessa pessoa
-  function openQuitarTudo(pessoa) {
-    const pendentes = pessoa
-      ? allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente')
-      : allFiado.filter(f => f.status === 'pendente');
+  // ─── Ajuste manual (sem efeito em conta) ─────────────────────
+  function openAjuste() {
+    qs('#faj-pessoa').value = _pessoa;
+    qs('#faj-pessoa-label').textContent = cap(_pessoa);
+    qs('#faj-direcao').value = 'empresa_deve';
+    qs('#faj-valor').value = '';
+    qs('#faj-desc').value  = '';
+    qs('#faj-data').value  = DateUtil.today();
+    Modal.open('modal-fiado-ajuste');
+  }
+  async function confirmAjuste() {
+    const pessoa  = qs('#faj-pessoa').value;
+    const direcao = qs('#faj-direcao').value;
+    const valor   = Number(qs('#faj-valor').value) || 0;
+    const data    = qs('#faj-data').value;
+    const desc    = qs('#faj-desc').value.trim();
+    if (!valor) { Toast.warning('Informe o valor'); return; }
+    Loading.show();
+    const res = await API.db.registrarFiadoMovManual({
+      pessoa, direcao, valor, data, descricao: desc || 'Ajuste manual',
+    });
+    Loading.hide();
+    if (res?.success) {
+      Toast.success('Ajuste registrado na ficha.');
+      Modal.close('modal-fiado-ajuste');
+      _pessoa = pessoa;
+      await loadData(); renderView();
+    } else Toast.error('Erro: ' + (res?.error || 'falha'));
+  }
 
-    if (pendentes.length === 0) {
-      Toast.warning('Nenhum fiado pendente' + (pessoa ? ` para ${pessoa}` : ''));
+  // ─── Acerto (zera o saldo) ───────────────────────────────────
+  function openAcerto() {
+    const s = saldo(_pessoa);
+    if (Math.abs(s) < 0.005) { Toast.warning('Nada a acertar — saldo zerado'); return; }
+    const empresaDeve = s > 0;
+    qs('#fac-pessoa').value = _pessoa;
+    qs('#fac-desc').innerHTML = empresaDeve
+      ? `A empresa vai <strong>pagar ${Fmt.currency(s)}</strong> para <strong>${cap(_pessoa)}</strong> e zerar a ficha.`
+      : `<strong>${cap(_pessoa)}</strong> vai <strong>devolver ${Fmt.currency(-s)}</strong> para a empresa e zerar a ficha.`;
+    qs('#fac-conta-label').textContent = empresaDeve ? 'Conta de onde sai o pagamento' : 'Conta que recebe';
+    qs('#fac-data').value  = DateUtil.today();
+    qs('#fac-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
+    Modal.open('modal-fiado-acerto');
+  }
+  async function confirmAcerto() {
+    const pessoa = qs('#fac-pessoa').value;
+    const data   = qs('#fac-data').value;
+    const conta  = qs('#fac-conta').value;
+    if (!data)  { Toast.warning('Informe a data'); return; }
+    if (!conta) { Toast.warning('Selecione a conta'); return; }
+    Loading.show();
+    const res = await API.db.acertarFiado({ pessoa, conta_id: conta, data });
+    Loading.hide();
+    if (res?.success) {
+      Toast.success(`Acerto de ${Fmt.currency(res.valor)} — ficha de ${cap(pessoa)} zerada.`);
+      Modal.close('modal-fiado-acerto');
+      _pessoa = pessoa;
+      await loadData(); renderView();
+    } else Toast.error('Erro: ' + (res?.error || 'falha ao acertar'));
+  }
+
+  // ─── Tap num movimento ───────────────────────────────────────
+  function tapMov(id) {
+    const m = allMov.find(x => x.id === id);
+    if (!m) return;
+    if (m.status === 'acertado') {
+      Toast.show('Movimento já acertado (histórico).', 'info', 3000);
       return;
     }
-
-    const total     = pendentes.reduce((s, f) => s + valorVivo(f), 0);
-    const pessoaLabel = pessoa
-      ? pessoa.charAt(0).toUpperCase() + pessoa.slice(1)
-      : 'todos';
-
-    qs('#fiado-quitar-desc').innerHTML =
-      `<strong>${pendentes.length} fiado(s)</strong> de <strong>${pessoaLabel}</strong><br>
-       Total a quitar: <strong style="color:var(--danger)">${Fmt.currency(total)}</strong>`;
-    qs('#fiado-quitar-data').value      = DateUtil.today();
-    qs('#fiado-quitar-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
-    qs('#fiado-quitar-btn').dataset.pessoa = pessoa;
-    Modal.open('modal-fiado-quitar-tudo');
-  }
-
-  async function confirmarQuitarTudo() {
-    const pessoa = qs('#fiado-quitar-btn').dataset.pessoa;
-    const data   = qs('#fiado-quitar-data').value;
-    const conta  = qs('#fiado-quitar-conta').value;
-    if (!data)  { Toast.warning('Informe a data de pagamento'); return; }
-    if (!conta) { Toast.warning('Selecione a conta'); return; }
-
-    const pendentes = pessoa
-      ? allFiado.filter(f => f.pessoa === pessoa && f.status === 'pendente')
-      : allFiado.filter(f => f.status === 'pendente');
-
-    if (pendentes.length === 0) { Toast.warning('Nenhum fiado pendente'); return; }
-
-    const ops = [];
-    pendentes.forEach(f => {
-      ops.push({ action: 'update', sheet: 'fiado', id: f.id, data: { status: 'quitado' } });
-      if (f.parcela_pagar_id) {
-        ops.push({ action: 'update', sheet: 'parcelas', id: f.parcela_pagar_id,
-          data: { status: 'pago', data_pagamento: data, conta_id: conta } });
-      }
-    });
-
-    Loading.show();
-    await API.db.batch(ops);
-    Loading.hide();
-    Toast.success(`${pendentes.length} fiado(s) quitado(s)!`);
-    Modal.close('modal-fiado-quitar-tudo');
-    await loadData(); renderList();
-  }
-
-  async function confirmDelete(id) {
-    const fiado = allFiado.find(x => x.id === id);
-    const msg = fiado?.status === 'quitado'
-      ? 'Excluir este fiado já quitado? O lançamento pago no financeiro será mantido (histórico).'
-      : 'Excluir este registro de fiado? A conta a pagar gerada também será removida.';
-    Modal.confirm(msg, async () => {
-      const ops = [{ action: 'delete', sheet: 'fiado', id }];
-      // Só remove a parcela se ainda estiver pendente — se já foi paga, mantém o histórico no caixa
-      if (fiado?.parcela_pagar_id && fiado.status !== 'quitado') {
-        ops.push({ action: 'delete', sheet: 'parcelas', id: fiado.parcela_pagar_id });
-      }
-      await API.db.batch(ops);
-      Toast.success('Excluído');
-      await loadData(); renderList();
-    });
-  }
-
-  function tapCard(id) {
-    const f = allFiado.find(x => x.id === id);
-    if (!f) return;
     const actions = [];
-    if (f.status === 'pendente') {
-      actions.push({ icon: '✅', label: 'Quitar',  fn: () => quitar(id, f.parcela_pagar_id) });
-      actions.push({ icon: '✏️', label: 'Editar',  fn: () => openForm(id) });
+    if (m.motivo === 'ajuste') {
+      actions.push({ icon: '🗑', label: 'Excluir ajuste', danger: true, fn: () => excluirAjuste(id) });
+    } else if (m.motivo === 'emprestimo') {
+      actions.push({ icon: 'ℹ️', label: 'Excluir pelo Financeiro', fn: () =>
+        Toast.show('Para apagar um empréstimo, exclua o lançamento no Financeiro.', 'info', 4000) });
+    } else if (m.motivo === 'despesa_bolso') {
+      actions.push({ icon: 'ℹ️', label: 'Vem de uma despesa', fn: () =>
+        Toast.show('Esta linha veio de uma despesa paga pelo sócio. Edite/exclua a despesa no Financeiro.', 'info', 4500) });
     }
-    actions.push({ icon: '🗑', label: 'Excluir', fn: () => confirmDelete(id), danger: true });
-    ActionSheet.open(f.descricao, actions);
+    if (actions.length === 0) return;
+    ActionSheet.open(m.descricao || 'Movimento', actions);
+  }
+  async function excluirAjuste(id) {
+    Modal.confirm('Excluir este ajuste da ficha?', async () => {
+      await API.db.delete('fiado_mov', id);
+      Toast.success('Ajuste excluído');
+      await loadData(); renderView();
+    });
   }
 
-  return { render, renderList, tapCard, openForm, saveForm,
-           quitar, openQuitarTudo, confirmarQuitarTudo, confirmDelete };
+  return {
+    render, renderView, switchPessoa,
+    openEmprestimo, confirmEmprestimo,
+    openAjuste, confirmAjuste,
+    openAcerto, confirmAcerto,
+    tapMov,
+  };
 })();

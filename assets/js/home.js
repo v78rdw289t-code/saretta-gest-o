@@ -174,7 +174,7 @@ const Home = (() => {
     const el = qs('#home-lancamentos');
     if (!el) return;
     const res = await API.db.read('parcelas');
-    const todas = (res?.data || []).filter(p => p.origem !== 'transferencia');
+    const todas = (res?.data || []).filter(p => !origemForaResultado(p.origem));
     // Ordem de INSERÇÃO: as parcelas voltam na ordem das linhas da planilha
     // (o backend faz appendRow no fim). As últimas inseridas estão no fim do
     // array → pega as últimas e inverte p/ mostrar a mais nova primeiro.
@@ -221,7 +221,7 @@ const Home = (() => {
   function computeLembreteStats(osList, parcelas) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const em7   = new Date(today); em7.setDate(em7.getDate() + 7);
-    const reais = parcelas.filter(p => p.origem !== 'transferencia');
+    const reais = parcelas.filter(p => !origemForaResultado(p.origem));
 
     const pendRec = reais.filter(p => p.tipo === 'receber' && p.status === 'pendente');
     const venc7 = reais.filter(p => {

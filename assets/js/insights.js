@@ -193,7 +193,7 @@ const Insights = (() => {
 
   // Snapshot de métricas de um período — base da comparação do mega insight
   function _calcSnapshot(periodo) {
-    const parc = _cache.parcelas.filter(p => noPeriodo(p, periodo));
+    const parc = _cache.parcelas.filter(p => !origemForaResultado(p.origem) && noPeriodo(p, periodo));
     const receitas = parc.filter(p => p.tipo === 'receber');
     const despesas = parc.filter(p => p.tipo === 'pagar');
     const faturamento = sumValor(receitas);
@@ -221,11 +221,11 @@ const Insights = (() => {
   // parcelas a receber ainda pendentes (ex.: OS fechada que o cliente não pagou).
   function _calcSnapshotProjetado(periodo, receitaPrevista = 0) {
     const recebidas = _cache.parcelas.filter(p =>
-      p.tipo === 'receber' && p.status === 'pago' &&
+      p.tipo === 'receber' && p.status === 'pago' && !origemForaResultado(p.origem) &&
       String(p.data_competencia || '').substring(0, 10) >= periodo.start &&
       String(p.data_competencia || '').substring(0, 10) <= periodo.end
     );
-    const despesas = _cache.parcelas.filter(p => p.tipo === 'pagar' && noPeriodo(p, periodo));
+    const despesas = _cache.parcelas.filter(p => p.tipo === 'pagar' && !origemForaResultado(p.origem) && noPeriodo(p, periodo));
     const recebido    = sumValor(recebidas);
     const faturamento = recebido + receitaPrevista;
     const totalDesp   = sumValor(despesas);
@@ -467,7 +467,7 @@ const Insights = (() => {
   function _auditarMes() {
     const periodo = calcPeriodo(_periodo);
     const parc = (_cache.parcelas || []).filter(p =>
-      p.origem !== 'transferencia' && noPeriodo(p, periodo, 'competencia'));
+      !origemForaResultado(p.origem) && noPeriodo(p, periodo, 'competencia'));
     let semCat = 0, semVenc = 0, valorRuim = 0;
     parc.forEach(p => {
       const catId = _categoriaIdEfetiva(p);
@@ -511,7 +511,7 @@ const Insights = (() => {
     const periodo = calcPeriodo(_periodo);
 
     // Pre-filtra parcelas pelo período (regime de competência)
-    const parcelasPeriodo = _cache.parcelas.filter(p => noPeriodo(p, periodo));
+    const parcelasPeriodo = _cache.parcelas.filter(p => !origemForaResultado(p.origem) && noPeriodo(p, periodo));
 
     // Métricas básicas
     const receitas = parcelasPeriodo.filter(p => p.tipo === 'receber');
