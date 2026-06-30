@@ -105,7 +105,9 @@ function respond(data) {
 
 function parseFilters(params) {
   const filters = {};
-  const skip = ['action', 'sheet', 'id'];
+  // 'token' é metadado de autenticação, NÃO um filtro de coluna — senão todo
+  // read com token autenticado filtra por uma coluna inexistente e volta vazio.
+  const skip = ['action', 'sheet', 'id', 'token'];
   Object.keys(params).forEach(k => {
     if (!skip.includes(k)) filters[k] = params[k];
   });
