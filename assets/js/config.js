@@ -48,8 +48,14 @@ const Config = (() => {
             </div>
             <div class="form-group">
               <label>Token de acesso <small style="color:var(--text-muted);font-weight:400">(segurança — deixe igual ao do Apps Script)</small></label>
-              <input type="text" id="cfg-token" class="input" value="${tokenAtual}"
-                placeholder="cole aqui o mesmo token do backend" autocomplete="off">
+              <div style="position:relative">
+                <input type="password" id="cfg-token" class="input" value="${tokenAtual}"
+                  placeholder="cole aqui o mesmo token do backend" autocomplete="off"
+                  style="padding-right:46px" spellcheck="false">
+                <button type="button" id="cfg-token-eye" onclick="Config.toggleToken()"
+                  aria-label="Mostrar ou ocultar o token"
+                  style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.15rem;padding:6px;line-height:1">👁️</button>
+              </div>
             </div>
             <button class="btn btn-primary" onclick="Config.saveUrl()">Salvar conexão</button>
             ${urlAtual ? `<button class="btn btn-outline ml-2" onclick="Config.testarConexao()">Testar Conexão</button>` : ''}
@@ -403,7 +409,16 @@ const Config = (() => {
     } else Toast.error('Erro: ' + (res?.error || ''));
   }
 
-  return { render, saveUrl, testarConexao, saveHoras, saveFatores,
+  function toggleToken() {
+    const inp = qs('#cfg-token');
+    const eye = qs('#cfg-token-eye');
+    if (!inp) return;
+    const oculto = inp.type === 'password';
+    inp.type = oculto ? 'text' : 'password';
+    if (eye) eye.textContent = oculto ? '🙈' : '👁️';
+  }
+
+  return { render, saveUrl, testarConexao, toggleToken, saveHoras, saveFatores,
            openCatForm, saveCat, toggleCat,
            openContaForm, saveConta, toggleConta,
            initDB, repairDB };
