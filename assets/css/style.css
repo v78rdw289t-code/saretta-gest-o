@@ -1502,3 +1502,31 @@ textarea.input { resize: vertical; min-height: 80px; }
 .ficha-mov.is-ini .ficha-mov-ico { background: var(--gold-lt); }
 .ficha-v-deve  { color: var(--danger)  !important; }
 .ficha-v-haver { color: var(--success) !important; }
+
+/* ═══ Fechamento em lote (v3.0) ═══ */
+.lote-hint {
+  background: var(--gold-lt); border: 1px solid var(--gold);
+  border-radius: 12px; padding: 10px 14px; font-size: .82rem; color: var(--text);
+}
+.lote-check {
+  flex: 0 0 24px; width: 24px; height: 24px; border-radius: 8px;
+  border: 2px solid var(--border); display: flex; align-items: center;
+  justify-content: center; font-weight: 800; font-size: .8rem; color: var(--navy);
+  background: #fff;
+}
+.lote-check.on { background: var(--gold); border-color: var(--gold); }
+.entity-item.lote-off { opacity: .35; pointer-events: none; }
+.entity-item.lote-on  { background: var(--gold-lt); }
+.lote-bar {
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+  background: var(--navy); color: #fff; border-radius: 16px;
+  padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+  z-index: 190; box-shadow: 0 8px 24px rgba(15, 29, 53, .35);
+}
+.lote-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lote-bar-info span { font-size: .75rem; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lote-bar .btn[disabled] { opacity: .45; }
+@media (min-width: 768px) {
+  .lote-bar { left: auto; right: 24px; bottom: 24px; max-width: 420px; min-width: 320px; }
+}

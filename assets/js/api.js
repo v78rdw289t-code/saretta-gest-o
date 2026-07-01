@@ -21,6 +21,7 @@ const API = (() => {
     delete:          (body) => [body.sheet],
     batch:           (body) => Array.from(new Set((body.operations || []).map(op => op.sheet).filter(Boolean))),
     fecharOS:        ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias'],
+    fecharOSLote:    ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias', 'fechamento_os'],
     registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado', 'fiado_mov'],
     registrarMovEstoque: () => ['estoque', 'estoque_movimentacoes'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
@@ -28,7 +29,7 @@ const API = (() => {
     registrarFiadoMovManual:  () => ['fiado_mov'],
     acertarFiado:    ()     => ['fiado_mov', 'fiado', 'parcelas', 'contas'],
     pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
-    excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'estoque', 'estoque_movimentacoes'],
+    excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'fechamento_os', 'estoque', 'estoque_movimentacoes'],
     excluirLancamento:  ()     => ['parcelas', 'fiado', 'fiado_mov'],
   };
 
@@ -258,6 +259,7 @@ const API = (() => {
     initDB() { return get('initDB', {}, false); },
     repairDB() { return get('repairDB', {}, false); },
     fecharOS(data) { return post('fecharOS', data); },
+    fecharOSLote(data) { return post('fecharOSLote', data); },
     registrarCompra(data) { return post('registrarCompra', data); },
     registrarMovEstoque(data) { return post('registrarMovEstoque', data); },
     registrarFiado(data) { return post('registrarFiado', data); },

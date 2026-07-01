@@ -6,6 +6,7 @@ const Financeiro = (() => {
   let allParcelas = [];
   let allOS = [], allDiarias = []; // p/ resolver a categoria efetiva das parcelas de OS
   let comprasItensByCompra = {};   // p/ ratear a despesa da compra pelas categorias dos itens
+  let fechamentoOsByFech   = {};   // p/ ratear a parcela de lote de OS pelas categorias das OS
   let currentTab = 'receber'; // receber | pagar | resumo
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
@@ -58,23 +59,25 @@ const Financeiro = (() => {
   async function loadData() {
     const shown = Loading.maybeShow('parcelas');
     // OS + sessões são usadas só p/ resolver a categoria efetiva das parcelas de OS
-    const [res, osRes, diRes, ciRes] = await Promise.all([
+    const [res, osRes, diRes, ciRes, foRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
       API.db.read('diarias'),
       API.db.read('compras_itens'),
+      API.db.read('fechamento_os'),
     ]);
     if (shown) Loading.hide();
     allParcelas = res?.data || [];
     allOS       = osRes?.data || [];
     allDiarias  = diRes?.data || [];
     comprasItensByCompra = agruparComprasItens(ciRes?.data || []);
+    fechamentoOsByFech   = agruparFechamentoOs(foRes?.data || []);
   }
 
-  // Categoria efetiva de uma parcela (sessões → OS → parcela) — utils.js
-  function _catEfetivaId(p) { return categoriaEfetivaId(p, allOS, allDiarias); }
-  // Contexto p/ ratear despesa de compra pelas categorias dos itens — utils.js
-  function _ctxCat() { return { osList: allOS, diarias: allDiarias, comprasItensByCompra }; }
+  // Categoria efetiva de uma parcela (sessões → OS → parcela; lote → predominante) — utils.js
+  function _catEfetivaId(p) { return categoriaEfetivaId(p, allOS, allDiarias, fechamentoOsByFech); }
+  // Contexto p/ ratear compra (itens) e lote de OS (fechamento_os) por categoria — utils.js
+  function _ctxCat() { return { osList: allOS, diarias: allDiarias, comprasItensByCompra, fechamentoOsByFech }; }
 
   function renderView() {
     const section = qs('#page-financeiro');

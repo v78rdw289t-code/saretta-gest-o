@@ -489,11 +489,12 @@ const Insights = (() => {
 
   async function loadInsights() {
     const shown = Loading.maybeShow('parcelas', 'os', 'diarias', 'compras_itens');
-    const [parRes, osRes, diRes, ciRes] = await Promise.all([
+    const [parRes, osRes, diRes, ciRes, foRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
       API.db.read('diarias'),
       API.db.read('compras_itens'),
+      API.db.read('fechamento_os'),
     ]);
     if (shown) Loading.hide();
 
@@ -502,6 +503,7 @@ const Insights = (() => {
       osList:   osRes?.data  || [],
       diarias:  diRes?.data  || [],
       comprasItensByCompra: agruparComprasItens(ciRes?.data || []),
+      fechamentoOsByFech:   agruparFechamentoOs(foRes?.data || []),
     };
 
     // Custo fixo mensal (config) — base do custeio por absorção
@@ -674,12 +676,12 @@ const Insights = (() => {
   // ─── HELPERS ─────────────────────────────────────────────
   function sumValor(arr) { return arr.reduce((s, p) => s + Number(p.valor || 0), 0); }
 
-  // Categoria efetiva (sessões → OS → parcela) via helper compartilhado (utils.js).
+  // Categoria efetiva (sessões → OS → parcela; lote → predominante) via helper compartilhado (utils.js).
   function _categoriaIdEfetiva(p) {
-    return categoriaEfetivaId(p, _cache.osList, _cache.diarias);
+    return categoriaEfetivaId(p, _cache.osList, _cache.diarias, _cache.fechamentoOsByFech);
   }
   function _ctxCat() {
-    return { osList: _cache.osList, diarias: _cache.diarias, comprasItensByCompra: _cache.comprasItensByCompra };
+    return { osList: _cache.osList, diarias: _cache.diarias, comprasItensByCompra: _cache.comprasItensByCompra, fechamentoOsByFech: _cache.fechamentoOsByFech };
   }
 
   function agruparPorCategoria(parcelas) {

@@ -41,6 +41,10 @@ const SHEET_HEADERS = {
   diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes','reajuste_json','blocos_json'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
   fechamento_dias:['id','fechamento_id','diaria_id'],
+  // Fechamento em lote (várias OS → 1 parcela): uma linha por OS do lote,
+  // com o líquido (snapshot) daquela OS. Categoria NÃO é gravada — é resolvida
+  // dinâmica por OS via categoriaEfetivaId no frontend (categoria segue a OS).
+  fechamento_os:  ['id','fechamento_id','os_id','valor_liq'],
   parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
   contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
@@ -88,6 +92,7 @@ function doPost(e) {
       case 'delete':          result = remove(data.sheet, data.id); break;
       case 'batch':           result = batch(data.operations); break;
       case 'fecharOS':        result = fecharOS(data); break;
+      case 'fecharOSLote':    result = fecharOSLote(data); break;
       case 'registrarCompra': result = registrarCompra(data); break;
       case 'registrarMovEstoque': result = registrarMovEstoque(data); break;
       case 'registrarFiado':  result = registrarFiado(data); break;
@@ -265,6 +270,56 @@ function fecharOS(data) {
 
   // Atualizar status da OS
   update('os', data.os_id, { status: 'fechado', valor_fechamento: data.valor_liquido, data_fim: new Date().toISOString().substring(0,10), data_atualizacao: new Date().toISOString() });
+
+  return { success: true, fechamento_id: fechId, parcela_id: parcela.data.id };
+}
+
+function fecharOSLote(data) {
+  // Fechamento em lote: várias OS do mesmo cliente → 1 fechamento + 1 parcela.
+  // data: { cliente_id, itens: [{os_id, valor_bruto, valor_liquido, diaria_ids:[]}],
+  //         valor_bruto_total, desconto, valor_liquido_total,
+  //         data_competencia, data_vencimento, categoria_id, observacoes }
+  const itens = data.itens || [];
+  if (itens.length === 0) return { success: false, error: 'Nenhuma OS no lote' };
+
+  const fechamento = create('fechamentos', {
+    os_id:         '', // lote não pertence a uma OS única; vínculo fica em fechamento_os
+    data:          Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    valor_bruto:   data.valor_bruto_total,
+    desconto:      data.desconto || 0,
+    valor_liquido: data.valor_liquido_total,
+    observacoes:   data.observacoes || '',
+  });
+  const fechId = fechamento.data.id;
+
+  const numeros = [];
+  const hoje = new Date().toISOString().substring(0, 10);
+  itens.forEach(it => {
+    create('fechamento_os', { fechamento_id: fechId, os_id: it.os_id, valor_liq: it.valor_liquido });
+    (it.diaria_ids || []).forEach(did => create('fechamento_dias', { fechamento_id: fechId, diaria_id: did }));
+    const osRec = read('os', it.os_id).data[0];
+    // numero já vem como 'OS-101' → vira '#101' (descrição curta: "OS #101, #102 - Cliente")
+    if (osRec) numeros.push('#' + String(osRec.numero || '').replace(/^OS-?/i, ''));
+    update('os', it.os_id, { status: 'fechado', valor_fechamento: it.valor_liquido, data_fim: hoje, data_atualizacao: new Date().toISOString() });
+  });
+
+  const clienteRec = data.cliente_id ? read('clientes', data.cliente_id).data[0] : null;
+  const clienteNome = clienteRec ? clienteRec.nome : '';
+
+  const parcela = create('parcelas', {
+    tipo:            'receber',
+    origem:          'os_lote',
+    origem_id:       fechId,
+    cliente_id:      data.cliente_id || '',
+    descricao:       'OS ' + numeros.join(', ') + ' - ' + clienteNome,
+    valor:           data.valor_liquido_total,
+    data_competencia:data.data_competencia,
+    data_vencimento: data.data_vencimento,
+    data_pagamento:  '',
+    status:          'pendente',
+    categoria_id:    data.categoria_id || '',
+    observacoes:     data.observacoes || '',
+  });
 
   return { success: true, fechamento_id: fechId, parcela_id: parcela.data.id };
 }
@@ -857,6 +912,9 @@ function excluirOS(osId) {
     fdias.forEach(fd => remove('fechamento_dias', fd.id));
     remove('fechamentos', f.id);
   });
+  // Lote: remove só a linha desta OS; o restante do lote (fechamento/parcela) fica.
+  const fosRows = read('fechamento_os', null, { os_id: osId }).data;
+  fosRows.forEach(fo => remove('fechamento_os', fo.id));
   remove('os', osId);
   return { success: true };
 }

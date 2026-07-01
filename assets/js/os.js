@@ -20,6 +20,12 @@ const OS = (() => {
   };
   let _calcExpanded = false;  // true = calculadora aberta; false = resumo/botão
 
+  // Fechamento em lote (várias OS do mesmo cliente → 1 parcela)
+  let _loteMode    = false;      // modo seleção múltipla ligado na lista
+  let _loteSel     = new Set();  // ids das OS marcadas
+  let _loteCliente = '';         // cliente fixado pela 1ª OS marcada
+  let _loteCalc    = {};         // osId → { base, baseOrig, maoObra, totalItens, calculado, ... }
+
   // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render(params = {}) {
     await Promise.all([loadData(), App.loadGlobals()]);
@@ -65,12 +71,29 @@ const OS = (() => {
     const receitaMes     = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes))
                                 .reduce((s,o) => s + Number(o.valor_fechamento||0), 0);
 
+    // Subtotal do lote (valores já gravados nas sessões + itens — sem recalcular base)
+    const loteSubtotal = Array.from(_loteSel).reduce((s, id) => {
+      const mo = allDiarias.filter(d => d.os_id === id)
+        .reduce((t, d) => t + Number(d.valor_manual || d.valor_calculado || 0), 0);
+      const it = allItens.filter(i => i.os_id === id)
+        .reduce((t, i) => t + Number(i.valor_total || 0), 0);
+      return s + mo + it;
+    }, 0);
+
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
         <h1>Ordens de Serviço</h1>
-        <button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn ${_loteMode ? 'btn-gold' : 'btn-outline'} btn-sm" onclick="OS.toggleLoteMode()">${_loteMode ? '✕ Cancelar' : '☑ Fechar em lote'}</button>
+          ${_loteMode ? '' : '<button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>'}
+        </div>
       </div>
+
+      ${_loteMode ? `
+      <div class="lote-hint mb-3">
+        Toque nas OS <strong>do mesmo cliente</strong> que quer juntar num fechamento só (1 parcela).
+      </div>` : ''}
 
       <div class="stats-grid mb-3">
         <div class="stat-card stat-blue" style="cursor:pointer" onclick="OS.setStatus('andamento')">
@@ -106,8 +129,15 @@ const OS = (() => {
           ? '<div class="entity-empty">Nenhuma OS encontrada</div>'
           : items.map(o => {
             const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
+            // Em modo lote: só OS não fechadas e (após a 1ª marcada) do mesmo cliente
+            const selecionavel = !_loteMode || (o.status !== 'fechado' && (!_loteCliente || o.cliente_id === _loteCliente));
+            const marcada = _loteMode && _loteSel.has(o.id);
+            const clique = _loteMode
+              ? (selecionavel ? `OS.toggleLoteSel('${o.id}')` : '')
+              : `OS.tapCard('${o.id}')`;
             return `
-            <div class="entity-item" onclick="OS.tapCard('${o.id}')">
+            <div class="entity-item${_loteMode && !selecionavel ? ' lote-off' : ''}${marcada ? ' lote-on' : ''}" onclick="${clique}">
+              ${_loteMode ? `<span class="lote-check${marcada ? ' on' : ''}">${marcada ? '✓' : ''}</span>` : ''}
               <div class="avatar ${statusAv(o.status)}">
                 <span style="font-size:.75rem;font-weight:800">${o.numero?.replace('OS-','')}</span>
               </div>
@@ -123,7 +153,42 @@ const OS = (() => {
           `;
           }).join('')}
       </div>
+
+      ${_loteMode ? `
+      <div style="height:84px"></div>
+      <div class="lote-bar">
+        <div class="lote-bar-info">
+          <strong>${_loteSel.size} OS selecionada(s)</strong>
+          <span>${_loteSel.size ? Fmt.currency(loteSubtotal) + (_loteCliente ? ' · ' + App.clienteNome(_loteCliente) : '') : 'marque 2 ou mais'}</span>
+        </div>
+        <button class="btn btn-gold" ${_loteSel.size >= 2 ? '' : 'disabled'} onclick="OS.abrirFechamentoLote()">Fechar juntas →</button>
+      </div>` : ''}
     `;
+  }
+
+  // ─── Seleção múltipla p/ fechamento em lote ─────────────
+  function toggleLoteMode() {
+    _loteMode = !_loteMode;
+    _loteSel.clear();
+    _loteCliente = '';
+    renderList(_currentStatus, '', qs('#os-search')?.value || '');
+  }
+
+  function toggleLoteSel(id) {
+    const os = allOS.find(o => o.id === id);
+    if (!os || os.status === 'fechado') return;
+    if (_loteSel.has(id)) {
+      _loteSel.delete(id);
+      if (_loteSel.size === 0) _loteCliente = '';
+    } else {
+      if (_loteCliente && os.cliente_id !== _loteCliente) {
+        Toast.warning('Só dá pra juntar OS do mesmo cliente.');
+        return;
+      }
+      _loteCliente = os.cliente_id;
+      _loteSel.add(id);
+    }
+    renderList(_currentStatus, '', qs('#os-search')?.value || '');
   }
 
   function applyFilters() {
@@ -190,10 +255,17 @@ const OS = (() => {
     const diarias = allDiarias.filter(d => d.os_id === id)
                                .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === id);
-    // Parcelas (lançamentos financeiros) geradas por esta OS — origem='os'
-    const parcRes  = await API.db.read('parcelas');
+    // Parcelas (lançamentos financeiros) geradas por esta OS — origem='os',
+    // ou a parcela única de um fechamento em lote que inclui esta OS (origem='os_lote',
+    // vínculo via fechamento_os: os_id → fechamento_id → parcela.origem_id).
+    const [parcRes, fosRes] = await Promise.all([
+      API.db.read('parcelas'),
+      API.db.read('fechamento_os'),
+    ]);
+    const fechIds  = (fosRes?.data || []).filter(f => f.os_id === id).map(f => f.fechamento_id);
     const parcelas = (parcRes?.data || [])
-      .filter(p => p.origem === 'os' && p.origem_id === id)
+      .filter(p => (p.origem === 'os' && p.origem_id === id) ||
+                   (p.origem === 'os_lote' && fechIds.includes(p.origem_id)))
       .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1);
     const section = qs('#page-os');
     const cliente = App.clienteNome(currentOS.cliente_id);
@@ -1154,18 +1226,20 @@ const OS = (() => {
   // Recalcula mão de obra a partir das sessões usando uma hora base.
   // Sessões com valor_manual (>0) ficam fixas; as demais são recalculadas
   // aplicando os fatores/reajuste de cada bloco sobre a nova base.
-  function _calcFromBase(base) {
-    const sessoes = allDiarias.filter(d => d.os_id === currentOS?.id);
+  function _calcFromBaseFor(os, base) {
+    const sessoes = allDiarias.filter(d => d.os_id === os?.id);
     let maoObra = 0, nCalc = 0, nManual = 0;
     for (const d of sessoes) {
       if (Number(d.valor_manual) > 0) { maoObra += Number(d.valor_manual); nManual++; }
       else { maoObra += Calculator.calcBlocos(Calculator.blocosFromDiaria(d), base).valor; nCalc++; }
     }
-    const totalItens = allItens.filter(i => i.os_id === currentOS?.id)
+    const totalItens = allItens.filter(i => i.os_id === os?.id)
       .reduce((s, i) => s + Number(i.valor_total || 0), 0);
     const calculado = Math.round((maoObra + totalItens) * 100) / 100;
     return { maoObra, totalItens, calculado, nSessoes: sessoes.length, nCalc, nManual };
   }
+
+  function _calcFromBase(base) { return _calcFromBaseFor(currentOS, base); }
 
   // Revela o campo de hora base (fica escondido atrás de um botão p/ não poluir).
   function toggleHoraBase() {
@@ -1422,6 +1496,278 @@ const OS = (() => {
     openDetail(osId);
   }
 
+  // ─── FECHAMENTO EM LOTE (várias OS do mesmo cliente → 1 parcela) ──
+  function abrirFechamentoLote() {
+    openFechamentoLote(Array.from(_loteSel));
+  }
+
+  async function openFechamentoLote(osIds) {
+    const lista = (osIds || []).map(id => allOS.find(o => o.id === id)).filter(Boolean);
+    if (lista.length < 2) { Toast.warning('Selecione ao menos 2 OS para o lote.'); return; }
+    _loteCliente = lista[0].cliente_id;
+
+    const cfg      = await Calculator.getConfig();
+    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+
+    _loteCalc = {};
+    lista.forEach(os => {
+      const r = _calcFromBaseFor(os, baseRate);
+      _loteCalc[os.id] = { base: baseRate, baseOrig: baseRate, ...r };
+    });
+    currentView = 'fechamento';
+
+    const section = qs('#page-os');
+    section.innerHTML = `
+      <div class="page-header" style="gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="OS.render()">← Voltar</button>
+        <div style="flex:1;min-width:0">
+          <h1 style="font-size:1.15rem">Fechamento em lote</h1>
+          <div style="font-size:.8rem;color:var(--text-muted)">${lista.length} OS · ${App.clienteNome(_loteCliente)}</div>
+        </div>
+      </div>
+
+      <form id="fechamento-lote-form" onsubmit="OS.saveFechamentoLote(event)" style="max-width:560px;margin:0 auto">
+
+        ${lista.map(os => {
+          const r = _loteCalc[os.id];
+          const catNome = os.categoria_id ? App.categoriaNome(os.categoria_id) : '';
+          return `
+        <div class="card mb-3">
+          <div class="card-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+              <strong style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${os.numero}${os.nome ? ' · ' + os.nome : ''}</strong>
+              ${catNome ? `<span class="badge badge-info" style="flex:0 0 auto">${catNome}</span>` : ''}
+            </div>
+            <div class="info-row" style="margin-bottom:4px">
+              <span>Mão de obra (${r.nSessoes} sessão(ões))</span>
+              <strong id="lote-mo-${os.id}">${Fmt.currency(r.maoObra)}</strong>
+            </div>
+            ${r.totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens</span><strong>${Fmt.currency(r.totalItens)}</strong></div>` : ''}
+            <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+              <span><strong>Subtotal</strong></span>
+              <strong id="lote-sub-${os.id}" class="text-green">${Fmt.currency(r.calculado)}</strong>
+            </div>
+            ${r.nCalc > 0 ? `
+            <div style="margin-top:10px">
+              <button type="button" id="lote-base-btn-${os.id}" class="btn btn-outline btn-sm" style="font-size:.78rem"
+                onclick="OS.toggleLoteHoraBase('${os.id}')">⚙️ Alterar hora base (R$ ${baseRate}/h)</button>
+              <div id="lote-base-wrap-${os.id}" class="hidden" style="margin-top:8px">
+                <div class="input-row">
+                  <span style="align-self:center;color:var(--text-muted);font-weight:700">R$</span>
+                  <input type="number" id="lote-base-${os.id}" class="input" step="1" min="0"
+                    value="${baseRate}" oninput="OS.recalcLoteOS('${os.id}')">
+                  <span style="align-self:center;color:var(--text-muted);font-size:.85rem">/h</span>
+                </div>
+                ${r.nManual > 0 ? `<small style="color:var(--text-muted);font-size:.72rem">${r.nManual} sessão(ões) com valor fixo não mudam.</small>` : ''}
+              </div>
+            </div>` : ''}
+          </div>
+        </div>`;
+        }).join('')}
+
+        <div class="card mb-3">
+          <div class="card-body">
+            <div class="info-row" style="margin-bottom:10px">
+              <span><strong>Subtotal do lote (${lista.length} OS)</strong></span>
+              <strong id="lote-total-display" class="text-green"></strong>
+            </div>
+
+            <!-- Desconto com toggle R$ / % — dividido proporcionalmente entre as OS -->
+            <div class="form-group">
+              <label>Desconto <small style="color:var(--text-muted);font-weight:400">— dividido entre as OS, proporcional ao valor</small></label>
+              <div class="input-row">
+                <input type="number" id="lote-desconto" class="input" step="0.01" min="0" value="0"
+                  oninput="OS.atualizarFechamentoLote()">
+                <select id="lote-desconto-tipo" class="input" style="flex:0 0 80px;text-align:center"
+                  onchange="OS.toggleDescontoTipoLote()">
+                  <option value="valor">R$</option>
+                  <option value="perc">%</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="lote-split" style="background:var(--bg);border-radius:12px;padding:10px 14px;margin-bottom:12px"></div>
+
+            <div class="info-row total-row" style="background:var(--success-lt);border-radius:14px;padding:14px 16px;border:none;margin-bottom:4px">
+              <span><strong>Valor final (1 parcela):</strong></span>
+              <strong id="lote-final-display" style="font-size:1.4rem;color:var(--success)"></strong>
+            </div>
+            <small style="color:var(--text-muted);font-size:.72rem;display:block;margin-bottom:12px">
+              A categoria de cada OS é mantida — nos relatórios e insights o valor é rateado entre elas.
+            </small>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Competência</label>
+                ${MonthPicker.render('lote-competencia', DateUtil.today().substring(0, 7))}
+              </div>
+              <div class="form-group">
+                <label>Vencimento</label>
+                <input type="date" id="lote-vencimento" class="input" value="${DateUtil.today()}" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Observações</label>
+              <textarea id="lote-obs" class="input" rows="2"></textarea>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary btn-lg">Fechar ${lista.length} OS e gerar 1 parcela</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    `;
+    atualizarFechamentoLote();
+  }
+
+  function toggleLoteHoraBase(osId) {
+    qs('#lote-base-wrap-' + osId)?.classList.remove('hidden');
+    qs('#lote-base-btn-' + osId)?.classList.add('hidden');
+    const inp = qs('#lote-base-' + osId);
+    if (inp) { inp.focus(); inp.select(); }
+  }
+
+  // oninput da hora base de UMA OS do lote — recalcula só ela e refaz os totais.
+  function recalcLoteOS(osId) {
+    const lc = _loteCalc[osId];
+    if (!lc) return;
+    const os   = allOS.find(o => o.id === osId);
+    const base = Number(qs('#lote-base-' + osId)?.value) || 0;
+    const r = _calcFromBaseFor(os, base);
+    _loteCalc[osId] = { ...lc, ...r, base };
+    if (qs('#lote-mo-' + osId))  qs('#lote-mo-' + osId).textContent  = Fmt.currency(r.maoObra);
+    if (qs('#lote-sub-' + osId)) qs('#lote-sub-' + osId).textContent = Fmt.currency(r.calculado);
+    atualizarFechamentoLote();
+  }
+
+  function toggleDescontoTipoLote() {
+    const inp = qs('#lote-desconto');
+    if (inp) inp.value = 0;
+    atualizarFechamentoLote();
+  }
+
+  // Recalcula os totais do lote + preview do rateio por OS.
+  function atualizarFechamentoLote() {
+    const ids   = Object.keys(_loteCalc);
+    const total = ids.reduce((s, id) => s + _loteCalc[id].calculado, 0);
+
+    const descVal  = Number(qs('#lote-desconto')?.value) || 0;
+    const descTipo = qs('#lote-desconto-tipo')?.value || 'valor';
+    const descontoAbs = Math.min(descTipo === 'perc' ? (total * descVal / 100) : descVal, total);
+    const final = Math.max(0, total - descontoAbs);
+    const fator = total > 0 ? final / total : 0;
+
+    if (qs('#lote-total-display')) qs('#lote-total-display').textContent = Fmt.currency(total);
+    if (qs('#lote-final-display')) qs('#lote-final-display').textContent = Fmt.currency(final);
+
+    const split = qs('#lote-split');
+    if (split) {
+      split.innerHTML = `
+        <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Cada OS fica com</div>
+        ${ids.map(id => {
+          const os = allOS.find(o => o.id === id);
+          return `<div class="info-row" style="margin-bottom:2px">
+            <span>${os?.numero || ''}</span>
+            <strong>${Fmt.currency(Math.round(_loteCalc[id].calculado * fator * 100) / 100)}</strong>
+          </div>`;
+        }).join('')}
+      `;
+    }
+  }
+
+  async function saveFechamentoLote(e) {
+    e.preventDefault();
+    const ids = Object.keys(_loteCalc);
+    if (ids.length < 2) return;
+
+    const total = Math.round(ids.reduce((s, id) => s + _loteCalc[id].calculado, 0) * 100) / 100;
+    const descVal  = Number(qs('#lote-desconto')?.value) || 0;
+    const descTipo = qs('#lote-desconto-tipo')?.value || 'valor';
+    const descontoAbs  = Math.min(descTipo === 'perc' ? Math.round(total * descVal) / 100 : descVal, total);
+    const liquidoTotal = Math.round((total - descontoAbs) * 100) / 100;
+    if (liquidoTotal <= 0) { Toast.warning('Valor final precisa ser maior que zero'); return; }
+
+    const compMes = MonthPicker.value('lote-competencia');
+    if (!compMes) { Toast.warning('Selecione a competência'); return; }
+    const comp = compMes + '-01';
+    const venc = qs('#lote-vencimento').value;
+    const obs  = qs('#lote-obs').value;
+
+    // Rateio proporcional do desconto: mesmo fator p/ todas; a última OS absorve
+    // a diferença de centavos p/ Σ líquidos == valor da parcela (padrão do parcelado).
+    const fator = total > 0 ? liquidoTotal / total : 0;
+    let acumulado = 0;
+    const itens = ids.map((id, i) => {
+      const bruto = Math.round(_loteCalc[id].calculado * 100) / 100;
+      let liq;
+      if (i === ids.length - 1) liq = Math.round((liquidoTotal - acumulado) * 100) / 100;
+      else { liq = Math.round(bruto * fator * 100) / 100; acumulado = Math.round((acumulado + liq) * 100) / 100; }
+      return {
+        os_id: id, valor_bruto: bruto, valor_liquido: liq,
+        diaria_ids: allDiarias.filter(d => d.os_id === id).map(d => d.id),
+      };
+    });
+
+    // Categoria predominante do lote (por valor) — fallback de exibição da parcela;
+    // o rateio real por categoria é resolvido dinamicamente via fechamento_os.
+    const porCat = {};
+    itens.forEach(it => {
+      const c = categoriaEfetivaId({ origem: 'os', origem_id: it.os_id }, allOS, allDiarias);
+      if (c) porCat[c] = (porCat[c] || 0) + it.valor_liquido;
+    });
+    const catId = (Object.entries(porCat).sort((a, b) => b[1] - a[1])[0] || [''])[0];
+
+    Loading.show();
+
+    // Persiste as sessões recalculadas das OS cuja hora base mudou (manuais não mudam)
+    const ops = [];
+    ids.forEach(id => {
+      const lc = _loteCalc[id];
+      if (lc.base > 0 && lc.base !== lc.baseOrig) {
+        allDiarias.filter(d => d.os_id === id && !(Number(d.valor_manual) > 0)).forEach(d => {
+          ops.push({ action: 'update', sheet: 'diarias', id: d.id,
+            data: { valor_calculado: Calculator.calcBlocos(Calculator.blocosFromDiaria(d), lc.base).valor } });
+        });
+      }
+    });
+    if (ops.length) await API.db.batch(ops);
+
+    const res = await API.db.fecharOSLote({
+      cliente_id: _loteCliente,
+      itens,
+      valor_bruto_total: total,
+      desconto: descontoAbs,
+      valor_liquido_total: liquidoTotal,
+      data_competencia: comp,
+      data_vencimento: venc,
+      categoria_id: catId,
+      observacoes: obs,
+    });
+    Loading.hide();
+
+    if (res?.success) {
+      const dataFim = new Date().toISOString().substring(0, 10);
+      itens.forEach(it => {
+        const idx = allOS.findIndex(o => o.id === it.os_id);
+        if (idx >= 0) {
+          allOS[idx].status = 'fechado';
+          allOS[idx].valor_fechamento = it.valor_liquido;
+          allOS[idx].data_fim = dataFim;
+        }
+      });
+      Toast.success(`${itens.length} OS fechadas — 1 parcela de ${Fmt.currency(liquidoTotal)} gerada!`);
+      _loteMode = false; _loteSel.clear(); _loteCliente = ''; _loteCalc = {};
+      await loadData();
+      renderList();
+    } else {
+      Toast.error('Erro ao fechar o lote: ' + (res?.error || ''));
+    }
+  }
+
   async function mudarStatus(novoStatus) {
     if (!currentOS || !novoStatus) return;
     Loading.show();
@@ -1615,6 +1961,9 @@ const OS = (() => {
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, mudarStatus,
+    // Fechamento em lote
+    toggleLoteMode, toggleLoteSel, abrirFechamentoLote, openFechamentoLote,
+    toggleLoteHoraBase, recalcLoteOS, toggleDescontoTipoLote, atualizarFechamentoLote, saveFechamentoLote,
     confirmDelete,
   };
 })();

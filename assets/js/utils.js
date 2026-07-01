@@ -443,7 +443,20 @@ function tipoBadge(tipo) {
 // atual da OS, por fim a da própria parcela — assim, corrigir a categoria na OS
 // reflete em todo lugar mesmo que a parcela tenha sido gerada (no fechamento)
 // sem categoria ou com a antiga.
-function categoriaEfetivaId(p, osList, diarias) {
+function categoriaEfetivaId(p, osList, diarias, fechamentoOsByFech) {
+  // Parcela de lote (várias OS → 1 parcela): categoria predominante (por valor)
+  // entre as OS do lote — usada onde só cabe UMA categoria (ex: lista do Financeiro).
+  // O rateio real multi-categoria fica em distribuirCategorias.
+  if (p && p.origem === 'os_lote' && p.origem_id && fechamentoOsByFech) {
+    const rows = fechamentoOsByFech[p.origem_id] || [];
+    const porCat = {};
+    rows.forEach(r => {
+      const cat = categoriaEfetivaId({ origem: 'os', origem_id: r.os_id }, osList, diarias);
+      if (cat) porCat[cat] = (porCat[cat] || 0) + Number(r.valor_liq || 0);
+    });
+    const best = Object.entries(porCat).sort((a, b) => b[1] - a[1])[0];
+    if (best) return best[0];
+  }
   if (p && p.origem === 'os' && p.origem_id) {
     const cats = (diarias || []).filter(d => d.os_id === p.origem_id && d.categoria_id).map(d => d.categoria_id);
     if (cats.length) {
@@ -468,14 +481,45 @@ function agruparComprasItens(itens) {
   return map;
 }
 
+// Agrupa as linhas de fechamento_os por fechamento_id: { fechId: [{os_id, valor_liq}] }.
+// Usado p/ ratear a parcela única de um fechamento em lote entre as categorias das OS.
+function agruparFechamentoOs(rows) {
+  const map = {};
+  (rows || []).forEach(r => {
+    if (!r.fechamento_id) return;
+    (map[r.fechamento_id] = map[r.fechamento_id] || []).push(r);
+  });
+  return map;
+}
+
 // Distribui o valor de uma parcela entre categorias (retorna [{categoria_id, valor}]
 // que soma p.valor). Para parcelas de COMPRA, rateia pela categoria de cada item
-// (proporcional ao valor_liq); para o resto, devolve a categoria efetiva única.
-// ctx = { osList, diarias, comprasItensByCompra }. Compras antigas (sem categoria nos
-// itens) caem no caminho único — retrocompatível.
+// (proporcional ao valor_liq); para parcelas de LOTE de OS (origem='os_lote'),
+// rateia pela categoria efetiva de cada OS (proporcional ao líquido de cada uma);
+// para o resto, devolve a categoria efetiva única.
+// ctx = { osList, diarias, comprasItensByCompra, fechamentoOsByFech }. Compras
+// antigas (sem categoria nos itens) caem no caminho único — retrocompatível.
 function distribuirCategorias(p, ctx) {
   ctx = ctx || {};
   const valor = Number((p && p.valor) || 0);
+  if (p && p.origem === 'os_lote' && p.origem_id && ctx.fechamentoOsByFech) {
+    const rows = ctx.fechamentoOsByFech[p.origem_id] || [];
+    if (rows.length) {
+      const porCat = {};
+      let total = 0;
+      rows.forEach(r => {
+        const v = Number(r.valor_liq || 0);
+        const cat = categoriaEfetivaId({ origem: 'os', origem_id: r.os_id }, ctx.osList, ctx.diarias);
+        porCat[cat] = (porCat[cat] || 0) + v;
+        total += v;
+      });
+      const cats = Object.keys(porCat);
+      // Escala p/ p.valor (proteção a arredondamento: Σ fatias == valor da parcela).
+      if (total > 0 && cats.some(c => c)) {
+        return cats.map(c => ({ categoria_id: c, valor: valor * (porCat[c] / total) }));
+      }
+    }
+  }
   if (p && p.origem === 'compra' && p.origem_id && ctx.comprasItensByCompra) {
     const itens = ctx.comprasItensByCompra[p.origem_id] || [];
     if (itens.length) {
@@ -495,7 +539,7 @@ function distribuirCategorias(p, ctx) {
       }
     }
   }
-  return [{ categoria_id: categoriaEfetivaId(p, ctx.osList, ctx.diarias), valor }];
+  return [{ categoria_id: categoriaEfetivaId(p, ctx.osList, ctx.diarias, ctx.fechamentoOsByFech), valor }];
 }
 
 // ─── Seletor de mês/ano (competência) ────────────────────────
