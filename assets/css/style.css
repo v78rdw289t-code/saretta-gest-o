@@ -1426,24 +1426,14 @@ textarea.input { resize: vertical; min-height: 80px; }
 .evo-barwrap { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
 .evo-bar { width: 9px; border-radius: 3px 3px 0 0; min-height: 2px; transition: height .5s cubic-bezier(.34,1.56,.64,1); }
 .evo-bar-wide { width: 60%; max-width: 18px; }
-/* Swap principal do painel de insights (Realizado / Com previsão) */
-.ins-swap { display: flex; gap: 6px; background: var(--bg); padding: 5px; border-radius: 14px; }
-.ins-swap-btn {
-  flex: 1; padding: 11px 6px; border: none; background: none; border-radius: 10px;
-  font-size: .85rem; font-weight: 800; color: var(--text-muted); cursor: pointer;
-  white-space: nowrap; transition: background .15s, color .15s;
+/* 🎯 Meta do mês (insights v3.1) — card navy com barra de progresso gold */
+.meta-card {
+  background: var(--navy); color: #fff; border-radius: 14px; padding: 13px 15px;
 }
-.ins-swap-btn.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); }
+.meta-bar { background: rgba(255,255,255,.18); border-radius: 50px; height: 8px; overflow: hidden; }
+.meta-bar-fill { background: var(--gold); border-radius: 50px; height: 8px; transition: width .4s; }
 
-/* Separador da seção de Dicas dentro do resumo inteligente */
-.ins-dicas-sep {
-  font-size: .72rem; font-weight: 800; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .5px;
-  margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--border);
-}
-.ins-dicas-sep + .tip-card, .ins-dicas-sep ~ .tip-card { margin-bottom: 8px; }
-
-/* Controles secundários: regime (competência/caixa) + período (discreto) */
+/* Controles: regime (competência/caixa) + período (discreto) */
 .ins-controls { display: flex; gap: 8px; align-items: center; }
 .ins-regime { display: flex; gap: 2px; background: var(--bg); padding: 3px; border-radius: 10px; flex: 0 0 auto; }
 .ins-regime button {
@@ -1463,13 +1453,6 @@ textarea.input { resize: vertical; min-height: 80px; }
 .evo-val { font-size: .6rem; color: var(--text-muted); margin-top: 3px; text-align: center; white-space: nowrap; }
 .evo-lbl { font-size: .62rem; color: var(--text-muted); margin-top: 2px; text-transform: capitalize; }
 .evo-title { font-size: .68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 2px; }
-
-/* Donut SVG das categorias */
-.donut-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
-.donut-legend { flex: 1; min-width: 130px; display: flex; flex-direction: column; gap: 4px; }
-.donut-leg { display: flex; align-items: center; gap: 7px; font-size: .76rem; color: var(--text); }
-.donut-leg i { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-.donut-leg .donut-leg-pct { margin-left: auto; color: var(--text-muted); font-weight: 700; font-size: .72rem; }
 
 /* ─── Ficha dos sócios (fiado) ─────────────────────────────── */
 .ficha-tab-sub { display: block; font-size: .6rem; font-weight: 600; opacity: .8; margin-top: 1px; }

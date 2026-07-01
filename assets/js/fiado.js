@@ -81,7 +81,6 @@ const Fiado = (() => {
         <button class="section-tab" onclick="App.navigate('financeiro')">↓ Receber</button>
         <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('pagar'),50)">↑ Pagar</button>
         <button class="section-tab active" onclick="App.navigate('fiado')">Ficha</button>
-        <button class="section-tab" onclick="App.navigate('compras')">Compras</button>
         <button class="section-tab" onclick="App.navigate('financeiro'); setTimeout(()=>Financeiro.switchTab('resumo'),50)">Resumo</button>
       </div>
       <div class="page-header">

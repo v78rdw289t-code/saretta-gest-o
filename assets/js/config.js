@@ -118,6 +118,13 @@ const Config = (() => {
                 <small style="color:var(--text-muted);font-size:.75rem">Diluído pelos dias úteis do mês para calcular o custo por dia e o lucro real de cada OS.</small>
               </div>
               <div class="form-group">
+                <label>🎯 Meta de faturamento mensal (R$)</label>
+                <input type="number" name="meta_faturamento_mensal" class="input" step="500" min="0"
+                  value="${getCfg('meta_faturamento_mensal', '')}"
+                  placeholder="Ex: 25000 — em branco = sem meta">
+                <small style="color:var(--text-muted);font-size:.75rem">Os Insights mostram o progresso do mês em relação a essa meta.</small>
+              </div>
+              <div class="form-group">
                 <label>Nome da Empresa</label>
                 <input type="text" name="empresa_nome" class="input"
                   value="${getCfg('empresa_nome', 'Saretta Serviços')}">

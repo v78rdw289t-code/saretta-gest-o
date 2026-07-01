@@ -1,29 +1,26 @@
 // ============================================================
-// INSIGHTS — Painel financeiro v2 (baseado no spec)
+// INSIGHTS — Painel v3.1 (repaginado)
 // ============================================================
 //
-// Mapeamento do spec saretta_financeiro_spec.md → estrutura atual:
-//   "lancamento"        → parcelas (já existente)
-//   "categoria"         → categorias (sheet existente, vinculada via categoria_id)
-//   status pago/a_receber/atrasado → derivado de parcela.status + data_vencimento
-//   horas_trabalhadas   → somatório das diárias linkadas à OS (origem='os')
-//   regiao              → não implementado (precisa de parsing do endereço)
-//   taxa de visita      → não implementado (requer marcação manual)
+// Princípio: cada número aparece UMA vez, no card que responde uma
+// pergunta do negócio. Análise (variação, projeção, meta) fica aqui;
+// consulta (breakdown absoluto por categoria) fica no Resumo do Financeiro.
 //
-// Seções implementadas (Fase 1):
-//   3.1 Visão Geral do Período
-//   3.2 Análise por Categoria
-//   3.3 Análise de Clientes (com alerta de concentração)
-//   3.4 Inadimplência e Recebimento
-//   3.8 Fluxo de Caixa Simplificado (semana a semana)
-//   + Dicas do Negócio (mantido)
+// Ordem dos cards:
+//   1. KPIs do período (faturamento/despesas/resultado/margem + Δ)
+//   2. 🎯 Meta do mês (config meta_faturamento_mensal)
+//   3. 🧠 Resumo (narrativa comparativa enxuta)
+//   4. 💵 Sua hora (valor/hora × custo/hora × hora base)
+//   5. 🏭 Capacidade (custeio por absorção)
+//   6. 🔧 Pipeline (OS abertas + fechadas a receber + parada)
+//   7. 📈 Evolução (6 meses)
+//   8. 📊 O que mudou (variações por categoria vs período anterior)
+//   9. 👥 Clientes (top 5 + concentração)
+//  10. ⏰ Recebimento (a receber, atrasado, prazo médio)
+//  11. 🔮 Próximos 30 dias (o que vence, semana a semana)
 
 const Insights = (() => {
-  // Defaults do spec — podem virar config editável depois
   const SPEC_DEFAULTS = {
-    custoHoraBase:      90,
-    diasUteisMes:       20,
-    horasDia:           7.5,
     metaMargemPercent:  30,
     alertaConcentracao: 40,
   };
@@ -31,8 +28,7 @@ const Insights = (() => {
   // Período selecionado (default: mês atual)
   let _periodo  = 'mes_atual';   // mes_atual | mes_anterior | ultimos_3m | ultimos_6m | ano
   let _regime   = 'competencia'; // competencia | caixa — controla faturamento/lucro/margem
-  let _megaModo = 'realizado';   // realizado | previsao — narrativa do resumo inteligente
-  let _cache    = null;          // { parcelas, osList, diarias }
+  let _cache    = null;          // { parcelas, osList, diarias, comprasItensByCompra, fechamentoOsByFech }
 
   // ─── Helpers de período ─────────────────────────────────
   // Retorna { start, end, label } no formato YYYY-MM-DD
@@ -107,12 +103,9 @@ const Insights = (() => {
     return { start: ymd(new Date(y, m-1, 1)), end: ymd(new Date(y, m, 0)) }; // mes_atual → mês anterior
   }
 
-  // Horas trabalhadas no período, separadas por tipo de OS (diária × normal).
-  // Fonte de verdade: as SESSÕES (diárias), atribuídas ao mês de CADA sessão pela
-  // sua data. Isso separa corretamente OS com sessões em meses diferentes, mesmo
-  // que a OS ainda não tenha sido fechada/recebida. As horas_calculadas da OS só
-  // entram como legado, para OS normais antigas que NÃO têm sessão registrada
-  // (antes da calculadora virar sessões) — evita dupla contagem.
+  // Horas trabalhadas no período, das SESSÕES pela data de cada uma. As
+  // horas_calculadas da OS só entram como legado, para OS normais antigas SEM
+  // sessão registrada — evita dupla contagem.
   function _horasBreakdown(periodo) {
     const tipoDe = {};
     _cache.osList.forEach(o => { tipoDe[o.id] = o.tipo; });
@@ -124,7 +117,6 @@ const Insights = (() => {
       if (data < periodo.start || data > periodo.end) return;
       const h = Number(d.horas_totais || 0);
       if (tipoDe[d.os_id] === 'diaria') hDiaria += h; else hNormal += h;
-      // valor da mão de obra da sessão — acompanha as horas mês a mês
       valorSessoes += Number(d.valor_manual || d.valor_calculado || 0);
     });
 
@@ -139,8 +131,6 @@ const Insights = (() => {
     return { hDiaria, hNormal, total: hDiaria + hNormal, valorSessoes };
   }
 
-  function _horasNoPeriodo(periodo) { return _horasBreakdown(periodo).total; }
-
   // Nº de meses-calendário cobertos pelo período (para escalar o custo fixo)
   function _mesesNoPeriodo(periodo) {
     const s = new Date(periodo.start + 'T00:00:00');
@@ -154,7 +144,7 @@ const Insights = (() => {
   function _periodoFechado(periodo) {
     return periodo.end < new Date().toISOString().substring(0, 10);
   }
-  // Dias úteis que ainda faltam até o período fechar (para o aviso)
+  // Dias úteis que ainda faltam até o período fechar
   function _diasUteisRestantes(periodo) {
     const hoje = new Date().toISOString().substring(0, 10);
     if (periodo.end < hoje) return 0;
@@ -168,15 +158,12 @@ const Insights = (() => {
     const nMeses        = _mesesNoPeriodo(periodo);
     const custoFixoTot  = custoFixoMensal * nMeses;
     const diasUteis     = DateUtil.businessDays(periodo.start, periodo.end);
-    // Custo/dia PREVISTO: dilui pela capacidade normal (dias úteis) — estável.
     const custoDia      = diasUteis > 0 ? custoFixoTot / diasUteis : 0;
-    // Dias distintos com sessão registrada no período
     const diasTrab = new Set(
       _cache.diarias
         .map(d => String(d.data || '').substring(0, 10))
         .filter(data => data >= periodo.start && data <= periodo.end)
     ).size;
-    // Custo/dia REAL: dilui pelos dias realmente trabalhados (sobe quando trabalha pouco).
     const custoDiaReal  = diasTrab > 0 ? custoFixoTot / diasTrab : 0;
     const custoAbsorvido = diasTrab * custoDia;
     const ociosidade     = Math.max(0, custoFixoTot - custoAbsorvido);
@@ -191,7 +178,7 @@ const Insights = (() => {
     });
   }
 
-  // Snapshot de métricas de um período — base da comparação do mega insight
+  // Snapshot de métricas de um período — base dos KPIs, do resumo e do "O que mudou"
   function _calcSnapshot(periodo) {
     const parc = _cache.parcelas.filter(p => !origemForaResultado(p.origem) && noPeriodo(p, periodo));
     const receitas = parc.filter(p => p.tipo === 'receber');
@@ -206,43 +193,13 @@ const Insights = (() => {
       faturamento, totalDesp, lucro: faturamento - totalDesp, horas,
       nOS: osFech.length,
       ticket: osFech.length > 0 ? valorOS / osFech.length : 0,
-      // valor/hora = faturamento do período ÷ horas do período (consistente com a
-      // Visão Geral). Pode ficar alto no mês em que uma OS é faturada com horas de
-      // meses anteriores — por isso a narrativa só destaca variações relevantes.
       receitaHora: horas > 0 ? faturamento / horas : 0,
       despPorCat: Object.fromEntries(agruparPorCategoria(despesas)),
       recPorCat:  Object.fromEntries(agruparPorCategoria(receitas)),
     };
   }
 
-  // Snapshot na ótica da PREVISÃO — mesma forma de _calcSnapshot, mas a receita
-  // considera SÓ o que entrou de fato (parcelas recebidas/pagas) + a receita
-  // prevista das OS em andamento (passada por fora). Ignora deliberadamente as
-  // parcelas a receber ainda pendentes (ex.: OS fechada que o cliente não pagou).
-  function _calcSnapshotProjetado(periodo, receitaPrevista = 0) {
-    const recebidas = _cache.parcelas.filter(p =>
-      p.tipo === 'receber' && p.status === 'pago' && !origemForaResultado(p.origem) &&
-      String(p.data_competencia || '').substring(0, 10) >= periodo.start &&
-      String(p.data_competencia || '').substring(0, 10) <= periodo.end
-    );
-    const despesas = _cache.parcelas.filter(p => p.tipo === 'pagar' && !origemForaResultado(p.origem) && noPeriodo(p, periodo));
-    const recebido    = sumValor(recebidas);
-    const faturamento = recebido + receitaPrevista;
-    const totalDesp   = sumValor(despesas);
-    const horas       = _horasNoPeriodo(periodo);
-    const osFech      = _osFechadasNoPeriodo(periodo);
-    const valorOS     = osFech.reduce((s, o) => s + Number(o.valor_fechamento || o.valor_calculado || 0), 0);
-    return {
-      faturamento, totalDesp, lucro: faturamento - totalDesp, horas, recebido,
-      nOS: osFech.length,
-      ticket: osFech.length > 0 ? valorOS / osFech.length : 0,
-      receitaHora: horas > 0 ? faturamento / horas : 0,
-      despPorCat: Object.fromEntries(agruparPorCategoria(despesas)),
-      recPorCat:  Object.fromEntries(agruparPorCategoria(recebidas)),
-    };
-  }
-
-  // ─── MEGA INSIGHT — narrativa comparando atual × anterior ────
+  // ─── Narrativa comparando atual × anterior ────────────────
   function _pct(cur, prev) { return prev > 0 ? ((cur - prev) / prev * 100) : (cur > 0 ? 100 : 0); }
   function _sinalPct(cur, prev) {
     if (prev <= 0) return cur > 0 ? 'novo' : '—';
@@ -251,6 +208,9 @@ const Insights = (() => {
   }
   function _hf(h) { const v = Math.abs(h); const hh = Math.floor(v); const mm = Math.round((v - hh) * 60); return mm ? `${hh}h${String(mm).padStart(2,'0')}` : `${hh}h`; }
 
+  // Resumo ENXUTO: 1 parágrafo (lucro + causa) + até 3 achados de variação que não
+  // têm card próprio (ticket, valor/hora Δ, volume de OS). As variações por
+  // categoria têm card próprio ("O que mudou") — não entram aqui.
   function buildMegaInsight(a, b) {
     const semBase = !(b.faturamento || b.totalDesp || b.horas);
     let resumo;
@@ -285,109 +245,28 @@ const Insights = (() => {
       }
     }
 
-    // Achados secundários, ordenados por relevância (magnitude)
     const achados = [];
     if (!semBase) {
       // Ticket médio
       if (a.nOS > 0 && b.nOS > 0) {
         const tp = _pct(a.ticket, b.ticket);
-        if (Math.abs(tp) >= 5) achados.push({ prio: Math.abs(tp), icon: tp >= 0 ? '🎟️' : '🎟️', tone: tp >= 0 ? 'green' : 'orange',
+        if (Math.abs(tp) >= 5) achados.push({ prio: Math.abs(tp), icon: '🎟️',
           text: `Ticket médio por OS: <strong>${Fmt.currency(a.ticket)}</strong> (${_sinalPct(a.ticket, b.ticket)} vs período anterior).` });
       }
-      // Maior variação de despesa por categoria
-      const cats = new Set([...Object.keys(a.despPorCat), ...Object.keys(b.despPorCat)]);
-      let maiorVar = null;
-      cats.forEach(c => {
-        const va = a.despPorCat[c] || 0, vb = b.despPorCat[c] || 0;
-        const delta = va - vb;
-        if (Math.abs(delta) >= 50 && Math.abs(delta) > Math.abs(maiorVar?.delta || 0)) maiorVar = { c, va, vb, delta };
-      });
-      if (maiorVar) {
-        const subiu = maiorVar.delta > 0;
-        achados.push({ prio: Math.abs(maiorVar.delta), icon: subiu ? '🔺' : '🔻', tone: subiu ? 'red' : 'green',
-          text: `${subiu ? 'Aumentou' : 'Reduziu'} os gastos com <strong>${maiorVar.c}</strong> em ${Fmt.currency(Math.abs(maiorVar.delta))}${maiorVar.vb > 0 ? ` (${_sinalPct(maiorVar.va, maiorVar.vb)})` : ''}.` });
-      }
-      // Receita/hora (se não destacada no resumo)
+      // Variação do valor/hora
       if (b.receitaHora > 0 && Math.abs(_pct(a.receitaHora, b.receitaHora)) >= 8) {
         const rp = _pct(a.receitaHora, b.receitaHora);
-        achados.push({ prio: Math.abs(rp) - 1, icon: '⚡', tone: rp >= 0 ? 'green' : 'orange',
+        achados.push({ prio: Math.abs(rp) - 1, icon: '⚡',
           text: `Cada hora trabalhada rendeu <strong>${Fmt.currency(a.receitaHora)}</strong> (${_sinalPct(a.receitaHora, b.receitaHora)}).` });
       }
       // Volume de OS
       if (a.nOS !== b.nOS && (a.nOS || b.nOS)) {
-        achados.push({ prio: 4, icon: '🔧', tone: 'navy',
+        achados.push({ prio: 4, icon: '🔧',
           text: `Você fechou <strong>${a.nOS} OS</strong> no período (${b.nOS} no anterior).` });
       }
     }
     achados.sort((x, y) => y.prio - x.prio);
-    return { resumo, achados };
-  }
-
-  // Resumo no modo PREVISÃO: usa o MESMO motor do resumo normal (buildMegaInsight),
-  // mas alimentado por snapshots projetados (recebido + OS em andamento). Assim a
-  // narrativa considera gastos, horas, eficiência e ticket — igual ao resumo normal,
-  // só que com a base de previsão. No topo, mostra a composição recebido/andamento.
-  function buildMegaInsightPrevisao(a, b, recebido, receitaPrevista, nOSAbertas) {
-    const total = recebido + receitaPrevista;
-    // prio alta (1000+) garante que a composição fique no topo dos achados
-    const composicao = [
-      { prio: 1003, icon: '✅', tone: 'green', text: `Já recebido: <strong>${Fmt.currency(recebido)}</strong>` },
-      { prio: 1002, icon: '🔮', tone: 'navy',  text: `Em andamento: <strong>${Fmt.currency(receitaPrevista)}</strong> em ${nOSAbertas} OS` },
-      { prio: 1001, icon: '🎯', tone: 'navy',  text: `Total projetado: <strong>${Fmt.currency(total)}</strong>` },
-    ];
-
-    const temBase = b.faturamento > 0 || b.totalDesp > 0 || b.horas > 0;
-    let base;
-    if (!temBase) {
-      // Sem período anterior pra comparar — narrativa própria, ainda considerando gastos e horas
-      const tone = a.lucro >= 0 ? 'green' : 'red';
-      const horaTxt = a.horas > 0 ? ` em ${_hf(a.horas)} de trabalho (${Fmt.currency(a.receitaHora)}/h)` : '';
-      const texto = `Somando o que já recebeu com as OS em andamento, o período deve fechar em `
-        + `<strong>${Fmt.currency(total)}</strong>. Descontando <strong>${Fmt.currency(a.totalDesp)}</strong> de gastos, `
-        + `o lucro projetado é <strong>${Fmt.currency(a.lucro)}</strong>${horaTxt}.`;
-      base = { resumo: { tone, texto }, achados: [] };
-    } else {
-      base = buildMegaInsight(a, b);
-      base.resumo = { tone: base.resumo.tone, texto: '🔮 <strong>Projeção:</strong> ' + base.resumo.texto };
-    }
-    return { resumo: base.resumo, achados: [...composicao, ...base.achados] };
-  }
-
-  // Achados ABRANGENTES do estado atual da empresa (FATOS — não comparação). Os
-  // alertas acionáveis (margem, concentração, inadimplência, custo) ficam nas DICAS
-  // (buildTips), para não duplicar. Aqui ficam pipeline, recebíveis e ocupação.
-  function buildAchadosEmpresa(ctx) {
-    const { nOSAbertas, receitaPrevista, naoRecebidoValor, naoRecebidoQtd,
-            custeio, fechado, modo, osParadaDias } = ctx;
-    const ach = [];
-
-    // OS fechadas a receber (fluxo que vai entrar)
-    if (naoRecebidoValor > 0) {
-      ach.push({ prio: 72, icon: '📥', tone: 'orange',
-        text: `<strong>${Fmt.currency(naoRecebidoValor)}</strong> a receber de ${naoRecebidoQtd} OS já fechada(s) — entra no caixa quando o cliente pagar.` });
-    }
-    // Pipeline — só no modo realizado (no previsão já está na composição/narrativa)
-    if (modo === 'realizado' && nOSAbertas > 0 && receitaPrevista > 0) {
-      ach.push({ prio: 58, icon: '🔮', tone: 'navy',
-        text: `<strong>${nOSAbertas} OS em andamento</strong> somando ${Fmt.currency(receitaPrevista)} em sessões registradas — sua próxima receita.` });
-    }
-    // OS parada há muito tempo
-    if (osParadaDias >= 15) {
-      ach.push({ prio: 64, icon: '🐌', tone: 'orange',
-        text: `Há OS em andamento parada há <strong>${osParadaDias} dias</strong> — vale revisar ou fechar.` });
-    }
-    // Ocupação / ociosidade — só faz sentido com o mês FECHADO
-    if (fechado && custeio) {
-      const ocup = custeio.diasUteis > 0 ? (custeio.diasTrab / custeio.diasUteis * 100) : 0;
-      if (custeio.ociosidade > 0) {
-        ach.push({ prio: 74, icon: '🌧️', tone: 'orange',
-          text: `Ocupação de <strong>${ocup.toFixed(0)}%</strong> (${custeio.diasTrab}/${custeio.diasUteis} dias úteis) — ${Fmt.currency(custeio.ociosidade)} de custo fixo ficaram sem cobertura.` });
-      } else {
-        ach.push({ prio: 26, icon: '☀️', tone: 'green',
-          text: `Ocupação cheia: ${custeio.diasTrab}/${custeio.diasUteis} dias úteis trabalhados. Custo fixo coberto.` });
-      }
-    }
-    return ach;
+    return { resumo, achados: achados.slice(0, 3) };
   }
 
   // Evolução mês a mês (últimos N meses) — reaproveita o snapshot por mês
@@ -407,6 +286,54 @@ const Insights = (() => {
     return out;
   }
 
+  // Variações por categoria vs período anterior (alimenta "O que mudou").
+  // Junta receitas e despesas, ordena pela magnitude da variação.
+  function _calcMudancas(a, b, minDelta = 50) {
+    const rows = [];
+    const add = (tipo, nome, va, vb) => {
+      const delta = va - vb;
+      if (Math.abs(delta) < minDelta) return;
+      rows.push({ tipo, nome, va, vb, delta,
+        // "bom" = verde: receita subindo ou despesa caindo
+        bom: tipo === 'rec' ? delta > 0 : delta < 0 });
+    };
+    new Set([...Object.keys(a.despPorCat), ...Object.keys(b.despPorCat)])
+      .forEach(c => add('desp', c, a.despPorCat[c] || 0, b.despPorCat[c] || 0));
+    new Set([...Object.keys(a.recPorCat), ...Object.keys(b.recPorCat)])
+      .forEach(c => add('rec', c, a.recPorCat[c] || 0, b.recPorCat[c] || 0));
+    rows.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
+    return rows.slice(0, 6);
+  }
+
+  // O que vence nos PRÓXIMOS 30 dias (sempre de hoje pra frente, independe do
+  // período selecionado): parcelas pendentes agrupadas em 4 janelas semanais.
+  // Atrasadas (venc < hoje) ficam de fora — moram no card Recebimento.
+  function _calcProximos30() {
+    const hojeStr = new Date().toISOString().substring(0, 10);
+    const hoje = new Date(hojeStr + 'T00:00:00');
+    const faixas = [[0, 6], [7, 13], [14, 20], [21, 29]];
+    const lbl = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const semanas = faixas.map(([i, f]) => {
+      const di = new Date(hoje.getTime() + i * 86400000);
+      const df = new Date(hoje.getTime() + f * 86400000);
+      return { label: `${lbl(di)}–${lbl(df)}`, receber: 0, pagar: 0 };
+    });
+    let receber = 0, pagar = 0, qtd = 0;
+    _cache.parcelas.forEach(p => {
+      if (p.status !== 'pendente' || origemForaResultado(p.origem)) return;
+      const v = String(p.data_vencimento || '').substring(0, 10);
+      if (!v || v < hojeStr) return;
+      const dias = Math.round((new Date(v + 'T00:00:00') - hoje) / 86400000);
+      if (dias > 29) return;
+      const idx = faixas.findIndex(([i, f]) => dias >= i && dias <= f);
+      const val = Number(p.valor || 0);
+      if (p.tipo === 'receber') { semanas[idx].receber += val; receber += val; }
+      else { semanas[idx].pagar += val; pagar += val; }
+      qtd++;
+    });
+    return { semanas, receber, pagar, saldo: receber - pagar, qtd };
+  }
+
   // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render() {
     const section = qs('#page-insights');
@@ -421,13 +348,7 @@ const Insights = (() => {
           title="Recarrega os dados e revisa valores, datas e categorias do mês">🔄 Atualizar</button>
       </div>
 
-      <!-- Swap principal: Realizado / Com previsão -->
-      <div class="ins-swap mb-2">
-        <button class="ins-swap-btn ${_megaModo==='realizado'?'active':''}" onclick="Insights.setMegaModo('realizado')">📊 Realizado</button>
-        <button class="ins-swap-btn ${_megaModo==='previsao'?'active':''}"  onclick="Insights.setMegaModo('previsao')">🔮 Com previsão</button>
-      </div>
-
-      <!-- Controles secundários: regime (competência/caixa) + período (discreto) -->
+      <!-- Controles: regime (competência/caixa) + período -->
       <div class="ins-controls mb-3">
         <div class="ins-regime" role="group" aria-label="Regime">
           <button class="${_regime==='competencia'?'active':''}" onclick="Insights.setRegime('competencia')"
@@ -450,13 +371,9 @@ const Insights = (() => {
 
   function setPeriodo(p) { _periodo = p; render(); }
   function setRegime(r)  { _regime  = r; render(); }
-  // Alterna o modo do painel: realizado vs. projeção com receita prevista.
-  // O swap fica no topo (fora de #insights-content), então re-renderiza tudo.
-  function setMegaModo(m) { _megaModo = m; render(); }
 
-  // Botão "Atualizar": limpa o cache, recarrega dados frescos do servidor e
-  // re-renderiza; depois faz uma revisão dos lançamentos do mês (valores/datas/
-  // categorias) e avisa por toast.
+  // Botão "Atualizar": limpa o cache, recarrega dados frescos e revisa os
+  // lançamentos do mês (valores/datas/categorias), avisando por toast.
   async function atualizar() {
     if (typeof API.clearCache === 'function') API.clearCache();
     await render();
@@ -506,32 +423,27 @@ const Insights = (() => {
       fechamentoOsByFech:   agruparFechamentoOs(foRes?.data || []),
     };
 
-    // Custo fixo mensal (config) — base do custeio por absorção
     const _cfg = await Calculator.getConfig();
     const custoFixoMensal = Calculator.custoFixoMensal(_cfg);
+    const meta     = Calculator.cfgNum(_cfg, 'meta_faturamento_mensal', 0);
+    const horaBase = Calculator.cfgNum(_cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(_cfg, 'valor_hora', 0);
 
     const periodo = calcPeriodo(_periodo);
+    const fechado = _periodoFechado(periodo);
+    const diasRestantes = _diasUteisRestantes(periodo);
 
-    // Pre-filtra parcelas pelo período (regime de competência)
+    // Snapshots atual × anterior — fonte única dos KPIs, resumo e "O que mudou"
+    const snapAtual = _calcSnapshot(periodo);
+    const snapAnt   = _calcSnapshot(calcPeriodoAnterior(_periodo));
+    const { faturamento, totalDesp, lucro, horas: horasPeriodo } = snapAtual;
+    const margem    = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
+    const margemAnt = snapAnt.faturamento > 0 ? (snapAnt.lucro / snapAnt.faturamento) * 100 : null;
+    const custoHora   = horasPeriodo > 0 ? totalDesp / horasPeriodo : 0;
+    const receitaHora = snapAtual.receitaHora;
+
+    // Clientes (top 5 + concentração)
     const parcelasPeriodo = _cache.parcelas.filter(p => !origemForaResultado(p.origem) && noPeriodo(p, periodo));
-
-    // Métricas básicas
     const receitas = parcelasPeriodo.filter(p => p.tipo === 'receber');
-    const despesas = parcelasPeriodo.filter(p => p.tipo === 'pagar');
-    const faturamento = sumValor(receitas);
-    const totalDesp   = sumValor(despesas);
-    const lucro       = faturamento - totalDesp;
-    const margem      = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
-
-    // Horas trabalhadas no período (das sessões, pela data de cada uma).
-    // horas_calculadas só entra p/ OS legada sem sessão registrada.
-    const _hb = _horasBreakdown(periodo);
-    const horasPeriodo  = _hb.total;
-    const custoHora    = horasPeriodo > 0 ? totalDesp / horasPeriodo : 0;
-    // Valor/hora trabalhada = faturamento do mês ÷ horas do mês (pedido do dono).
-    const receitaHoraReal = horasPeriodo > 0 ? faturamento / horasPeriodo : 0;
-
-    // Top clientes no período (por receita) — ignora lançamentos sem cliente identificado
     const porCliente = {};
     receitas.forEach(p => {
       const k = App.clienteNome(p.cliente_id);
@@ -543,11 +455,7 @@ const Insights = (() => {
     const concentracao   = clientesRanked[0] && faturamento > 0
       ? (clientesRanked[0][1] / faturamento) * 100 : 0;
 
-    // Categorias de receita e despesa
-    const porCategoriaRec = agruparPorCategoria(receitas);
-    const porCategoriaDesp = agruparPorCategoria(despesas);
-
-    // Inadimplência (pendentes + atrasados — todos, não só do período)
+    // Recebimento (pendentes + atrasados — todos, não só do período)
     const hojeStr = new Date().toISOString().substring(0, 10);
     const aReceber = _cache.parcelas.filter(p =>
       p.tipo === 'receber' && p.status === 'pendente'
@@ -557,8 +465,6 @@ const Insights = (() => {
     );
     const totalReceber  = sumValor(aReceber);
     const totalAtrasado = sumValor(atrasados);
-
-    // Prazo médio de recebimento (apenas das parcelas pagas no período)
     const recebidasNoPeriodo = receitas.filter(p => p.status === 'pago' && p.data_pagamento);
     const prazos = recebidasNoPeriodo.map(p => {
       const venc  = new Date(String(p.data_vencimento || '').substring(0,10));
@@ -568,108 +474,57 @@ const Insights = (() => {
     const prazoMedio = prazos.length > 0
       ? prazos.reduce((s, n) => s + n, 0) / prazos.length : null;
 
-    // Fluxo de caixa por semana (apenas para mês atual)
-    const semanas = _periodo === 'mes_atual' ? _calcSemanas(periodo, _cache.parcelas) : null;
-
-    // Dicas (recomendações acionáveis) — exibidas dentro do resumo inteligente
-    const tips = buildTips({
-      faturamento, totalDesp, margem, top5Clientes,
-      concentracao, atrasados, horasPeriodo, custoHora,
-      fechado: _periodoFechado(periodo),
-    });
-
-    const regimeLabel = _regime === 'caixa' ? 'regime de Caixa' : 'regime de Competência';
-    // Snapshots para o resumo: período atual × anterior de mesma duração
-    const snapAtual = _calcSnapshot(periodo);
-    const snapAnt   = _calcSnapshot(calcPeriodoAnterior(_periodo));
-    const evol      = _calcEvolucao(6);
-
-    // Receita prevista: soma das sessões registradas de OS abertas (andamento / acerto)
+    // Pipeline: OS abertas (sessões registradas) + fechadas ainda não recebidas
     const osAbertasIds = new Set(
       _cache.osList.filter(o => o.status === 'andamento' || o.status === 'acerto').map(o => o.id)
     );
-    const sessoesAbertas = _cache.diarias.filter(d => osAbertasIds.has(d.os_id));
-    const receitaPrevista = sessoesAbertas.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
-    const nOSAbertas = osAbertasIds.size;
-    const nSessoesAbertas = sessoesAbertas.length;
-
-    // Receita prevista DO PERÍODO: só as sessões de OS em andamento/acerto com data
-    // dentro do período (regra do dono — na previsão, somar as OS em andamento do mês).
-    // Diferente da "receita prevista" acima, que é o pipeline total das OS abertas.
-    const receitaPrevistaPeriodo = sessoesAbertas
-      .filter(d => { const dt = String(d.data || '').substring(0, 10); return dt >= periodo.start && dt <= periodo.end; })
+    const receitaPrevista = _cache.diarias
+      .filter(d => osAbertasIds.has(d.os_id))
       .reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
-    // Valor/hora na previsão = (faturamento + OS em andamento do mês) ÷ horas do mês.
-    const receitaHoraPrev = horasPeriodo > 0 ? (faturamento + receitaPrevistaPeriodo) / horasPeriodo : 0;
-
-    // OS fechadas e ainda NÃO recebidas — parcelas geradas no fechamento (origem='os')
-    // que continuam pendentes. Mostrado como item do resumo (não recebido × valor).
+    const nOSAbertas = osAbertasIds.size;
     const aReceberOS = _cache.parcelas.filter(p =>
-      p.origem === 'os' && p.tipo === 'receber' && p.status === 'pendente'
+      (p.origem === 'os' || p.origem === 'os_lote') && p.tipo === 'receber' && p.status === 'pendente'
     );
     const naoRecebidoValor = sumValor(aReceberOS);
-    const naoRecebidoQtd   = new Set(aReceberOS.map(p => p.origem_id).filter(Boolean)).size || aReceberOS.length;
-
-    // Sem OS abertas não há previsão → força modo realizado e esconde o toggle
-    const temPrevisao = nOSAbertas > 0 && receitaPrevista > 0;
-    const modo = temPrevisao ? _megaModo : 'realizado';
-    let mega;
-    if (modo === 'previsao') {
-      // Base de previsão: recebido + OS em andamento DO PERÍODO; anterior só recebido
-      const snapProjAtual = _calcSnapshotProjetado(periodo, receitaPrevistaPeriodo);
-      const snapProjAnt   = _calcSnapshotProjetado(calcPeriodoAnterior(_periodo), 0);
-      mega = buildMegaInsightPrevisao(snapProjAtual, snapProjAnt, snapProjAtual.recebido, receitaPrevistaPeriodo, nOSAbertas);
-    } else {
-      mega = buildMegaInsight(snapAtual, snapAnt);
-    }
-
-    // Valor/hora exibido na Visão Geral: realizado (faturamento÷horas) ou, no modo
-    // previsão, somando as OS em andamento do mês.
-    const emPrevisao     = modo === 'previsao';
-    const receitaHora    = emPrevisao ? receitaHoraPrev : receitaHoraReal;
-    const receitaHoraSub = emPrevisao ? '(faturado + OS andamento) ÷ horas' : 'faturamento ÷ horas';
-
-    // Custeio por absorção (custo fixo diluído por dias úteis) — só se configurado
-    const custeio = custoFixoMensal > 0 ? _custeioNoPeriodo(periodo, custoFixoMensal) : null;
-    // Período fechado? Métricas de eficiência só são confiáveis com o mês fechado.
-    const fechado = _periodoFechado(periodo);
-    const diasRestantes = _diasUteisRestantes(periodo);
+    const naoRecebidoQtd   = aReceberOS.length;
 
     // OS em andamento parada há mais tempo (sem atualização)
-    let osParadaDias = 0;
+    let osParada = null;
     const _hojeDt = new Date(); _hojeDt.setHours(0, 0, 0, 0);
     _cache.osList.filter(o => o.status === 'andamento').forEach(o => {
       const d = new Date((o.data_atualizacao || o.data_inicio || '').substring(0, 10) + 'T00:00:00');
       if (!isNaN(d.getTime())) {
         const dias = Math.floor((_hojeDt - d) / 86400000);
-        if (dias > osParadaDias) osParadaDias = dias;
+        if (dias >= 15 && dias > (osParada?.dias || 0)) osParada = { numero: o.numero, dias };
       }
     });
 
-    // Resumo abrangente: junta achados de comparação (mega) com FATOS do estado
-    // atual (pipeline, recebíveis, ocupação). Alertas acionáveis vão nas DICAS.
-    const achadosEmpresa = buildAchadosEmpresa({
-      nOSAbertas, receitaPrevista, naoRecebidoValor, naoRecebidoQtd,
-      custeio, fechado, modo, osParadaDias,
-    });
-    mega.achados = [...(mega.achados || []), ...achadosEmpresa]
-      .sort((a, b) => (b.prio || 50) - (a.prio || 50))
-      .slice(0, 7);
+    const custeio = custoFixoMensal > 0 ? _custeioNoPeriodo(periodo, custoFixoMensal) : null;
+    const mega     = buildMegaInsight(snapAtual, snapAnt);
+    const evol     = _calcEvolucao(6);
+    const mudancas = _calcMudancas(snapAtual, snapAnt);
+    const temBaseAnterior = !!(snapAnt.faturamento || snapAnt.totalDesp || snapAnt.horas);
+    const prox30   = _calcProximos30();
+
+    const regimeLabel = _regime === 'caixa' ? 'regime de Caixa' : 'regime de Competência';
+    const periodoMensal = _periodo === 'mes_atual' || _periodo === 'mes_anterior';
 
     qs('#insights-content').innerHTML = `
       <p class="text-muted mb-3" style="font-size:.82rem;margin-top:-4px">
         ${periodo.label} · <strong>${regimeLabel}</strong>${fechado ? '' : ' · <span style="color:var(--warning)">em curso</span>'}
       </p>
 
-      ${_renderMegaInsight(mega, tips)}
+      ${_renderKPIs(snapAtual, snapAnt, margem, margemAnt)}
+      ${periodoMensal ? _renderMeta(faturamento, meta, fechado, diasRestantes) : ''}
+      ${_renderResumo(mega)}
+      ${_renderSuaHora({ horasPeriodo, receitaHora, custoHora, horaBase, fechado })}
+      ${custeio ? _renderCusteio(custeio, fechado, diasRestantes) : ''}
+      ${_renderPipeline({ receitaPrevista, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada })}
       ${_renderEvolucao(evol)}
-      ${_renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas })}
-      ${custeio ? _renderCusteio(custeio, faturamento, fechado, diasRestantes) : ''}
-      ${_renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora, receitaHoraSub, emPrevisao, fechado })}
-      ${_renderCategorias(porCategoriaRec, porCategoriaDesp)}
+      ${_renderMudancas(mudancas, temBaseAnterior)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
       ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
-      ${semanas ? _renderFluxoCaixa(semanas) : ''}
+      ${_renderProximos30(prox30)}
     `;
   }
 
@@ -695,53 +550,99 @@ const Insights = (() => {
     return Object.entries(out).sort((a, b) => b[1] - a[1]);
   }
 
-  function _calcSemanas(periodo, parcelas) {
-    const start = new Date(periodo.start + 'T00:00:00');
-    const end   = new Date(periodo.end + 'T23:59:59');
-    const semanas = [];
-    let s = new Date(start);
-    while (s <= end) {
-      const e = new Date(Math.min(s.getTime() + 6 * 86400000, end.getTime()));
-      const sStr = s.toISOString().substring(0,10);
-      const eStr = e.toISOString().substring(0,10);
-      const ent = sumValor(parcelas.filter(p =>
-        p.tipo === 'receber' && p.status === 'pago' &&
-        String(p.data_pagamento || '').substring(0,10) >= sStr &&
-        String(p.data_pagamento || '').substring(0,10) <= eStr
-      ));
-      const sai = sumValor(parcelas.filter(p =>
-        p.tipo === 'pagar' && p.status === 'pago' &&
-        String(p.data_pagamento || '').substring(0,10) >= sStr &&
-        String(p.data_pagamento || '').substring(0,10) <= eStr
-      ));
-      semanas.push({
-        label: `${s.getDate()}/${s.getMonth()+1}–${e.getDate()}/${e.getMonth()+1}`,
-        entradas: ent, saidas: sai, saldo: ent - sai,
-      });
-      s = new Date(e.getTime() + 86400000);
-    }
-    return semanas;
+  // ─── RENDERERS ───────────────────────────────────────────
+
+  // KPIs do período — ÚNICA aparição de faturamento/despesas/resultado/margem.
+  // Δ% vs período anterior direto em cada card (verde = melhorou).
+  function _renderKPIs(a, b, margem, margemAnt) {
+    const delta = (cur, prev, invertido = false) => {
+      if (!(prev > 0)) return '';
+      const p = _pct(cur, prev);
+      if (Math.abs(p) < 1) return '<div class="stat-sub">estável</div>';
+      const melhorou = invertido ? p < 0 : p > 0;
+      return `<div class="stat-sub" style="color:${melhorou ? 'var(--success)' : 'var(--danger)'};font-weight:700">${p > 0 ? '▲ +' : '▼ −'}${Math.abs(p).toFixed(0)}% vs anterior</div>`;
+    };
+    const margemClass = margem >= SPEC_DEFAULTS.metaMargemPercent ? 'stat-green'
+                      : margem >= 20 ? 'stat-orange' : 'stat-red';
+    const margemSub = margem >= SPEC_DEFAULTS.metaMargemPercent ? `saudável (≥${SPEC_DEFAULTS.metaMargemPercent}%)`
+                    : margem >= 20 ? 'atenção (meta 30%)' : 'crítica (<20%)';
+    const deltaMargem = margemAnt !== null && Math.abs(margem - margemAnt) >= 1
+      ? `<div class="stat-sub" style="color:${margem >= margemAnt ? 'var(--success)' : 'var(--danger)'};font-weight:700">${margem >= margemAnt ? '▲ +' : '▼ −'}${Math.abs(margem - margemAnt).toFixed(0)} p.p.</div>`
+      : '';
+    return `
+      <div class="stats-grid mb-3">
+        <div class="stat-card stat-green">
+          <div class="stat-label">Faturamento</div>
+          <div class="stat-value" style="font-size:1rem">${Fmt.currency(a.faturamento)}</div>
+          ${delta(a.faturamento, b.faturamento)}
+        </div>
+        <div class="stat-card stat-red">
+          <div class="stat-label">Despesas</div>
+          <div class="stat-value" style="font-size:1rem">${Fmt.currency(a.totalDesp)}</div>
+          ${delta(a.totalDesp, b.totalDesp, true)}
+        </div>
+        <div class="stat-card ${a.lucro >= 0 ? 'stat-navy' : 'stat-red'}">
+          <div class="stat-label">Resultado</div>
+          <div class="stat-value" style="font-size:1rem;color:${a.lucro >= 0 ? 'var(--success)' : 'var(--danger)'}">${Fmt.currency(a.lucro)}</div>
+          ${b.lucro > 0 ? delta(a.lucro, b.lucro) : ''}
+        </div>
+        <div class="stat-card ${margemClass}">
+          <div class="stat-label">Margem</div>
+          <div class="stat-value" style="font-size:1rem">${margem.toFixed(0)}%</div>
+          ${deltaMargem || `<div class="stat-sub">${a.faturamento > 0 ? margemSub : '—'}</div>`}
+        </div>
+      </div>
+    `;
   }
 
-  // ─── RENDERERS ───────────────────────────────────────────
-  function _renderMegaInsight(mega, tips = []) {
+  // 🎯 Meta do mês — progresso do faturamento vs meta_faturamento_mensal (config).
+  function _renderMeta(faturamento, meta, fechado, diasRestantes) {
+    if (!(meta > 0)) {
+      return `
+        <div class="card mb-3" style="cursor:pointer" onclick="App.navigate('config')">
+          <div class="card-body" style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:1.3rem">🎯</span>
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:.88rem">Defina uma meta de faturamento</div>
+              <div style="font-size:.75rem;color:var(--text-muted)">Configure em Config → Custos do Negócio e acompanhe o progresso aqui.</div>
+            </div>
+            <span class="entity-chevron">›</span>
+          </div>
+        </div>
+      `;
+    }
+    const pct   = Math.min(100, faturamento / meta * 100);
+    const falta = Math.max(0, meta - faturamento);
+    const bateu = faturamento >= meta;
+    let rodape;
+    if (bateu) {
+      rodape = `Meta batida! ${Fmt.currency(faturamento - meta)} acima. 🏆`;
+    } else if (fechado) {
+      rodape = `Fechou a ${Fmt.currency(falta)} da meta.`;
+    } else if (diasRestantes > 0) {
+      rodape = `Ritmo pra bater: ${Fmt.currency(falta / diasRestantes)}/dia útil (${diasRestantes} restantes).`;
+    } else {
+      rodape = `Faltam ${Fmt.currency(falta)} — último dia do período.`;
+    }
+    return `
+      <div class="meta-card mb-3">
+        <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:7px">
+          <span style="font-weight:700">🎯 Meta do mês</span>
+          <span style="color:var(--gold);font-weight:800">${pct.toFixed(0)}%</span>
+        </div>
+        <div class="meta-bar"><div class="meta-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        <div style="font-size:.78rem;opacity:.92;margin-top:7px">${Fmt.currency(faturamento)} de ${Fmt.currency(meta)}${bateu ? '' : ` · faltam <strong>${Fmt.currency(falta)}</strong>`}</div>
+        <div style="font-size:.72rem;opacity:.75;margin-top:2px">${rodape}</div>
+      </div>
+    `;
+  }
+
+  function _renderResumo(mega) {
     const tc = { green: 'var(--success)', red: 'var(--danger)', orange: 'var(--warning)', navy: 'var(--navy)' };
     const c = tc[mega.resumo.tone] || 'var(--navy)';
-    // Dicas do negócio (recomendações acionáveis) embutidas no resumo
-    const dicasHtml = tips.length ? `
-      <div class="ins-dicas-sep">💡 Dicas do negócio</div>
-      ${tips.map(t => `
-        <div class="tip-card tip-${t.type}">
-          <span class="tip-icon">${t.icon}</span>
-          <div class="tip-body">
-            <div class="tip-title">${t.title}</div>
-            <div class="tip-text">${t.text}</div>
-          </div>
-        </div>`).join('')}
-    ` : '';
     return `
-      <div class="card mb-4" style="border-left:5px solid ${c}">
-        <div class="card-header"><h3>🧠 Resumo inteligente</h3></div>
+      <div class="card mb-3" style="border-left:5px solid ${c}">
+        <div class="card-header"><h3>🧠 Resumo</h3></div>
         <div class="card-body">
           <p style="font-size:.95rem;line-height:1.5;font-weight:600;color:var(--text);margin:0 0 ${mega.achados.length ? '10px' : '0'}">${mega.resumo.texto}</p>
           ${mega.achados.map(a => `
@@ -749,7 +650,165 @@ const Insights = (() => {
               <span style="font-size:1rem;flex-shrink:0;line-height:1.3">${a.icon}</span>
               <span style="font-size:.85rem;color:var(--text-muted);line-height:1.45">${a.text}</span>
             </div>`).join('')}
-          ${dicasHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // 💵 Sua hora — a economia da hora trabalhada, num lugar só.
+  function _renderSuaHora({ horasPeriodo, receitaHora, custoHora, horaBase, fechado }) {
+    const parcial = fechado ? '' : ' <span style="color:var(--warning)">*parcial</span>';
+    if (!(horasPeriodo > 0)) {
+      return `
+        <div class="card mb-3">
+          <div class="card-header"><h3>💵 Sua hora</h3></div>
+          <div class="card-body"><p class="text-muted" style="margin:0;font-size:.85rem">Registre sessões de trabalho nas OS para ver o valor e o custo de cada hora.</p></div>
+        </div>
+      `;
+    }
+    const spread = receitaHora - custoHora;
+    const veredito = spread >= 0
+      ? `<div class="tip-card tip-success" style="margin-top:12px"><span class="tip-icon">✓</span><div class="tip-body"><div class="tip-text">Cada hora rendeu <strong>${Fmt.currency(spread)}</strong> acima do custo.</div></div></div>`
+      : `<div class="tip-card tip-danger" style="margin-top:12px"><span class="tip-icon">⚠️</span><div class="tip-body"><div class="tip-text">Cada hora custou <strong>${Fmt.currency(Math.abs(spread))}</strong> a mais do que rendeu — revise preço ou despesas.</div></div></div>`;
+    return `
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3>💵 Sua hora</h3>
+          <span class="badge badge-info">${Fmt.hours(horasPeriodo)} no período</span>
+        </div>
+        <div class="card-body">
+          <div class="stats-grid">
+            <div class="stat-card ${receitaHora >= custoHora ? 'stat-green' : 'stat-red'}">
+              <div class="stat-label">Valor/hora${parcial}</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaHora)}</div>
+              <div class="stat-sub">faturamento ÷ horas</div>
+            </div>
+            <div class="stat-card stat-blue">
+              <div class="stat-label">Custo/hora${parcial}</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(custoHora)}</div>
+              <div class="stat-sub">despesas ÷ horas</div>
+            </div>
+            ${horaBase > 0 ? `
+            <div class="stat-card stat-navy">
+              <div class="stat-label">Hora base</div>
+              <div class="stat-value" style="font-size:1rem">${Fmt.currency(horaBase)}</div>
+              <div class="stat-sub">config (cobrança)</div>
+            </div>` : ''}
+          </div>
+          ${veredito}
+          ${!fechado ? `<p class="text-muted" style="font-size:.72rem;margin:10px 0 0">* valores parciais — ficam definitivos quando o período fechar.</p>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // 🏭 Capacidade (custeio por absorção) — custo fixo diluído por dias úteis.
+  function _renderCusteio(c, fechado, diasRestantes) {
+    const ocupacao = c.diasUteis > 0 ? (c.diasTrab / c.diasUteis * 100) : 0;
+    const diasParados = Math.max(0, c.diasUteis - c.diasTrab);
+    const sobrou = c.diasTrab >= c.diasUteis;
+
+    const cardsBase = `
+      <div class="stat-card stat-navy">
+        <div class="stat-label">Custo fixo ${c.nMeses > 1 ? `(${c.nMeses} meses)` : '(mês)'}</div>
+        <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoFixoTot)}</div>
+      </div>
+      <div class="stat-card stat-blue">
+        <div class="stat-label">Custo/dia previsto</div>
+        <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoDia)}</div>
+        <div class="stat-sub">÷ ${c.diasUteis} dias úteis</div>
+      </div>
+      <div class="stat-card ${c.custoDiaReal > c.custoDia ? 'stat-orange' : 'stat-green'}">
+        <div class="stat-label">Custo/dia real</div>
+        <div class="stat-value" style="font-size:1rem">${c.diasTrab > 0 ? Fmt.currency(c.custoDiaReal) : '—'}</div>
+        <div class="stat-sub">÷ ${c.diasTrab} dia(s) trabalhado(s)</div>
+      </div>`;
+
+    // Período em andamento: ociosidade distorce (conta dias futuros como parados)
+    if (!fechado) {
+      return `
+        <div class="card mb-3">
+          <div class="card-header"><h3>🏭 Capacidade</h3></div>
+          <div class="card-body">
+            <div class="stats-grid">
+              ${cardsBase}
+              <div class="stat-card stat-navy">
+                <div class="stat-label">Dias trabalhados</div>
+                <div class="stat-value" style="font-size:1rem">${c.diasTrab} / ${c.diasUteis}</div>
+                <div class="stat-sub">até agora</div>
+              </div>
+            </div>
+            <div class="tip-card tip-info" style="margin-top:12px">
+              <span class="tip-icon">⏳</span>
+              <div class="tip-body"><div class="tip-text">
+                Período em curso${diasRestantes > 0 ? ` (faltam ${diasRestantes} dia(s) úteis)` : ''} — a <strong>ocupação</strong> e a <strong>ociosidade</strong> aparecem quando o período fechar.
+              </div></div>
+            </div>
+            <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
+              Custo/dia fixo pelos dias úteis do calendário. Estimativa gerencial — separada das despesas lançadas no Financeiro.
+            </p>
+          </div>
+        </div>
+      `;
+    }
+
+    const insight = sobrou
+      ? `Você trabalhou ${c.diasTrab} dias — no nível (ou acima) dos ${c.diasUteis} dias úteis do período. Custo fixo totalmente coberto. 💪`
+      : `Você trabalhou <strong>${c.diasTrab} de ${c.diasUteis} dias úteis</strong>. Os ${diasParados} dia(s) parado(s) deixaram <strong>${Fmt.currency(c.ociosidade)}</strong> de custo fixo sem cobertura — impacto do clima/ociosidade, separado das suas OS.`;
+    return `
+      <div class="card mb-3">
+        <div class="card-header"><h3>🏭 Capacidade</h3></div>
+        <div class="card-body">
+          <div class="stats-grid">
+            ${cardsBase}
+            <div class="stat-card ${ocupacao >= 80 ? 'stat-green' : ocupacao >= 50 ? 'stat-orange' : 'stat-red'}">
+              <div class="stat-label">Ocupação</div>
+              <div class="stat-value" style="font-size:1rem">${ocupacao.toFixed(0)}%</div>
+              <div class="stat-sub">${c.diasTrab} / ${c.diasUteis} dias úteis</div>
+            </div>
+          </div>
+
+          <div style="height:10px;border-radius:6px;overflow:hidden;display:flex;background:var(--bg);margin-top:14px">
+            <div style="width:${Math.min(100, ocupacao).toFixed(1)}%;background:${ocupacao >= 80 ? 'var(--success)' : ocupacao >= 50 ? 'var(--warning)' : 'var(--danger)'};transition:width .4s"></div>
+          </div>
+
+          <div class="tip-card ${sobrou ? 'tip-success' : 'tip-warning'}" style="margin-top:12px">
+            <span class="tip-icon">${sobrou ? '☀️' : '🌧️'}</span>
+            <div class="tip-body"><div class="tip-text">${insight}</div></div>
+          </div>
+
+          <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
+            Custo/dia fixo pelos dias úteis do calendário (não muda com o clima). Estimativa gerencial — separada das despesas lançadas no Financeiro, não some as duas.
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
+  // 🔧 Pipeline — o que ainda vira dinheiro: OS abertas + fechadas não recebidas.
+  function _renderPipeline({ receitaPrevista, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada }) {
+    if (nOSAbertas === 0 && naoRecebidoValor === 0) return '';
+    return `
+      <div class="card mb-3">
+        <div class="card-header"><h3>🔧 Pipeline</h3></div>
+        <div class="card-body">
+          <div style="display:flex;gap:12px">
+            <div style="flex:1;background:var(--gold-lt);border-radius:10px;padding:10px 12px">
+              <div style="font-size:.72rem;color:var(--gold-dk);font-weight:700">Em andamento</div>
+              <div style="font-size:1rem;font-weight:800">${Fmt.currency(receitaPrevista)}</div>
+              <div style="font-size:.7rem;color:var(--text-muted)">${nOSAbertas} OS aberta(s) · sessões registradas</div>
+            </div>
+            <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px">
+              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700">Fechadas a receber</div>
+              <div style="font-size:1rem;font-weight:800">${Fmt.currency(naoRecebidoValor)}</div>
+              <div style="font-size:.7rem;color:var(--text-muted)">${naoRecebidoQtd} parcela(s) pendente(s)</div>
+            </div>
+          </div>
+          ${osParada ? `
+          <div class="tip-card tip-warning" style="margin-top:12px">
+            <span class="tip-icon">🐌</span>
+            <div class="tip-body"><div class="tip-text"><strong>${osParada.numero}</strong> parada há ${osParada.dias} dias — vale retomar ou fechar.</div></div>
+          </div>` : ''}
         </div>
       </div>
     `;
@@ -770,7 +829,7 @@ const Insights = (() => {
       </div>`;
     return `
       <div class="card mb-3">
-        <div class="card-header"><h3>📊 Evolução (6 meses)</h3></div>
+        <div class="card-header"><h3>📈 Evolução (6 meses)</h3></div>
         <div class="card-body">
           ${!temDados ? '<p class="text-muted" style="margin:0;font-size:.85rem">Sem dados suficientes nos últimos meses.</p>' : `
             <div class="evo-leg-row">
@@ -804,263 +863,31 @@ const Insights = (() => {
       </div>`;
   }
 
-  function _renderReceitaPrevista({ receitaPrevista, faturamento, nOSAbertas, nSessoesAbertas }) {
-    if (nOSAbertas === 0) return '';
-    const total = faturamento + receitaPrevista;
-    const pctReal = total > 0 ? (faturamento / total * 100) : 0;
-    const pctPrev = total > 0 ? (receitaPrevista / total * 100) : 100;
+  // 📊 O que mudou — variações por categoria vs período anterior. O breakdown
+  // absoluto por categoria mora no Resumo do Financeiro (sem duplicar aqui).
+  function _renderMudancas(rows, temBaseAnterior) {
+    const corpo = !temBaseAnterior
+      ? '<p class="text-muted" style="margin:0;font-size:.85rem">Sem período anterior pra comparar ainda.</p>'
+      : rows.length === 0
+        ? '<p class="text-muted" style="margin:0;font-size:.85rem">Nada mudou de forma relevante entre os períodos.</p>'
+        : rows.map(r => {
+            const seta = r.delta > 0 ? '▲' : '▼';
+            const pct = r.vb > 0 ? ` (${_sinalPct(r.va, r.vb)})` : ' (novo)';
+            return `
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:.85rem">
+              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nome} <small style="color:var(--text-muted)">${r.tipo === 'rec' ? 'receita' : 'despesa'}</small></span>
+              <strong style="flex:0 0 auto;color:${r.bom ? 'var(--success)' : 'var(--danger)'}">${seta} ${r.delta > 0 ? '+' : '−'}${Fmt.currency(Math.abs(r.delta))}${pct}</strong>
+            </div>`;
+          }).join('');
     return `
       <div class="card mb-3">
-        <div class="card-header"><h3>🔮 Receita Prevista</h3></div>
+        <div class="card-header"><h3>📊 O que mudou <small style="font-weight:400;color:var(--text-muted);font-size:.72rem">vs período anterior</small></h3></div>
         <div class="card-body">
-          <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px">
-            ${nOSAbertas} OS abertas · ${nSessoesAbertas} sessão(ões) registrada(s)
-          </div>
-          <div style="display:flex;gap:12px;margin-bottom:14px">
-            <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px;border-left:3px solid var(--success)">
-              <div style="font-size:.72rem;color:var(--text-muted)">Faturado (período)</div>
-              <div style="font-size:1rem;font-weight:800;color:var(--success)">${Fmt.currency(faturamento)}</div>
-            </div>
-            <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px;border-left:3px solid var(--gold-dk)">
-              <div style="font-size:.72rem;color:var(--text-muted)">Em andamento</div>
-              <div style="font-size:1rem;font-weight:800;color:var(--gold-dk)">${Fmt.currency(receitaPrevista)}</div>
-            </div>
-          </div>
-          <div style="height:10px;border-radius:6px;overflow:hidden;display:flex;background:var(--bg)">
-            ${pctReal > 0 ? `<div style="width:${pctReal.toFixed(1)}%;background:var(--success);transition:width .4s"></div>` : ''}
-            ${pctPrev > 0 ? `<div style="width:${pctPrev.toFixed(1)}%;background:var(--gold-dk);transition:width .4s"></div>` : ''}
-          </div>
-          <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.72rem;color:var(--text-muted)">
-            <span>Faturado ${pctReal.toFixed(0)}%</span>
-            <span>Em aberto ${pctPrev.toFixed(0)}%</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  function _renderCusteio(c, faturamento, fechado, diasRestantes) {
-    const ocupacao = c.diasUteis > 0 ? (c.diasTrab / c.diasUteis * 100) : 0;
-    const resultado = faturamento - c.custoFixoTot;
-    const diasParados = Math.max(0, c.diasUteis - c.diasTrab);
-    const sobrou = c.diasTrab >= c.diasUteis;
-
-    // Cards de custo fixo + custo/dia previsto (÷ dias úteis, estável) + custo/dia
-    // real (÷ dias trabalhados, sobe quando trabalha pouco).
-    const cardsBase = `
-      <div class="stat-card stat-navy">
-        <div class="stat-label">Custo fixo ${c.nMeses > 1 ? `(${c.nMeses} meses)` : '(mês)'}</div>
-        <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoFixoTot)}</div>
-      </div>
-      <div class="stat-card stat-blue">
-        <div class="stat-label">Custo/dia previsto</div>
-        <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.custoDia)}</div>
-        <div class="stat-sub">÷ ${c.diasUteis} dias úteis</div>
-      </div>
-      <div class="stat-card ${c.custoDiaReal > c.custoDia ? 'stat-orange' : 'stat-green'}">
-        <div class="stat-label">Custo/dia real</div>
-        <div class="stat-value" style="font-size:1rem">${c.diasTrab > 0 ? Fmt.currency(c.custoDiaReal) : '—'}</div>
-        <div class="stat-sub">÷ ${c.diasTrab} dia(s) trabalhado(s)</div>
-      </div>`;
-
-    // PERÍODO EM ANDAMENTO: ociosidade/resultado distorcidos (contam dias futuros).
-    // Mostra só o que é confiável + aviso de que fecha no fim do período.
-    if (!fechado) {
-      return `
-        <div class="card mb-3">
-          <div class="card-header"><h3>🏢 Custo Fixo & Capacidade</h3></div>
-          <div class="card-body">
-            <div class="stats-grid">
-              ${cardsBase}
-            </div>
-            <div class="stat-card stat-navy" style="margin-top:12px">
-              <div class="stat-label">Dias trabalhados até agora</div>
-              <div class="stat-value" style="font-size:1rem">${c.diasTrab} dia(s)</div>
-              <div class="stat-sub">de ${c.diasUteis} úteis no período</div>
-            </div>
-            <div class="tip-card tip-info" style="margin-top:12px">
-              <span class="tip-icon">⏳</span>
-              <div class="tip-body"><div class="tip-text">
-                O período ainda está em curso${diasRestantes > 0 ? ` (faltam ${diasRestantes} dia(s) úteis)` : ''}.
-                A <strong>ociosidade</strong> e o <strong>resultado do mês</strong> só fazem sentido com o mês fechado — aparecem aqui quando o período terminar.
-              </div></div>
-            </div>
-            <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
-              Custo/dia fixo pelos dias úteis do calendário (não muda com o clima). Estimativa gerencial — separada das despesas lançadas no Financeiro.
-            </p>
-          </div>
-        </div>
-      `;
-    }
-
-    // PERÍODO FECHADO: análise completa (ociosidade já é real)
-    const insight = sobrou
-      ? `Você trabalhou ${c.diasTrab} dias — no nível (ou acima) dos ${c.diasUteis} dias úteis do período. Custo fixo totalmente coberto. 💪`
-      : `Você trabalhou <strong>${c.diasTrab} de ${c.diasUteis} dias úteis</strong>. Os ${diasParados} dia(s) parado(s) deixaram <strong>${Fmt.currency(c.ociosidade)}</strong> de custo fixo sem cobertura — é o impacto do clima/ociosidade no período, separado das suas OS.`;
-    return `
-      <div class="card mb-3">
-        <div class="card-header"><h3>🏢 Custo Fixo & Capacidade</h3></div>
-        <div class="card-body">
-          <div class="stats-grid">
-            ${cardsBase}
-            <div class="stat-card ${ocupacao >= 80 ? 'stat-green' : ocupacao >= 50 ? 'stat-orange' : 'stat-red'}">
-              <div class="stat-label">Dias trabalhados</div>
-              <div class="stat-value" style="font-size:1rem">${c.diasTrab} / ${c.diasUteis}</div>
-              <div class="stat-sub">${ocupacao.toFixed(0)}% de ocupação</div>
-            </div>
-            <div class="stat-card ${c.ociosidade > 0 ? 'stat-red' : 'stat-green'}">
-              <div class="stat-label">Ociosidade (clima)</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.currency(c.ociosidade)}</div>
-              <div class="stat-sub">custo descoberto</div>
-            </div>
-          </div>
-
-          <div style="height:10px;border-radius:6px;overflow:hidden;display:flex;background:var(--bg);margin-top:14px">
-            <div style="width:${Math.min(100, ocupacao).toFixed(1)}%;background:${ocupacao >= 80 ? 'var(--success)' : ocupacao >= 50 ? 'var(--warning)' : 'var(--danger)'};transition:width .4s"></div>
-          </div>
-
-          <div class="info-row mt-3">
-            <span>Custo fixo coberto pelas OS:</span>
-            <strong>${Fmt.currency(c.custoAbsorvido)}</strong>
-          </div>
-          <div class="info-row">
-            <span>Faturamento − custo fixo:</span>
-            <strong class="${resultado >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(resultado)}</strong>
-          </div>
-
-          <div class="tip-card ${sobrou ? 'tip-success' : 'tip-warning'}" style="margin-top:12px">
-            <span class="tip-icon">${sobrou ? '☀️' : '🌧️'}</span>
-            <div class="tip-body"><div class="tip-text">${insight}</div></div>
-          </div>
-
-          <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
-            Custo/dia fixo pelos dias úteis do calendário (não muda com o clima). Estimativa gerencial para medir rentabilidade — é separada das despesas lançadas no Financeiro, não some as duas.
+          ${corpo}
+          <p style="font-size:.72rem;color:var(--text-muted);margin:10px 0 0;cursor:pointer"
+            onclick="App.navigate('financeiro').then(() => Financeiro.switchTab('resumo'))">
+            Detalhe completo por categoria → <strong>Resumo do Financeiro</strong> ›
           </p>
-        </div>
-      </div>
-    `;
-  }
-
-
-  function _renderVisaoGeral({ faturamento, totalDesp, lucro, margem, horasPeriodo, custoHora, receitaHora, receitaHoraSub = 'faturamento ÷ horas', emPrevisao = false, fechado = true }) {
-    const margemClass = margem >= SPEC_DEFAULTS.metaMargemPercent ? 'stat-green'
-                      : margem >= 20 ? 'stat-orange' : 'stat-red';
-    const horasClass = horasPeriodo >= 40 ? 'stat-green' : horasPeriodo > 0 ? 'stat-blue' : 'stat-navy';
-    const parcial = fechado ? '' : ' *';
-    return `
-      <div class="card mb-4">
-        <div class="card-header"><h3>📈 Visão Geral${emPrevisao ? ' <span class="badge badge-gold" style="font-size:.62rem">🔮 previsão</span>' : ''}</h3></div>
-        <div class="card-body">
-          <div class="stats-grid">
-            <div class="stat-card stat-green">
-              <div class="stat-label">Faturamento</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.currency(faturamento)}</div>
-            </div>
-            <div class="stat-card stat-red">
-              <div class="stat-label">Despesas</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.currency(totalDesp)}</div>
-            </div>
-            <div class="stat-card ${lucro >= 0 ? 'stat-blue' : 'stat-red'}">
-              <div class="stat-label">Lucro</div>
-              <div class="stat-value" style="font-size:1rem">${Fmt.currency(lucro)}</div>
-            </div>
-            <div class="stat-card ${margemClass}">
-              <div class="stat-label">Margem</div>
-              <div class="stat-value" style="font-size:1rem">${margem.toFixed(1)}%</div>
-              <div class="stat-sub">meta: ${SPEC_DEFAULTS.metaMargemPercent}%</div>
-            </div>
-          </div>
-
-          ${horasPeriodo > 0 ? `
-            <div class="stats-grid mt-3">
-              <div class="stat-card ${horasClass}">
-                <div class="stat-label">⏱ Horas no mês</div>
-                <div class="stat-value" style="font-size:1rem">${Fmt.hours(horasPeriodo)}</div>
-              </div>
-              <div class="stat-card ${receitaHora >= custoHora ? 'stat-green' : 'stat-red'}">
-                <div class="stat-label">💵 Valor/hora${parcial}</div>
-                <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaHora)}</div>
-                <div class="stat-sub">${receitaHoraSub}</div>
-              </div>
-              <div class="stat-card stat-blue">
-                <div class="stat-label">🏭 Custo/hora${parcial}</div>
-                <div class="stat-value" style="font-size:1rem">${Fmt.currency(custoHora)}</div>
-                <div class="stat-sub">despesas ÷ horas</div>
-              </div>
-            </div>
-            ${!fechado ? `
-              <div class="tip-card tip-info" style="margin-top:14px">
-                <span class="tip-icon">⏳</span>
-                <div class="tip-body"><div class="tip-text">Valores por hora ainda são <strong>parciais</strong> (*) — ficam definitivos quando o mês fechar.</div></div>
-              </div>` : ''}
-            <div class="info-row mt-3">
-              <span style="font-size:.78rem;color:var(--text-muted)">Base de referência (custo/hora alvo):</span>
-              <span style="font-size:.78rem;color:var(--text-muted)">${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}/h</span>
-            </div>
-          ` : `
-            <p class="text-muted mt-2" style="font-size:.82rem">Registre sessões de trabalho nas OS para ver horas e ${'$'}/hora.</p>
-          `}
-        </div>
-      </div>
-    `;
-  }
-
-  // Gráfico de rosca (donut) em SVG — proporção de cada categoria
-  function _donut(entries) {
-    const total = entries.reduce((s, [, v]) => s + v, 0);
-    if (!total) return '';
-    const cores = ['#1A2B4A', '#F5A623', '#30D158', '#FF3B30', '#007AFF', '#A680F0', '#FF9500', '#2AC9D5'];
-    const top = entries.slice(0, 7);
-    const restoVal = entries.slice(7).reduce((s, [, v]) => s + v, 0);
-    const data = restoVal > 0 ? [...top, ['Outros', restoVal]] : top;
-    const r = 42, cx = 54, cy = 54, sw = 16, circ = 2 * Math.PI * r;
-    let off = 0;
-    const segs = data.map(([, val], i) => {
-      const len = val / total * circ;
-      const s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${cores[i % cores.length]}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(circ - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
-      off += len; return s;
-    }).join('');
-    const legend = data.map(([nome, val], i) =>
-      `<div class="donut-leg"><i style="background:${cores[i % cores.length]}"></i>${nome}<span class="donut-leg-pct">${(val / total * 100).toFixed(0)}%</span></div>`
-    ).join('');
-    return `<div class="donut-wrap">
-      <svg viewBox="0 0 108 108" width="104" height="104" style="flex-shrink:0">${segs}</svg>
-      <div class="donut-legend">${legend}</div>
-    </div>`;
-  }
-
-  function _renderCategorias(porRec, porDesp) {
-    const maxRec  = Math.max(...porRec.map(c  => c[1]), 1);
-    const maxDesp = Math.max(...porDesp.map(c => c[1]), 1);
-    // Layout vertical (bar-row-v): label em cima, barra fina embaixo
-    // Resolve o problema de label longo (ex: "Material/Estoque") cortando ou sobrepondo barra
-    const linha = (nome, val, max, cor) => `
-      <div class="bar-row-v">
-        <div class="bar-head">
-          <span class="bar-name">${nome}</span>
-          <span class="bar-val">${Fmt.currency(val)}</span>
-        </div>
-        <div class="bar-track">
-          <div class="bar ${cor}" style="width:${(val/max*100).toFixed(0)}%"></div>
-        </div>
-      </div>
-    `;
-    return `
-      <div class="grid-2col mb-4">
-        <div class="card">
-          <div class="card-header"><h3>🟢 Receitas por Categoria</h3></div>
-          <div class="card-body">
-            ${porRec.length === 0 ? '<p class="text-muted">Sem receitas no período</p>' :
-              _donut(porRec) + porRec.map(([nome, val]) => linha(nome, val, maxRec, 'bar-green')).join('')}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h3>🔴 Despesas por Categoria</h3></div>
-          <div class="card-body">
-            ${porDesp.length === 0 ? '<p class="text-muted">Sem despesas no período</p>' :
-              _donut(porDesp) + porDesp.map(([nome, val]) => linha(nome, val, maxDesp, 'bar-red')).join('')}
-          </div>
         </div>
       </div>
     `;
@@ -1069,13 +896,13 @@ const Insights = (() => {
   function _renderClientes(top5, concentracao, todos) {
     const alerta = concentracao > SPEC_DEFAULTS.alertaConcentracao;
     return `
-      <div class="card mb-4">
+      <div class="card mb-3">
         <div class="card-header">
-          <h3>👥 Análise de Clientes</h3>
+          <h3>👥 Clientes</h3>
           ${alerta ? `<span class="badge badge-orange">⚠ Concentração ${concentracao.toFixed(0)}%</span>` : ''}
         </div>
         <div class="card-body">
-          ${top5.length === 0 ? '<p class="text-muted">Sem receitas no período</p>' : `
+          ${top5.length === 0 ? '<p class="text-muted" style="margin:0">Sem receitas no período</p>' : `
             ${alerta ? `
               <div class="tip-card tip-warning" style="margin-bottom:14px">
                 <span class="tip-icon">🎯</span>
@@ -1111,8 +938,8 @@ const Insights = (() => {
 
   function _renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio }) {
     return `
-      <div class="card mb-4">
-        <div class="card-header"><h3>⏰ Inadimplência e Recebimento</h3></div>
+      <div class="card mb-3">
+        <div class="card-header"><h3>⏰ Recebimento</h3></div>
         <div class="card-body">
           <div class="stats-grid">
             <div class="stat-card stat-orange">
@@ -1155,38 +982,41 @@ const Insights = (() => {
     `;
   }
 
-  function _renderFluxoCaixa(semanas) {
-    const max = Math.max(...semanas.flatMap(s => [s.entradas, s.saidas]), 1);
+  // 🔮 Próximos 30 dias — o que vence daqui pra frente, semana a semana.
+  function _renderProximos30({ semanas, receber, pagar, saldo, qtd }) {
+    if (qtd === 0) {
+      return `
+        <div class="card mb-4">
+          <div class="card-header"><h3>🔮 Próximos 30 dias</h3></div>
+          <div class="card-body"><p class="text-muted" style="margin:0;font-size:.85rem">Nada vencendo nos próximos 30 dias.</p></div>
+        </div>
+      `;
+    }
     return `
       <div class="card mb-4">
-        <div class="card-header"><h3>💸 Fluxo de Caixa (semanas do mês)</h3></div>
+        <div class="card-header">
+          <h3>🔮 Próximos 30 dias</h3>
+          <span class="badge badge-info">${qtd} vencimento(s)</span>
+        </div>
         <div class="card-body">
           ${semanas.map(s => `
-            <div style="margin-bottom:16px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <strong style="font-size:.85rem">${s.label}</strong>
-                <strong class="${s.saldo >= 0 ? 'text-green' : 'text-red'}">${Fmt.currency(s.saldo)}</strong>
-              </div>
-              <div class="bar-row-v" style="margin-bottom:4px">
-                <div class="bar-head">
-                  <span class="bar-name" style="font-size:.72rem;color:var(--text-muted)">↓ Entradas</span>
-                  <span class="bar-val" style="font-size:.72rem">${Fmt.currency(s.entradas)}</span>
-                </div>
-                <div class="bar-track">
-                  <div class="bar bar-green" style="width:${(s.entradas/max*100).toFixed(0)}%"></div>
-                </div>
-              </div>
-              <div class="bar-row-v">
-                <div class="bar-head">
-                  <span class="bar-name" style="font-size:.72rem;color:var(--text-muted)">↑ Saídas</span>
-                  <span class="bar-val" style="font-size:.72rem">${Fmt.currency(s.saidas)}</span>
-                </div>
-                <div class="bar-track">
-                  <div class="bar bar-red" style="width:${(s.saidas/max*100).toFixed(0)}%"></div>
-                </div>
-              </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:.82rem">
+              <span style="color:var(--text-muted)">${s.label}</span>
+              <span>
+                <strong class="text-green">+${Fmt.currency(s.receber)}</strong>
+                <span style="color:var(--text-muted)"> · </span>
+                <strong class="text-red">−${Fmt.currency(s.pagar)}</strong>
+              </span>
             </div>
           `).join('')}
+          <div class="tip-card ${saldo >= 0 ? 'tip-success' : 'tip-danger'}" style="margin-top:12px">
+            <span class="tip-icon">${saldo >= 0 ? '✓' : '⚠️'}</span>
+            <div class="tip-body"><div class="tip-text" style="display:flex;justify-content:space-between;gap:8px">
+              <span>Saldo projetado da janela</span>
+              <strong>${saldo >= 0 ? '+' : '−'}${Fmt.currency(Math.abs(saldo))}</strong>
+            </div></div>
+          </div>
+          <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">Só parcelas pendentes com vencimento de hoje a +30 dias. Atrasadas estão no card Recebimento.</p>
         </div>
       </div>
     `;
@@ -1196,44 +1026,5 @@ const Insights = (() => {
     return entries.reduce((s, [, v]) => s + v, 0) || 1;
   }
 
-  // ─── DICAS (recomendações acionáveis — incorporadas no resumo inteligente) ────
-  function buildTips({ faturamento, totalDesp, margem, top5Clientes, concentracao, atrasados, horasPeriodo, custoHora, fechado = true }) {
-    const tips = [];
-
-    if (faturamento === 0 && totalDesp === 0) {
-      tips.push({ icon: '💡', type: 'navy', title: 'Sem dados', text: 'Não há lançamentos neste período. Registre receitas e despesas para começar a ver insights.' });
-      return tips;
-    }
-
-    // Margem
-    if (margem < 20 && faturamento > 0) {
-      tips.push({ icon: '⚠️', type: 'danger', title: 'Margem Crítica', text: `Margem em ${margem.toFixed(0)}% — abaixo do mínimo seguro. Revise as despesas ou aumente o ticket.` });
-    } else if (margem >= SPEC_DEFAULTS.metaMargemPercent) {
-      tips.push({ icon: '💪', type: 'success', title: 'Margem Saudável', text: `Margem de ${margem.toFixed(0)}% acima da meta (${SPEC_DEFAULTS.metaMargemPercent}%). Excelente!` });
-    }
-
-    // Concentração
-    if (concentracao > SPEC_DEFAULTS.alertaConcentracao && top5Clientes.length > 0) {
-      tips.push({ icon: '🎯', type: 'warning', title: 'Alta Concentração', text: `"${top5Clientes[0][0]}" = ${concentracao.toFixed(0)}% do faturamento. Diversifique a carteira para reduzir risco.` });
-    }
-
-    // Inadimplência
-    if (atrasados.length > 0) {
-      const total = atrasados.reduce((s, p) => s + Number(p.valor || 0), 0);
-      tips.push({ icon: '⏰', type: 'danger', title: `${atrasados.length} Conta(s) Atrasada(s)`, text: `${Fmt.currency(total)} em recebíveis vencidos. Priorize a cobrança.` });
-    }
-
-    // Custo/hora vs base de referência — só com o mês FECHADO (parcial distorce)
-    if (fechado && horasPeriodo > 0 && custoHora > SPEC_DEFAULTS.custoHoraBase * 1.2) {
-      tips.push({ icon: '📊', type: 'warning', title: 'Custo Operacional Alto', text: `Custo/hora real (${Fmt.currency(custoHora)}) está ${((custoHora/SPEC_DEFAULTS.custoHoraBase-1)*100).toFixed(0)}% acima da base de referência (${Fmt.currency(SPEC_DEFAULTS.custoHoraBase)}).` });
-    }
-
-    if (tips.length === 0) {
-      tips.push({ icon: '✅', type: 'success', title: 'Tudo em ordem', text: 'Nenhum alerta crítico para o período selecionado. Continue assim.' });
-    }
-
-    return tips;
-  }
-
-  return { render, setPeriodo, setRegime, setMegaModo, atualizar };
+  return { render, setPeriodo, setRegime, atualizar };
 })();

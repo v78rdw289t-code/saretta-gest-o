@@ -87,7 +87,6 @@ const Financeiro = (() => {
         <button class="section-tab ${currentTab==='receber' ? 'active' : ''}" onclick="Financeiro.switchTab('receber')">↓ Receber</button>
         <button class="section-tab ${currentTab==='pagar' ? 'active' : ''}"   onclick="Financeiro.switchTab('pagar')">↑ Pagar</button>
         <button class="section-tab" onclick="App.navigate('fiado')">Fiado</button>
-        <button class="section-tab" onclick="App.navigate('compras')">Compras</button>
         <button class="section-tab ${currentTab==='resumo' ? 'active' : ''}"  onclick="Financeiro.switchTab('resumo')">Resumo</button>
       </div>
       <div class="page-header">
