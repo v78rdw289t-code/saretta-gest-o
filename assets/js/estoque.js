@@ -8,7 +8,8 @@ const Estoque = (() => {
   let _tab       = 'itens';          // itens | compras | lista | mov | rel
   let _detailId  = null;
   let _q         = '';
-  let _catFiltro = '';
+  let _catFiltro = null;   // null = ainda não inicializado (default = Material/Estoque)
+  let _relCat    = null;   // filtro de categoria da aba Relatório (mesmo default)
   // Lista de compras (por cliente) — portada do módulo OS
   let _listaCache = { lista: [], estoque: [] };
   let _novaLista  = { cliente_id: '', itens: [], _aberto: false };
@@ -27,6 +28,21 @@ const Estoque = (() => {
     if (!id) return '';
     const c = (App.getCategorias() || []).find(x => String(x.id) === String(id));
     return c ? c.nome : '';
+  }
+
+  // Categoria default dos filtros = "Material/Estoque" (a mais controlável).
+  function catMaterialId() {
+    const c = (App.getCategorias() || []).find(x =>
+      x.tipo === 'saida' && String(x.nome || '').toLowerCase() === 'material/estoque');
+    return c ? c.id : '';
+  }
+
+  function catSelectHTML(atual, onchange) {
+    const catsSaida = (App.getCategorias() || []).filter(c => c.tipo === 'saida');
+    return `<select class="input" style="max-width:46%" onchange="${onchange}">
+      <option value="">Todas categorias</option>
+      ${catsSaida.map(c => `<option value="${c.id}" ${String(c.id) === String(atual) ? 'selected' : ''}>${c.nome}</option>`).join('')}
+    </select>`;
   }
 
   // ─── Navegação por abas ──────────────────────────────────────
@@ -80,13 +96,13 @@ const Estoque = (() => {
   }
 
   function renderItens() {
+    if (_catFiltro === null) _catFiltro = catMaterialId();
     let items = allEstoque;
     if (_q) items = filterRecords(items, _q, ['descricao', 'unidade']);
     if (_catFiltro) items = items.filter(e => String(e.categoria_id || '') === String(_catFiltro));
 
     const baixos     = allEstoque.filter(isBaixo);
     const totalValor = items.reduce((s, e) => s + Number(e.valor_unit || 0) * Number(e.quantidade || 0), 0);
-    const catsSaida  = (App.getCategorias() || []).filter(c => c.tipo === 'saida');
 
     qs('#page-estoque').innerHTML = `
       ${tabsHTML('itens')}
@@ -101,10 +117,7 @@ const Estoque = (() => {
       <div class="filters-bar" style="display:flex;gap:8px">
         <input type="text" id="est-search" placeholder="Buscar item..." class="input-search" value="${_q}"
           oninput="Estoque.onSearch(this.value)">
-        <select class="input" style="max-width:46%" onchange="Estoque.onCatFiltro(this.value)">
-          <option value="">Todas categorias</option>
-          ${catsSaida.map(c => `<option value="${c.id}" ${String(c.id) === String(_catFiltro) ? 'selected' : ''}>${c.nome}</option>`).join('')}
-        </select>
+        ${catSelectHTML(_catFiltro, 'Estoque.onCatFiltro(this.value)')}
       </div>
       <div class="entity-list">
         ${items.length === 0
@@ -138,6 +151,7 @@ const Estoque = (() => {
     const el = qs('#est-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   }
   function onCatFiltro(v) { _catFiltro = v; renderItens(); }
+  function onRelCat(v)    { _relCat = v; renderRel(); }
 
   // ─── DETALHE DO ITEM (com histórico) ─────────────────────────
   function openDetail(id) { _detailId = id; renderDetail(); }
@@ -441,25 +455,33 @@ const Estoque = (() => {
 
   // ─── ABA RELATÓRIO (resumo) ──────────────────────────────────
   function renderRel() {
-    const totalValor = allEstoque.reduce((s, e) => s + Number(e.valor_unit || 0) * Number(e.quantidade || 0), 0);
-    const baixos     = allEstoque.filter(isBaixo);
+    if (_relCat === null) _relCat = catMaterialId();
+    const base = _relCat
+      ? allEstoque.filter(e => String(e.categoria_id || '') === String(_relCat))
+      : allEstoque;
+    const totalValor = base.reduce((s, e) => s + Number(e.valor_unit || 0) * Number(e.quantidade || 0), 0);
+    const baixos     = base.filter(isBaixo);
     // Valor por categoria
     const porCat = {};
-    allEstoque.forEach(e => {
+    base.forEach(e => {
       const k = catNome(e.categoria_id) || 'Sem categoria';
       porCat[k] = (porCat[k] || 0) + Number(e.valor_unit || 0) * Number(e.quantidade || 0);
     });
-    // Perdas (saídas com motivo=perda)
-    const perdas = allMovs.filter(m => m.motivo === 'perda');
+    // Perdas (saídas com motivo=perda) — restritas aos itens da categoria filtrada
+    const baseIds = new Set(base.map(e => String(e.id)));
+    const perdas = allMovs.filter(m => m.motivo === 'perda' && (!_relCat || baseIds.has(String(m.estoque_id))));
     const perdaValor = perdas.reduce((s, m) => s + Number(m.valor_total || 0), 0);
     const catRows = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
 
     qs('#page-estoque').innerHTML = `
       ${tabsHTML('rel')}
       <div class="page-header"><h1>Relatório</h1></div>
+      <div class="filters-bar" style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        ${catSelectHTML(_relCat, 'Estoque.onRelCat(this.value)')}
+      </div>
       <div class="stats-grid-4 mb-3">
         <div class="stat-card"><div class="stat-label">Valor em estoque</div><div class="stat-value">${Fmt.currency(totalValor)}</div></div>
-        <div class="stat-card"><div class="stat-label">Itens cadastrados</div><div class="stat-value">${allEstoque.length}</div></div>
+        <div class="stat-card"><div class="stat-label">Itens cadastrados</div><div class="stat-value">${base.length}</div></div>
         <div class="stat-card ${baixos.length ? 'stat-red' : ''}"><div class="stat-label">Abaixo do mínimo</div><div class="stat-value">${baixos.length}</div></div>
         <div class="stat-card ${perdaValor ? 'stat-red' : ''}"><div class="stat-label">Perdas (total)</div><div class="stat-value">${Fmt.currency(perdaValor)}</div></div>
       </div>
@@ -649,7 +671,7 @@ const Estoque = (() => {
 
   return {
     render, goTab, switchTab, tabsHTML,
-    onSearch, onCatFiltro, openDetail, voltarLista,
+    onSearch, onCatFiltro, onRelCat, openDetail, voltarLista,
     openForm, saveForm, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
     onMovSearch, onMovMotivo, onContagem, finalizarContagem,
