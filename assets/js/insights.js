@@ -478,8 +478,14 @@ const Insights = (() => {
     const osAbertasIds = new Set(
       _cache.osList.filter(o => o.status === 'andamento' || o.status === 'acerto').map(o => o.id)
     );
-    const receitaPrevista = _cache.diarias
-      .filter(d => osAbertasIds.has(d.os_id))
+    const sessoesAbertas = _cache.diarias.filter(d => osAbertasIds.has(d.os_id));
+    const receitaPrevista = sessoesAbertas
+      .reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    // Trabalho DESTE período ainda não faturado: sessões de OS abertas com data
+    // dentro do período. É receita quase certa que ainda não virou parcela — sem
+    // ela o mês parece pior do que é quando a OS demora uns dias pra fechar.
+    const previstaPeriodo = sessoesAbertas
+      .filter(d => { const dt = String(d.data || '').substring(0, 10); return dt >= periodo.start && dt <= periodo.end; })
       .reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
     const nOSAbertas = osAbertasIds.size;
     const aReceberOS = _cache.parcelas.filter(p =>
@@ -501,6 +507,13 @@ const Insights = (() => {
 
     const custeio = custoFixoMensal > 0 ? _custeioNoPeriodo(periodo, custoFixoMensal) : null;
     const mega     = buildMegaInsight(snapAtual, snapAnt);
+    // Trabalho do período ainda não faturado entra como 1º achado do resumo —
+    // é a resposta direta ao "o mês parece pior porque a OS demora a fechar".
+    if (previstaPeriodo > 0) {
+      mega.achados.unshift({ icon: '🔮',
+        text: `<strong>${Fmt.currency(previstaPeriodo)}</strong> em trabalho deste período ainda não faturado (OS abertas) — fechando essas OS, o faturamento vai a <strong>${Fmt.currency(faturamento + previstaPeriodo)}</strong>.` });
+      mega.achados = mega.achados.slice(0, 3);
+    }
     const evol     = _calcEvolucao(6);
     const mudancas = _calcMudancas(snapAtual, snapAnt);
     const temBaseAnterior = !!(snapAnt.faturamento || snapAnt.totalDesp || snapAnt.horas);
@@ -515,11 +528,11 @@ const Insights = (() => {
       </p>
 
       ${_renderKPIs(snapAtual, snapAnt, margem, margemAnt)}
-      ${periodoMensal ? _renderMeta(faturamento, meta, fechado, diasRestantes) : ''}
+      ${periodoMensal ? _renderMeta(faturamento, meta, fechado, diasRestantes, previstaPeriodo) : ''}
       ${_renderResumo(mega)}
       ${_renderSuaHora({ horasPeriodo, receitaHora, custoHora, horaBase, fechado })}
       ${custeio ? _renderCusteio(custeio, fechado, diasRestantes) : ''}
-      ${_renderPipeline({ receitaPrevista, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada })}
+      ${_renderPipeline({ receitaPrevista, previstaPeriodo, faturamento, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada })}
       ${_renderEvolucao(evol)}
       ${_renderMudancas(mudancas, temBaseAnterior)}
       ${_renderClientes(top5Clientes, concentracao, clientesRanked)}
@@ -596,7 +609,10 @@ const Insights = (() => {
   }
 
   // 🎯 Meta do mês — progresso do faturamento vs meta_faturamento_mensal (config).
-  function _renderMeta(faturamento, meta, fechado, diasRestantes) {
+  // A barra tem 2 segmentos: faturado (gold sólido) + trabalho do período em OS
+  // abertas ainda não faturado (gold translúcido) — mostra onde a meta chega
+  // quando as OS fecharem.
+  function _renderMeta(faturamento, meta, fechado, diasRestantes, previstaPeriodo = 0) {
     if (!(meta > 0)) {
       return `
         <div class="card mb-3" style="cursor:pointer" onclick="App.navigate('config')">
@@ -612,6 +628,7 @@ const Insights = (() => {
       `;
     }
     const pct   = Math.min(100, faturamento / meta * 100);
+    const pctProj = Math.min(100, (faturamento + previstaPeriodo) / meta * 100);
     const falta = Math.max(0, meta - faturamento);
     const bateu = faturamento >= meta;
     let rodape;
@@ -624,14 +641,19 @@ const Insights = (() => {
     } else {
       rodape = `Faltam ${Fmt.currency(falta)} — último dia do período.`;
     }
+    const temProj = !bateu && previstaPeriodo > 0;
     return `
       <div class="meta-card mb-3">
         <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:7px">
           <span style="font-weight:700">🎯 Meta do mês</span>
           <span style="color:var(--gold);font-weight:800">${pct.toFixed(0)}%</span>
         </div>
-        <div class="meta-bar"><div class="meta-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="meta-bar">
+          <div class="meta-bar-fill" style="width:${pct.toFixed(1)}%"></div>
+          ${temProj ? `<div class="meta-bar-prev" style="width:${Math.max(0, pctProj - pct).toFixed(1)}%"></div>` : ''}
+        </div>
         <div style="font-size:.78rem;opacity:.92;margin-top:7px">${Fmt.currency(faturamento)} de ${Fmt.currency(meta)}${bateu ? '' : ` · faltam <strong>${Fmt.currency(falta)}</strong>`}</div>
+        ${temProj ? `<div style="font-size:.72rem;opacity:.85;margin-top:2px">Com as OS em andamento do período: <strong style="color:var(--gold)">${pctProj.toFixed(0)}%</strong> (${Fmt.currency(faturamento + previstaPeriodo)})</div>` : ''}
         <div style="font-size:.72rem;opacity:.75;margin-top:2px">${rodape}</div>
       </div>
     `;
@@ -786,7 +808,7 @@ const Insights = (() => {
   }
 
   // 🔧 Pipeline — o que ainda vira dinheiro: OS abertas + fechadas não recebidas.
-  function _renderPipeline({ receitaPrevista, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada }) {
+  function _renderPipeline({ receitaPrevista, previstaPeriodo = 0, faturamento = 0, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada }) {
     if (nOSAbertas === 0 && naoRecebidoValor === 0) return '';
     return `
       <div class="card mb-3">
@@ -796,7 +818,7 @@ const Insights = (() => {
             <div style="flex:1;background:var(--gold-lt);border-radius:10px;padding:10px 12px">
               <div style="font-size:.72rem;color:var(--gold-dk);font-weight:700">Em andamento</div>
               <div style="font-size:1rem;font-weight:800">${Fmt.currency(receitaPrevista)}</div>
-              <div style="font-size:.7rem;color:var(--text-muted)">${nOSAbertas} OS aberta(s) · sessões registradas</div>
+              <div style="font-size:.7rem;color:var(--text-muted)">${nOSAbertas} OS aberta(s)${previstaPeriodo > 0 ? ` · ${Fmt.currency(previstaPeriodo)} deste período` : ''}</div>
             </div>
             <div style="flex:1;background:var(--bg);border-radius:10px;padding:10px 12px">
               <div style="font-size:.72rem;color:var(--text-muted);font-weight:700">Fechadas a receber</div>
@@ -804,6 +826,11 @@ const Insights = (() => {
               <div style="font-size:.7rem;color:var(--text-muted)">${naoRecebidoQtd} parcela(s) pendente(s)</div>
             </div>
           </div>
+          ${previstaPeriodo > 0 ? `
+          <div class="tip-card tip-info" style="margin-top:12px">
+            <span class="tip-icon">🔮</span>
+            <div class="tip-body"><div class="tip-text">Projeção do período: ${Fmt.currency(faturamento)} faturado + ${Fmt.currency(previstaPeriodo)} em aberto = <strong>${Fmt.currency(faturamento + previstaPeriodo)}</strong> quando as OS fecharem.</div></div>
+          </div>` : ''}
           ${osParada ? `
           <div class="tip-card tip-warning" style="margin-top:12px">
             <span class="tip-icon">🐌</span>

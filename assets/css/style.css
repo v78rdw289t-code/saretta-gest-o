@@ -1430,8 +1430,11 @@ textarea.input { resize: vertical; min-height: 80px; }
 .meta-card {
   background: var(--navy); color: #fff; border-radius: 14px; padding: 13px 15px;
 }
-.meta-bar { background: rgba(255,255,255,.18); border-radius: 50px; height: 8px; overflow: hidden; }
-.meta-bar-fill { background: var(--gold); border-radius: 50px; height: 8px; transition: width .4s; }
+.meta-bar { background: rgba(255,255,255,.18); border-radius: 50px; height: 8px; overflow: hidden; display: flex; }
+.meta-bar-fill { background: var(--gold); border-radius: 50px 0 0 50px; height: 8px; transition: width .4s; }
+.meta-bar-fill:only-child { border-radius: 50px; }
+/* Segmento de projeção: trabalho do período em OS abertas, ainda não faturado */
+.meta-bar-prev { background: rgba(245, 166, 35, .38); border-radius: 0 50px 50px 0; height: 8px; transition: width .4s; }
 
 /* Controles: regime (competência/caixa) + período (discreto) */
 .ins-controls { display: flex; gap: 8px; align-items: center; }
