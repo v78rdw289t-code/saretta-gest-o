@@ -13,6 +13,7 @@ const Estoque = (() => {
   // Lista de compras (por cliente) — portada do módulo OS
   let _listaCache = { lista: [], estoque: [] };
   let _novaLista  = { cliente_id: '', itens: [], _aberto: false };
+  let _comprasById = {};  // compra_id -> compra (p/ fornecedor no detalhe do item)
   let _movMotivo  = '';   // filtro de motivo na aba Movimentações
   let _movQ       = '';   // busca por item na aba Movimentações
   let _contagem   = {};   // estoque_id -> qtd contada (aba Inventário)
@@ -75,13 +76,16 @@ const Estoque = (() => {
       _listaCache = { lista: lcRes?.data || [], estoque: (estRes?.data || []).filter(ativo) };
       return renderLista();
     }
-    const [estRes, movRes] = await Promise.all([
+    const [estRes, movRes, compRes] = await Promise.all([
       API.db.read('estoque'),
       API.db.read('estoque_movimentacoes'),
+      API.db.read('compras'),
     ]);
     if (shown) Loading.hide();
     allEstoque = (estRes?.data || []).filter(ativo);
     allMovs    = (movRes?.data || []).sort((a, b) => (a.data > b.data ? -1 : 1));
+    _comprasById = {};
+    (compRes?.data || []).forEach(c => { _comprasById[String(c.id)] = c; });
     if (_detailId) return renderDetail();
     if (_tab === 'mov') return renderMov();
     if (_tab === 'rel') return renderRel();
@@ -163,6 +167,17 @@ const Estoque = (() => {
     const baixo = isBaixo(e);
     const total = Number(e.valor_unit || 0) * Number(e.quantidade || 0);
 
+    // Fornecedores = os das COMPRAS deste item (pode ter vários); o fornecedor_id
+    // gravado no item é só fallback de legado (itens sem compra registrada).
+    const fornIds = [];
+    movs.filter(m => m.origem === 'compra').forEach(m => {
+      const fid = _comprasById[String(m.origem_id)]?.fornecedor_id;
+      if (fid && !fornIds.includes(String(fid))) fornIds.push(String(fid));
+    });
+    if (fornIds.length === 0 && e.fornecedor_id) fornIds.push(String(e.fornecedor_id));
+    const fornNomes = fornIds.map(fid => App.clienteNome(fid)).filter(Boolean);
+    const fornDaCompra = m => App.clienteNome(_comprasById[String(m.origem_id)]?.fornecedor_id) || '';
+
     qs('#page-estoque').innerHTML = `
       <div class="page-header">
         <button class="btn btn-outline" onclick="Estoque.voltarLista()">← Voltar</button>
@@ -176,7 +191,7 @@ const Estoque = (() => {
         <div class="info-row"><span class="text-muted">Valor total</span><strong>${Fmt.currency(total)}</strong></div>
         <div class="info-row"><span class="text-muted">Categoria</span><strong>${catNome(e.categoria_id) || '—'}</strong></div>
         <div class="info-row"><span class="text-muted">Estoque mínimo</span><strong>${Number(e.estoque_minimo || 0)}</strong></div>
-        <div class="info-row"><span class="text-muted">Fornecedor</span><strong>${App.clienteNome(e.fornecedor_id) || '—'}</strong></div>
+        <div class="info-row"><span class="text-muted">Fornecedor${fornNomes.length > 1 ? 'es' : ''}</span><strong style="text-align:right">${fornNomes.join(', ') || '—'}</strong></div>
         ${e.observacoes ? `<div class="info-row"><span class="text-muted">Obs.</span><span>${e.observacoes}</span></div>` : ''}
       </div></div>
 
@@ -197,7 +212,7 @@ const Estoque = (() => {
               <div class="entity-item" style="cursor:default">
                 <div class="entity-info">
                   <div class="entity-name">${MOTIVOS[m.motivo] || m.motivo || (ent ? 'Entrada' : 'Saída')}</div>
-                  <div class="entity-sub">${Fmt.date(m.data)}${m.origem && m.origem !== 'manual' ? ' · ' + (m.origem === 'os' ? 'OS' : m.origem === 'compra' ? 'Compra' : m.origem) : ''}${m.observacoes ? ' · ' + m.observacoes : ''}</div>
+                  <div class="entity-sub">${Fmt.date(m.data)}${m.origem && m.origem !== 'manual' ? ' · ' + (m.origem === 'os' ? 'OS' : m.origem === 'compra' ? 'Compra' + (fornDaCompra(m) ? ' — ' + fornDaCompra(m) : '') : m.origem) : ''}${m.observacoes ? ' · ' + m.observacoes : ''}</div>
                 </div>
                 <div class="entity-right">
                   <span class="entity-value" style="color:${cor}">${sinal}${Number(m.quantidade || 0)}</span>
@@ -220,7 +235,6 @@ const Estoque = (() => {
     qs('#est-form-und').value  = e?.unidade || 'un';
     qs('#est-form-min').value  = e?.estoque_minimo ?? '0';
     qs('#est-form-cat').innerHTML  = '<option value="">— Sem categoria —</option>' + App.categoriaOptions('saida', e?.categoria_id);
-    qs('#est-form-forn').innerHTML = App.clienteOptions('fornecedor', e?.fornecedor_id);
     qs('#est-form-data').value = Fmt.dateInput(e?.data_entrada) || DateUtil.today();
     qs('#est-form-obs').value  = e?.observacoes || '';
     qs('#modal-est-title').textContent = id ? 'Editar / Ajustar Item' : 'Novo Item no Estoque';
@@ -239,7 +253,6 @@ const Estoque = (() => {
       unidade:        qs('#est-form-und').value.trim() || 'un',
       estoque_minimo: Number(qs('#est-form-min').value) || 0,
       categoria_id:   qs('#est-form-cat').value,
-      fornecedor_id:  qs('#est-form-forn').value,
       data_entrada:   qs('#est-form-data').value,
       observacoes:    qs('#est-form-obs').value.trim(),
     };
