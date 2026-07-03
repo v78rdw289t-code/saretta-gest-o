@@ -1816,9 +1816,25 @@ const OS = (() => {
     const sessoes = allDiarias.filter(d => d.os_id === id).sort((a, b) => a.data > b.data ? 1 : -1);
     const itens   = allItens.filter(i => i.os_id === id);
 
-    // Parcelas geradas no fechamento desta OS (recebido vs a receber)
-    const parcRes  = await API.db.read('parcelas');
-    const parcelas = (parcRes?.data || []).filter(p => p.origem === 'os' && String(p.origem_id) === String(id));
+    // Parcelas geradas no fechamento desta OS (recebido vs a receber) —
+    // direto (origem='os') ou via fechamento em lote (origem='os_lote'): a
+    // parcela do lote cobre várias OS, então entra só a FATIA desta OS
+    // (valor_liq dela ÷ total do lote, via fechamento_os).
+    const [parcRes, fosRes] = await Promise.all([
+      API.db.read('parcelas'),
+      API.db.read('fechamento_os'),
+    ]);
+    const fosAll  = fosRes?.data || [];
+    const shareDe = {};
+    fosAll.filter(f => String(f.os_id) === String(id)).forEach(f => {
+      const tot = fosAll.filter(x => x.fechamento_id === f.fechamento_id)
+                        .reduce((s, x) => s + Number(x.valor_liq || 0), 0);
+      shareDe[f.fechamento_id] = tot > 0 ? Number(f.valor_liq || 0) / tot : 0;
+    });
+    const parcelas = (parcRes?.data || [])
+      .filter(p => (p.origem === 'os' && String(p.origem_id) === String(id)) ||
+                   (p.origem === 'os_lote' && shareDe[p.origem_id] !== undefined))
+      .map(p => p.origem === 'os_lote' ? { ...p, valor: Number(p.valor || 0) * shareDe[p.origem_id] } : p);
 
     const nSessoes = sessoes.length;
     const horas    = sessoes.reduce((s, d) => s + Number(d.horas_totais || 0), 0);

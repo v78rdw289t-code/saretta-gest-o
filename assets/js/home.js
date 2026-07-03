@@ -417,26 +417,5 @@ const Home = (() => {
     if (autoScroll) resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  // ─── Calculadora rápida (modal em index.html; mantida p/ uso futuro) ──
-  async function openCalculadoraHome() {
-    const cfg  = await Calculator.getConfig();
-    const taxa = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 90);
-    const modal = qs('#modal-calc-home');
-    if (!modal) return;
-    qs('#calc-home-taxa').value = taxa;
-    qs('#calc-home-horas').value = '';
-    qs('#calc-home-result').textContent = 'R$ 0,00';
-    Modal.open('modal-calc-home');
-    setTimeout(() => qs('#calc-home-horas')?.focus(), 200);
-  }
-
-  function calcHomeUpdate() {
-    const horas = Number(qs('#calc-home-horas')?.value || 0);
-    const taxa  = Number(qs('#calc-home-taxa')?.value  || 0);
-    const total = horas * taxa;
-    const el = qs('#calc-home-result');
-    if (el) el.textContent = Fmt.currency(total);
-  }
-
-  return { render, search, clearSearch, onSearchInput, abrirLancamento, openCalculadoraHome, calcHomeUpdate };
+  return { render, search, clearSearch, onSearchInput, abrirLancamento };
 })();
