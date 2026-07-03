@@ -1132,3 +1132,53 @@ function initializeSheets() {
 
   return { success: true, results };
 }
+
+// ============================================================
+// BACKUP AUTOMÁTICO DA PLANILHA
+// ============================================================
+// backupPlanilha() copia a planilha INTEIRA para a pasta do Drive
+// definida em BACKUP_PASTA, mantendo só as BACKUP_MANTER cópias mais
+// recentes (as antigas vão pra lixeira do Drive, recuperáveis por 30 dias).
+//
+// COMO ATIVAR (uma vez só, no editor do Apps Script):
+//   1. Selecione configurarBackupSemanal no menu de funções e Execute ▶
+//      (na 1ª vez o Google pede autorização de acesso ao Drive — aceitar).
+//   2. Pronto: toda segunda-feira entre 3h e 4h sai um backup sozinho.
+//   3. Para testar na hora, execute backupPlanilha ▶ e confira a pasta
+//      "Backups Saretta Gestão" no Drive.
+// Gatilhos rodam o código SALVO — não precisa republicar a implantação.
+
+const BACKUP_PASTA  = 'Backups Saretta Gestão';
+const BACKUP_MANTER = 8;
+
+function backupPlanilha() {
+  const arquivo = DriveApp.getFileById(SPREADSHEET_ID);
+  const pastas  = DriveApp.getFoldersByName(BACKUP_PASTA);
+  const pasta   = pastas.hasNext() ? pastas.next() : DriveApp.createFolder(BACKUP_PASTA);
+
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH\'h\'mm');
+  const nome  = 'Backup Saretta ' + stamp;
+  arquivo.makeCopy(nome, pasta);
+
+  // Retenção: mantém as BACKUP_MANTER mais recentes, o resto vai pra lixeira
+  const files = [];
+  const it = pasta.getFiles();
+  while (it.hasNext()) files.push(it.next());
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  files.slice(BACKUP_MANTER).forEach(function (f) { f.setTrashed(true); });
+
+  return { success: true, backup: nome, guardados: Math.min(files.length, BACKUP_MANTER) };
+}
+
+function configurarBackupSemanal() {
+  // Remove gatilhos antigos do backup (evita duplicar se rodar 2x)
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'backupPlanilha') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('backupPlanilha')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(3)
+    .create();
+  return 'Gatilho criado: backup toda segunda-feira entre 3h e 4h. Execute backupPlanilha() para testar agora.';
+}
