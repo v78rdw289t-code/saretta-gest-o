@@ -118,10 +118,11 @@ const API = (() => {
   }
 
   // fetch com timeout (AbortController) — evita travar o app em sinal ruim
-  const NET_TIMEOUT = 15000; // 15s
-  async function fetchWithTimeout(url, opts = {}) {
+  const NET_TIMEOUT       = 15000; // 15s na 1ª tentativa
+  const NET_TIMEOUT_RETRY = 25000; // 2ª tentativa mais paciente (Apps Script frio demora)
+  async function fetchWithTimeout(url, opts = {}, timeout = NET_TIMEOUT) {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), NET_TIMEOUT);
+    const t = setTimeout(() => ctrl.abort(), timeout);
     try {
       return await fetch(url, { ...opts, redirect: 'follow', signal: ctrl.signal });
     } finally {
@@ -129,7 +130,35 @@ const API = (() => {
     }
   }
 
-  // Aviso de "sem conexão" — no máximo 1x a cada 8s para não spammar
+  // GET com 1 retry: a maioria das "falhas de conexão" é o Apps Script frio ou
+  // enfileirado estourando o timeout — não falta de internet — então vale
+  // insistir uma vez (com timeout maior) antes de desistir.
+  // POST NÃO passa por aqui: repetir uma escrita que chegou duplicaria o lançamento.
+  async function fetchJsonGet(url) {
+    const tenta = async (timeout) => {
+      const res = await fetchWithTimeout(url, {}, timeout);
+      // Em erro de quota/instabilidade o Google devolve página HTML → json() lança
+      return res.json();
+    };
+    try {
+      return await tenta(NET_TIMEOUT);
+    } catch (e) {
+      if (navigator.onLine === false) throw e; // sem rede mesmo — retry é inútil
+      await new Promise(r => setTimeout(r, 600));
+      return tenta(NET_TIMEOUT_RETRY);
+    }
+  }
+
+  // Mensagem honesta: só fala em internet quando o navegador SABE que está
+  // offline; senão o problema é o servidor (lentidão/instabilidade do Google).
+  function netErrorMsg(sufixo) {
+    const base = (navigator.onLine === false)
+      ? 'Sem internet'
+      : 'O servidor demorou pra responder';
+    return base + (sufixo || '');
+  }
+
+  // Aviso de falha de rede — no máximo 1x a cada 8s para não spammar
   let _offlineShown = false;
   function showOfflineWarning(msg) {
     if (_offlineShown) return;
@@ -142,7 +171,10 @@ const API = (() => {
     const urlStr = buildUrl(action, params);
     if (!urlStr) return false;
     const entry = cache.get(urlStr);
-    return !!(entry && Date.now() - entry.ts < CACHE_TTL);
+    // Stale conta como "cached": com o stale-while-revalidate o render é
+    // instantâneo com qualquer cache de até 1h (quem usa isto decide se
+    // mostra spinner — com stale não precisa).
+    return !!(entry && Date.now() - entry.ts < STORAGE_TTL);
   }
 
   // Refetches em background — usado para stale-while-revalidate
@@ -163,23 +195,121 @@ const API = (() => {
       .finally(() => _backgroundFetches.delete(key));
   }
 
+  // ─── Lote de reads (readMany) ─────────────────────────────
+  // Cada chamada ao /exec do Apps Script custa ~1-3s (redirect 302 + partida
+  // do script), e as telas pedem 3-8 sheets em Promise.all. Em vez de N GETs
+  // brigando entre si (e estourando timeout), os reads de sheet inteira que
+  // chegam na mesma janela de 10ms viram UM GET action=readMany. O resultado
+  // é fatiado e cacheado sob a MESMA chave do read individual — o resto do
+  // app não muda nada.
+  // Se o backend ainda não tem readMany (Code.gs não republicado), a resposta
+  // é 'Ação inválida' → cai pros reads individuais e não insiste na sessão.
+  let _readManyOk = true;
+  let _readQueue  = null;        // Map<sheet, {key, resolvers[]}>
+  const _inFlightSheets = new Set(); // dedupe de refresh em background
+
+  function enqueueRead(sheet, key, background) {
+    if (background && _inFlightSheets.has(sheet)) return Promise.resolve(null);
+    if (!_readQueue) {
+      _readQueue = new Map();
+      setTimeout(flushReadQueue, 10);
+    }
+    let item = _readQueue.get(sheet);
+    if (!item) {
+      item = { key, resolvers: [] };
+      _readQueue.set(sheet, item);
+      _inFlightSheets.add(sheet);
+    }
+    if (background) return Promise.resolve(null); // só popular o cache
+    return new Promise(resolve => item.resolvers.push(resolve));
+  }
+
+  async function flushReadQueue() {
+    const queue = _readQueue;
+    _readQueue = null;
+    const sheets = Array.from(queue.keys());
+
+    const finish = (sheet, json) => {
+      const item = queue.get(sheet);
+      if (json && json.success) cache.set(item.key, { data: json, ts: Date.now() });
+      item.resolvers.forEach(r => r(json));
+    };
+    // Rede falhou de vez: serve o cache que tiver (mesmo velho) — melhor que travar
+    const fallback = (sheet) => {
+      const item = queue.get(sheet);
+      if (cache.has(item.key)) {
+        showOfflineWarning(netErrorMsg(' — mostrando dados salvos'));
+        return cache.get(item.key).data;
+      }
+      showOfflineWarning(netErrorMsg('. Tente de novo.'));
+      return { success: false, error: 'offline', offline: true };
+    };
+
+    try {
+      if (_readManyOk && sheets.length > 1) {
+        const json = await fetchJsonGet(buildUrl('readMany', { sheets: sheets.join(',') }));
+        if (json && json.error && /autoriz|token/i.test(json.error)) {
+          Toast.error('Acesso negado — confira o token em Configurações');
+          sheets.forEach(s => finish(s, json));
+          return;
+        }
+        if (json && json.success && json.data) {
+          sheets.forEach(s => finish(s, { success: true, data: json.data[s] || [] }));
+          persistCache();
+          return;
+        }
+        // Backend antigo sem readMany → reads individuais daqui pra frente
+        if (json && /inválida/i.test(json.error || '')) _readManyOk = false;
+      }
+      // 1 sheet só, backend antigo ou readMany devolveu erro de aplicação
+      await Promise.all(sheets.map(async (s) => {
+        try {
+          const json = await fetchJsonGet(buildUrl('read', { sheet: s }));
+          if (json && json.error && /autoriz|token/i.test(json.error)) {
+            Toast.error('Acesso negado — confira o token em Configurações');
+          }
+          finish(s, json);
+        } catch (e) {
+          finish(s, fallback(s));
+        }
+      }));
+      persistCache();
+    } catch (e) {
+      sheets.forEach(s => finish(s, fallback(s)));
+    } finally {
+      sheets.forEach(s => _inFlightSheets.delete(s));
+    }
+  }
+
   async function get(action, params = {}, useCache = true) {
     const base = window.APPS_SCRIPT_URL;
     if (!base) { showConfigWarning(); return null; }
     const urlStr = buildUrl(action, params);
     const key    = cacheKey(urlStr);
 
+    // read de sheet inteira (sem id/filtros) é elegível pro lote readMany
+    const soSheet = action === 'read' && params.sheet && !params.id &&
+                    Object.keys(params).length === 1;
+
     if (useCache && cache.has(key)) {
       const { data, ts } = cache.get(key);
       const age = Date.now() - ts;
-      if (age < CACHE_TTL) {
-        if (age > REFRESH_AFTER) backgroundRefetch(urlStr, key);
+      // Stale-while-revalidate: QUALQUER cache de até 1h renderiza na hora;
+      // passou de 1min, atualiza em background. Reabrir o app depois de um
+      // tempo parado não bloqueia mais a tela esperando a rede.
+      if (age < STORAGE_TTL) {
+        if (age > REFRESH_AFTER) {
+          if (soSheet) enqueueRead(params.sheet, key, true);
+          else backgroundRefetch(urlStr, key);
+        }
         return data;
       }
     }
+
+    if (soSheet && useCache) return enqueueRead(params.sheet, key, false);
+
     try {
-      const res  = await fetchWithTimeout(urlStr);
-      const json = await res.json();
+      const json = await fetchJsonGet(urlStr);
       if (json && json.error && /autoriz|token/i.test(json.error)) {
         Toast.error('Acesso negado — confira o token em Configurações');
       }
@@ -189,12 +319,12 @@ const API = (() => {
       }
       return json;
     } catch (e) {
-      // Rede falhou ou timeout. Se tem cache (mesmo velho), usa — melhor que travar.
+      // Rede falhou ou timeout (já com retry). Se tem cache (mesmo velho), usa.
       if (cache.has(key)) {
-        showOfflineWarning('Sem conexão — mostrando dados salvos');
+        showOfflineWarning(netErrorMsg(' — mostrando dados salvos'));
         return cache.get(key).data;
       }
-      showOfflineWarning('Sem conexão. Verifique a internet e tente de novo.');
+      showOfflineWarning(netErrorMsg('. Tente de novo.'));
       return { success: false, error: 'offline', offline: true };
     }
   }
@@ -214,6 +344,8 @@ const API = (() => {
 
     const token = (typeof LocalConfig !== 'undefined') ? LocalConfig.getToken() : '';
     try {
+      // SEM retry automático em POST: se a 1ª tentativa chegou no servidor e a
+      // resposta se perdeu, repetir duplicaria o lançamento. O usuário decide.
       const res = await fetchWithTimeout(base, {
         method: 'POST',
         body: JSON.stringify({ action, token, ...body }),
@@ -224,7 +356,7 @@ const API = (() => {
       }
       return json;
     } catch (e) {
-      showOfflineWarning('Sem conexão — não foi possível salvar. Tente de novo.');
+      showOfflineWarning(netErrorMsg(' — não foi possível salvar. Tente de novo.'));
       return { success: false, error: 'offline', offline: true };
     }
   }
@@ -276,13 +408,14 @@ const API = (() => {
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
   }
 
-  // True se o cache tem ao menos uma entrada válida — usado pelo splash
-  // para decidir se mostra o loading inicial.
+  // True se o cache tem ao menos uma entrada aproveitável — usado pelo splash
+  // para decidir se mostra o loading inicial. Com o stale-while-revalidate,
+  // cache de até 1h já rende uma tela instantânea → splash desnecessário.
   function hasCache() {
     if (cache.size === 0) return false;
     const now = Date.now();
     for (const entry of cache.values()) {
-      if (now - entry.ts < CACHE_TTL) return true;
+      if (now - entry.ts < STORAGE_TTL) return true;
     }
     return false;
   }

@@ -70,6 +70,7 @@ function doGet(e) {
     const action = params.action;
     let result;
     if (action === 'read')           result = read(params.sheet, params.id || null, parseFilters(params));
+    else if (action === 'readMany')  result = readMany(params.sheets);
     else if (action === 'initDB')    result = initializeSheets();
     else if (action === 'stats')     result = getDashboardStats();
     else if (action === 'repairDB')  result = repairParcelasContaId();
@@ -157,6 +158,23 @@ function read(sheetName, id = null, filters = null) {
     });
   }
   return { success: true, data: records };
+}
+
+// Lê VÁRIAS sheets numa única requisição: ?action=readMany&sheets=os,parcelas,...
+// Cada chamada ao /exec custa ~1-3s (redirect + partida do Apps Script), então
+// o app junta os reads de uma tela num GET só. Regras:
+//  - só sheets conhecidas (SHEET_HEADERS) — nome estranho volta [] em vez de erro;
+//  - sheet ainda não criada (initDB pendente) volta [] em vez de derrubar o lote.
+function readMany(sheetsParam) {
+  const names = String(sheetsParam || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (names.length === 0) return { success: false, error: 'Nenhuma sheet solicitada' };
+  const data = {};
+  names.forEach(name => {
+    if (!SHEET_HEADERS[name]) { data[name] = []; return; }
+    try { data[name] = sheetToRecords(getSheet(name)); }
+    catch (e) { data[name] = []; }
+  });
+  return { success: true, data };
 }
 
 function create(sheetName, data) {
