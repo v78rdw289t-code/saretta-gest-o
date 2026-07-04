@@ -329,7 +329,19 @@ const API = (() => {
     }
   }
 
-  async function post(action, body = {}) {
+  // Rede de segurança contra clique duplo (além do Guard nos handlers):
+  // um POST IDÊNTICO (mesma action + mesmo corpo) disparado enquanto o 1º
+  // ainda está em voo recebe a MESMA promise — grava uma vez só.
+  const _postsEmVoo = new Map();
+  function post(action, body = {}) {
+    const sig = action + '|' + JSON.stringify(body);
+    if (_postsEmVoo.has(sig)) return _postsEmVoo.get(sig);
+    const p = _post(action, body).finally(() => _postsEmVoo.delete(sig));
+    _postsEmVoo.set(sig, p);
+    return p;
+  }
+
+  async function _post(action, body = {}) {
     const base = window.APPS_SCRIPT_URL;
     if (!base) { showConfigWarning(); return null; }
 

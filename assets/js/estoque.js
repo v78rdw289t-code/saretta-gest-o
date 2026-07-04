@@ -242,7 +242,9 @@ const Estoque = (() => {
     Modal.open('modal-estoque');
   }
 
-  async function saveForm() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveForm
+  function saveForm() { return Guard.run('estq-save', _saveForm); }
+  async function _saveForm() {
     const id   = qs('#est-form-id').value;
     const desc = qs('#est-form-desc').value.trim();
     if (!desc) { Toast.warning('Informe a descrição'); return; }
@@ -305,7 +307,9 @@ const Estoque = (() => {
     Modal.open('modal-baixa');
   }
 
-  async function saveBaixa() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveBaixa
+  function saveBaixa() { return Guard.run('estq-baixa', _saveBaixa); }
+  async function _saveBaixa() {
     const id     = qs('#baixa-id').value;
     const motivo = qs('#baixa-motivo').value;
     const qtd    = Number(qs('#baixa-qtd').value) || 0;
@@ -323,7 +327,9 @@ const Estoque = (() => {
     } else Toast.error('Erro: ' + res?.error);
   }
 
-  async function confirmDelete(id) {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmDelete
+  function confirmDelete(id) { return Guard.run('estq-excluir', () => _confirmDelete(id)); }
+  async function _confirmDelete(id) {
     Modal.confirm('Excluir este item do estoque? (o histórico de movimentações é mantido)', async () => {
       await API.db.update('estoque', id, { ativo: false });
       Toast.success('Removido');
@@ -448,7 +454,9 @@ const Estoque = (() => {
     if (btn) btn.textContent = 'Finalizar contagem' + (pend ? ` (${pend} ajuste${pend > 1 ? 's' : ''})` : '');
   }
 
-  async function finalizarContagem() {
+  // trava de duplo clique (Guard) — o corpo real está em _finalizarContagem
+  function finalizarContagem() { return Guard.run('estq-contagem', _finalizarContagem); }
+  async function _finalizarContagem() {
     const ids = _contagemPend();
     if (!ids.length) { Toast.warning('Nada para ajustar — preencha as quantidades contadas'); return; }
     Modal.confirm(`Aplicar ${ids.length} ajuste(s) de contagem ao estoque?`, async () => {
@@ -652,7 +660,9 @@ const Estoque = (() => {
     setTimeout(() => { qs('#nl-desc').value = ''; qs('#nl-qtd').value = '1'; qs('#nl-und').value = ''; qs('#nl-desc')?.focus(); }, 30);
   }
   function removeItemNovaLista(i) { _novaLista.itens.splice(i, 1); renderLista(); }
-  async function salvarNovaLista() {
+  // trava de duplo clique (Guard) — o corpo real está em _salvarNovaLista
+  function salvarNovaLista() { return Guard.run('estq-lista', _salvarNovaLista); }
+  async function _salvarNovaLista() {
     if (!_novaLista.cliente_id || _novaLista.itens.length === 0) return;
     Loading.show();
     const ops = _novaLista.itens.map(it => ({

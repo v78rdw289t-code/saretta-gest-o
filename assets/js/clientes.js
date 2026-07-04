@@ -473,7 +473,9 @@ const Clientes = (() => {
     Modal.open('modal-cliente');
   }
 
-  async function saveForm() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveForm
+  function saveForm() { return Guard.run('cli-save', _saveForm); }
+  async function _saveForm() {
     const id   = qs('#cli-form-id').value;
     const data = {
       nome:        qs('#cli-form-nome').value.trim(),

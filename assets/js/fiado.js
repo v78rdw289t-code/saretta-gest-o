@@ -162,7 +162,9 @@ const Fiado = (() => {
     qs('#femp-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
     Modal.open('modal-fiado-emprestimo');
   }
-  async function confirmEmprestimo() {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmEmprestimo
+  function confirmEmprestimo() { return Guard.run('fiado-emprestimo', _confirmEmprestimo); }
+  async function _confirmEmprestimo() {
     const pessoa = qs('#femp-pessoa').value;
     const valor  = Number(qs('#femp-valor').value) || 0;
     const conta  = qs('#femp-conta').value;
@@ -194,7 +196,9 @@ const Fiado = (() => {
     qs('#faj-data').value  = DateUtil.today();
     Modal.open('modal-fiado-ajuste');
   }
-  async function confirmAjuste() {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmAjuste
+  function confirmAjuste() { return Guard.run('fiado-ajuste', _confirmAjuste); }
+  async function _confirmAjuste() {
     const pessoa  = qs('#faj-pessoa').value;
     const direcao = qs('#faj-direcao').value;
     const valor   = Number(qs('#faj-valor').value) || 0;
@@ -228,7 +232,9 @@ const Fiado = (() => {
     qs('#fac-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
     Modal.open('modal-fiado-acerto');
   }
-  async function confirmAcerto() {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmAcerto
+  function confirmAcerto() { return Guard.run('fiado-acerto', _confirmAcerto); }
+  async function _confirmAcerto() {
     const pessoa = qs('#fac-pessoa').value;
     const data   = qs('#fac-data').value;
     const conta  = qs('#fac-conta').value;
@@ -266,7 +272,9 @@ const Fiado = (() => {
     if (actions.length === 0) return;
     ActionSheet.open(m.descricao || 'Movimento', actions);
   }
-  async function excluirAjuste(id) {
+  // trava de duplo clique (Guard) — o corpo real está em _excluirAjuste
+  function excluirAjuste(id) { return Guard.run('fiado-excluir', () => _excluirAjuste(id)); }
+  async function _excluirAjuste(id) {
     Modal.confirm('Excluir este ajuste da ficha?', async () => {
       await API.db.delete('fiado_mov', id);
       Toast.success('Ajuste excluído');

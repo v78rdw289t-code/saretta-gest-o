@@ -652,3 +652,29 @@ function filterRecords(records, query, fields) {
   const q = query.toLowerCase();
   return records.filter(r => fields.some(f => String(r[f] || '').toLowerCase().includes(q)));
 }
+
+// ─── GUARD: trava de duplo clique em ações que gravam ───────
+// Envolver o handler com Guard.run('chave', fn): enquanto a 1ª execução não
+// termina, cliques repetidos na mesma chave são IGNORADOS (era possível fechar
+// uma OS 2x e gerar 2 parcelas clicando rápido). De quebra, desabilita o botão
+// clicado e mostra "Aguarde…" enquanto salva (via window.event, disponível nos
+// onclick inline; sem botão identificável a trava funciona igual, só sem o visual).
+const Guard = (() => {
+  const running = new Set();
+  async function run(key, fn) {
+    if (running.has(key)) return;   // já rodando → clique repetido, ignora
+    running.add(key);
+    const ev  = (typeof event !== 'undefined') ? event : null;
+    const btn = (ev && ev.target && ev.target.closest) ? ev.target.closest('button') : null;
+    const label = btn ? btn.innerHTML : null;
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Aguarde…'; }
+    try {
+      return await fn();
+    } finally {
+      running.delete(key);
+      // se a tela re-renderizou, o botão antigo está solto do DOM — inofensivo
+      if (btn) { btn.disabled = false; btn.innerHTML = label; }
+    }
+  }
+  return { run, isRunning: (key) => running.has(key) };
+})();

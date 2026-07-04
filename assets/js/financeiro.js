@@ -902,7 +902,9 @@ const Financeiro = (() => {
   //   2) Receita-fiado (status=pago)        — entra no caixa equivalente
   //   3) Reembolso A-Pagar (status=pendente)— empresa deve a Rodrigo/Odinei
   //   + Registro 'fiado' vinculado à parcela #3
-  async function saveManual() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveManual
+  function saveManual() { return Guard.run('fin-lancamento', _saveManual); }
+  async function _saveManual() {
     const status   = qs('#manual-status').value;
     const tipo     = qs('#manual-tipo').value;
     const quemPagou = qs('#manual-quempagou')?.value || '';
@@ -1068,7 +1070,9 @@ const Financeiro = (() => {
     if (hint)      hint.style.display      = quem ? 'block' : 'none';
   }
 
-  async function confirmarPagamento() {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmarPagamento
+  function confirmarPagamento() { return Guard.run('fin-pagar', _confirmarPagamento); }
+  async function _confirmarPagamento() {
     const id        = qs('#pag-parcela-id').value;
     const data      = qs('#pag-data').value;
     const conta     = qs('#pag-conta').value;
@@ -1170,7 +1174,9 @@ const Financeiro = (() => {
     Modal.open('modal-manual-lancamento');
   }
 
-  async function excluirParcela(id) {
+  // trava de duplo clique (Guard) — o corpo real está em _excluirParcela
+  function excluirParcela(id) { return Guard.run('fin-excluir', () => _excluirParcela(id)); }
+  async function _excluirParcela(id) {
     const p = allParcelas.find(x => x.id === id);
 
     // Calcula quantas parcelas do mesmo grupo existem (para exibir aviso correto)
@@ -1213,7 +1219,9 @@ const Financeiro = (() => {
     Modal.open('modal-transferencia');
   }
 
-  async function salvarTransferencia() {
+  // trava de duplo clique (Guard) — o corpo real está em _salvarTransferencia
+  function salvarTransferencia() { return Guard.run('fin-transfer', _salvarTransferencia); }
+  async function _salvarTransferencia() {
     const origem  = qs('#transf-origem').value;
     const destino = qs('#transf-destino').value;
     const valor   = Number(qs('#transf-valor').value) || 0;

@@ -121,7 +121,9 @@ const Compras = (() => {
     `;
   }
 
-  async function confirmDelete(id) {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmDelete
+  function confirmDelete(id) { return Guard.run('compra-excluir', () => _confirmDelete(id)); }
+  async function _confirmDelete(id) {
     Modal.confirm(
       'Excluir esta compra? As parcelas serão removidas. O estoque NÃO será revertido automaticamente.',
       async () => {
@@ -206,7 +208,9 @@ const Compras = (() => {
     renderItensForm();
   }
 
-  async function saveForm() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveForm
+  function saveForm() { return Guard.run('compra-save', _saveForm); }
+  async function _saveForm() {
     const fornId    = qs('#compra-forn').value;
     const data      = qs('#compra-data').value;
     const venc      = qs('#compra-venc').value;

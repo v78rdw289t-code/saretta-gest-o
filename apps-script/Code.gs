@@ -82,6 +82,15 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  // Trava de concorrência: escritas rodam UMA por vez. Sem isso, dois cliques
+  // quase simultâneos podem passar juntos pelas checagens de "já fechado"
+  // (check-then-write) e duplicar parcela/fechamento.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (err) {
+    return respond({ success: false, error: 'Servidor ocupado — tente de novo em instantes' });
+  }
   try {
     const data = JSON.parse(e.postData.contents);
     checkAuth(data.token);
@@ -108,6 +117,8 @@ function doPost(e) {
     return respond(result);
   } catch (err) {
     return respond({ success: false, error: err.toString() });
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -249,6 +260,13 @@ function batch(operations) {
 function fecharOS(data) {
   // data: { os_id, valor_bruto, desconto, valor_liquido, data_vencimento,
   //         data_competencia, categoria_id, diaria_ids, observacoes }
+  // Idempotência: fechar 2x a mesma OS (clique duplo) geraria 2 fechamentos
+  // e 2 parcelas — a 2ª chamada é recusada aqui.
+  const osCheck = read('os', data.os_id).data[0];
+  if (!osCheck) return { success: false, error: 'OS não encontrada' };
+  if (String(osCheck.status) === 'fechado') {
+    return { success: false, error: 'Esta OS já foi fechada — a parcela já existe no Financeiro.', jaFechada: true };
+  }
   const fechamentoData = {
     os_id:         data.os_id,
     data:          Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
@@ -299,6 +317,17 @@ function fecharOSLote(data) {
   //         data_competencia, data_vencimento, categoria_id, observacoes }
   const itens = data.itens || [];
   if (itens.length === 0) return { success: false, error: 'Nenhuma OS no lote' };
+
+  // Idempotência: se QUALQUER OS do lote já está fechada (clique duplo ou
+  // lote repetido), recusa tudo antes de criar qualquer registro.
+  const jaFechadas = [];
+  itens.forEach(it => {
+    const osCheck = read('os', it.os_id).data[0];
+    if (osCheck && String(osCheck.status) === 'fechado') jaFechadas.push(osCheck.numero || it.os_id);
+  });
+  if (jaFechadas.length > 0) {
+    return { success: false, error: 'OS já fechada(s): ' + jaFechadas.join(', ') + ' — o lote não foi repetido.', jaFechada: true };
+  }
 
   const fechamento = create('fechamentos', {
     os_id:         '', // lote não pertence a uma OS única; vínculo fica em fechamento_os
@@ -770,6 +799,11 @@ function registrarMovEstoque(data) {
 
 function pagarParcela(data) {
   // data: { parcela_id, data_pagamento, conta_id }
+  // Idempotência: parcela já paga → no-op de sucesso (clique duplo não
+  // sobrescreve data/conta do pagamento original).
+  const parcCheck = read('parcelas', data.parcela_id).data[0];
+  if (!parcCheck) return { success: false, error: 'Parcela não encontrada' };
+  if (String(parcCheck.status) === 'pago') return { success: true, jaPago: true };
   const patch = {
     data_pagamento: data.data_pagamento,
     status:         'pago',

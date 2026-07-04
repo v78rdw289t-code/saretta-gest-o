@@ -796,7 +796,9 @@ const OS = (() => {
     `;
   }
 
-  async function saveForm(e, id = '') {
+  // trava de duplo clique (Guard) — o corpo real está em _saveForm
+  function saveForm(e, id = '') { return Guard.run('os-save', () => _saveForm(e, id)); }
+  async function _saveForm(e, id = '') {
     e.preventDefault();
     const form = e.target;
     const fd   = new FormData(form);
@@ -994,7 +996,9 @@ const OS = (() => {
     }
   }
 
-  async function saveDiaria() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveDiaria
+  function saveDiaria() { return Guard.run('os-sessao', _saveDiaria); }
+  async function _saveDiaria() {
     const osId   = qs('#modal-diaria-os-id').value;
     const id     = qs('#modal-diaria-id').value;
     const manual = qs('#modal-diaria-manual').value;
@@ -1105,7 +1109,9 @@ const OS = (() => {
     }
   }
 
-  async function saveItem() {
+  // trava de duplo clique (Guard) — o corpo real está em _saveItem
+  function saveItem() { return Guard.run('os-item', _saveItem); }
+  async function _saveItem() {
     const itemId    = qs('#modal-item-id').value;
     const osId      = qs('#modal-item-os-id').value;
     const tipo      = qs('#modal-item-tipo').value;
@@ -1414,7 +1420,9 @@ const OS = (() => {
     if (qs('#fech-final-display')) qs('#fech-final-display').textContent = Fmt.currency(final);
   }
 
-  async function saveFechamento(e) {
+  // trava de duplo clique (Guard) — o corpo real está em _saveFechamento
+  function saveFechamento(e) { return Guard.run('os-fechar', () => _saveFechamento(e)); }
+  async function _saveFechamento(e) {
     e.preventDefault();
     const osId   = qs('#fech-os-id').value;
 
@@ -1679,7 +1687,9 @@ const OS = (() => {
     }
   }
 
-  async function saveFechamentoLote(e) {
+  // trava de duplo clique (Guard) — o corpo real está em _saveFechamentoLote
+  function saveFechamentoLote(e) { return Guard.run('os-fechar-lote', () => _saveFechamentoLote(e)); }
+  async function _saveFechamentoLote(e) {
     e.preventDefault();
     const ids = Object.keys(_loteCalc);
     if (ids.length < 2) return;
@@ -1793,7 +1803,9 @@ const OS = (() => {
   }
 
 
-  async function confirmDelete(id) {
+  // trava de duplo clique (Guard) — o corpo real está em _confirmDelete
+  function confirmDelete(id) { return Guard.run('os-excluir', () => _confirmDelete(id)); }
+  async function _confirmDelete(id) {
     Modal.confirm('Excluir esta OS? Os itens serão devolvidos ao estoque.', async () => {
       Loading.show();
       const res = await API.db.excluirOS(id);
