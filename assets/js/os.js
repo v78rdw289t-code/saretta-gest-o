@@ -47,7 +47,10 @@ const OS = (() => {
   }
 
   // ─── LISTA ─────────────────────────────────────────────
-  function renderList(filtroStatus = '', filtroTipo = '', q = '') {
+  // Entra na tela já filtrada em "Andamento" (pedido do dono: o dia a dia é
+  // com as abertas; Fechadas/Todas ficam a 1 toque). O filtro escolhido
+  // persiste na sessão — voltar do detalhe não reseta a aba.
+  function renderList(filtroStatus = _currentStatus, filtroTipo = '', q = '') {
     currentView = 'list';
     let items = allOS;
     if (filtroStatus) items = items.filter(o => o.status === filtroStatus);
@@ -196,7 +199,7 @@ const OS = (() => {
     renderList(_currentStatus, '', q);
   }
 
-  let _currentStatus = '';
+  let _currentStatus = 'andamento'; // filtro inicial da lista (ver renderList)
   function setStatus(s) {
     _currentStatus = s;
     applyFilters();
