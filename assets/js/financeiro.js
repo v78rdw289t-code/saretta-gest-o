@@ -9,6 +9,7 @@ const Financeiro = (() => {
   let fechamentoOsByFech   = {};   // p/ ratear a parcela de lote de OS pelas categorias das OS
   let allRecorrentes = [];         // contas fixas (card no Resumo)
   let _recEditId = null;           // id da recorrente sendo editada no modal manual
+  let _compTocada = false;         // usuário mexeu na competência à mão? (senão, derivada da data)
   let currentTab = 'receber'; // receber | pagar | resumo
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
@@ -845,7 +846,8 @@ const Financeiro = (() => {
     if (!rec) return;
     openManual();
     _recEditId = id; // depois do openManual (que zera)
-    qs('#manual-tipo').value = 'pagar';
+    qs('#manual-title').textContent = 'Editar conta fixa';
+    setTipo('pagar');
     refreshManualSelects(rec.cliente_id || '', rec.categoria_id || '');
     qs('#manual-desc').value  = rec.descricao || '';
     qs('#manual-valor').value = rec.valor || '';
@@ -856,6 +858,7 @@ const Financeiro = (() => {
     const dia    = Math.min(Number(rec.dia_vencimento) || 1, ultimo);
     qs('#manual-venc').value = mes + '-' + String(dia).padStart(2, '0');
     qs('#manual-obs').value  = rec.observacoes || '';
+    toggleMaisOpcoes(true); // a repetição "Todo mês" fica no avançado — abrir p/ ver
     toggleParcelado();
   }
 
@@ -906,70 +909,125 @@ const Financeiro = (() => {
     }
   }
 
+  // ─── Segmented controls (Tipo / Status) ──────────────────
+  // Os <select> escondidos #manual-tipo/#manual-status são a fonte de verdade
+  // lida pelo resto do código; os botões só setam o value e repintam o visual.
+  function setTipo(val) {
+    qs('#manual-tipo').value = val;
+    qsa('#seg-tipo .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.val === val));
+    const lbl = qs('#manual-cliente-label');
+    if (lbl) lbl.textContent = val === 'receber' ? 'Cliente' : 'Fornecedor';
+    refreshManualSelects();
+    refreshQuemPagouVisibility();
+  }
+
+  function setStatus(val) {
+    qs('#manual-status').value = val;
+    qsa('#seg-status .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.val === val));
+    qs('#seg-status')?.classList.toggle('is-cancelado', val === 'cancelado');
+    refreshCancelarLink();
+    refreshStatusFields();
+  }
+
+  // Pago → Data + Conta; A pagar/cancelado → Vencimento. No modo parcelado/fixa
+  // quem manda é toggleParcelado (parcelas nascem pendentes), então sai fora.
+  function refreshStatusFields() {
+    const modo = qs('#manual-parcelado')?.value || '';
+    if (modo === 'sim' || modo === 'fixa') return;
+    const pago = qs('#manual-status').value === 'pago';
+    qs('#manual-pagto-wrap').style.display = pago ? '' : 'none';
+    qs('#manual-conta-wrap').style.display = pago ? '' : 'none';
+    qs('#manual-venc-wrap').style.display  = pago ? 'none' : '';
+    if (!_compTocada) syncCompetencia();
+  }
+
+  function toggleMaisOpcoes(forceOpen) {
+    const body = qs('#manual-mais-opcoes');
+    const btn  = qs('#manual-mais-toggle');
+    if (!body) return;
+    const abrir = (typeof forceOpen === 'boolean') ? forceOpen : body.style.display === 'none';
+    body.style.display = abrir ? '' : 'none';
+    btn?.classList.toggle('open', abrir);
+  }
+
+  // Competência derivada da data relevante (pagamento se pago, vencimento se a pagar),
+  // até o dono mexer no seletor à mão (_compTocada).
+  function deriveCompetencia() {
+    const pago = qs('#manual-status')?.value === 'pago';
+    const d = pago ? qs('#manual-pagto')?.value : qs('#manual-venc')?.value;
+    return (d || DateUtil.today()).substring(0, 7);
+  }
+  function syncCompetencia() {
+    if (qs('#manual-comp-wrap'))
+      qs('#manual-comp-wrap').innerHTML = MonthPicker.render('manual-comp', deriveCompetencia(), 'Financeiro.onCompChange()');
+  }
+  function onCompChange() { _compTocada = true; }
+  function onDataChange() { if (!_compTocada) syncCompetencia(); }
+
+  function refreshCancelarLink() {
+    const link = qs('#manual-cancelar-link');
+    if (!link) return;
+    link.textContent = qs('#manual-status').value === 'cancelado'
+      ? '↺ Reativar lançamento' : 'Cancelar este lançamento';
+  }
+  // Alterna cancelado ↔ pendente (só na edição, via link)
+  function toggleCancelado() {
+    setStatus(qs('#manual-status').value === 'cancelado' ? 'pendente' : 'cancelado');
+  }
+
   // Mostra/esconde campos dependendo do modo de repetição (parcelado/fixa)
   function toggleParcelado() {
     const modo       = qs('#manual-parcelado')?.value || '';
     const parcelado  = modo === 'sim';
     const fixa       = modo === 'fixa';
+    const repete     = parcelado || fixa;
     const nWrap      = qs('#manual-nparcelas-wrap');
     if (nWrap) nWrap.style.display = parcelado ? '' : 'none';
 
-    // Parcelado/fixa → status/pagto/conta ficam ocultos (parcelas nascem pendentes)
-    const statusWrap = qs('#manual-status')?.closest('.form-group');
-    if (statusWrap)  statusWrap.style.display  = (parcelado || fixa) ? 'none' : '';
-    const pagtoWrap  = qs('#manual-pagto')?.closest('.form-group');
-    if (pagtoWrap)   pagtoWrap.style.display   = (parcelado || fixa) ? 'none' : '';
-    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = (parcelado || fixa) ? 'none' : '';
+    // Parcelado/fixa → status(segmento)/pagto/conta ocultos (parcelas nascem pendentes);
+    // o vencimento CONTINUA visível (é o venc da 1ª parcela / dia da conta fixa).
+    if (qs('#seg-status'))        qs('#seg-status').style.display        = repete ? 'none' : '';
+    if (qs('#manual-pagto-wrap')) qs('#manual-pagto-wrap').style.display = repete ? 'none' : '';
+    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = repete ? 'none' : '';
+    if (qs('#manual-venc-wrap'))  qs('#manual-venc-wrap').style.display  = repete ? '' : (qs('#manual-status').value === 'pago' ? 'none' : '');
     // "Quem pagou" incompatível com parcelado/fixa
-    if (parcelado || fixa) {
+    if (repete) {
       const quemWrap = qs('#manual-quempagou-wrap');
       if (quemWrap) quemWrap.style.display = 'none';
     } else {
       refreshQuemPagouVisibility();
+      refreshStatusFields();
     }
     // Ajusta label do vencimento conforme o modo
-    const vencLabel = qs('#manual-venc')?.closest('.form-group')?.querySelector('label');
-    if (vencLabel) vencLabel.textContent = parcelado ? 'Vencimento 1ª Parcela'
-                                         : fixa      ? '1º vencimento (repete todo mês nesse dia)'
+    const vencLabel = qs('#manual-venc-label');
+    if (vencLabel) vencLabel.textContent = parcelado ? 'Vencimento 1ª parcela'
+                                         : fixa      ? 'Dia do vencimento (repete todo mês)'
                                          : 'Vencimento';
-
     calcNetValor();
   }
 
   function openManual() {
     _recEditId = null;
+    _compTocada = false;
     qs('#manual-save-btn').onclick = () => saveManual();
-    qs('#manual-tipo').value   = 'pagar';
+    qs('#manual-title').textContent = 'Novo lançamento';
     qs('#manual-desc').value   = '';
     qs('#manual-valor').value  = '';
     qs('#manual-desconto').value = '0';
     if (qs('#manual-valor-liq-row')) qs('#manual-valor-liq-row').style.display = 'none';
-    // Reset parcelado
+    // Reset repetição + "mais opções" colapsado
     if (qs('#manual-parcelado'))      qs('#manual-parcelado').value = '';
     if (qs('#manual-nparcelas'))      qs('#manual-nparcelas').value = '2';
     if (qs('#manual-nparcelas-wrap')) qs('#manual-nparcelas-wrap').style.display = 'none';
-    // Garante que campos que toggleParcelado pode esconder estejam visíveis
-    const _statusWrap = qs('#manual-status')?.closest('.form-group');
-    if (_statusWrap) _statusWrap.style.display = '';
-    const _pagtoWrap  = qs('#manual-pagto')?.closest('.form-group');
-    if (_pagtoWrap)  _pagtoWrap.style.display  = '';
-    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = '';
-    const _vencLabel = qs('#manual-venc')?.closest('.form-group')?.querySelector('label');
-    if (_vencLabel) _vencLabel.textContent = 'Vencimento';
-    qs('#manual-comp-wrap').innerHTML = MonthPicker.render('manual-comp', DateUtil.today().substring(0, 7));
+    toggleMaisOpcoes(false);
+    qs('#manual-cancelar-link').style.display = 'none'; // cancelar só na edição
     qs('#manual-venc').value   = DateUtil.today();
-    // Padrão: já pago hoje. Usuário muda pra "Pendente" se ainda não foi pago.
-    qs('#manual-pagto').value  = DateUtil.today();
-    qs('#manual-status').value = 'pago';
+    qs('#manual-pagto').value  = DateUtil.today();  // padrão: pago hoje
     qs('#manual-quempagou').value = '';
     qs('#manual-conta').innerHTML = App.contaOptions('', '— Selecione conta —');
-    refreshManualSelects();
-    qs('#manual-tipo').onchange = () => {
-      refreshManualSelects();
-      refreshQuemPagouVisibility();
-    };
+    setTipo('pagar');       // repinta segmento + refresh selects/quempagou
+    setStatus('pago');      // repinta segmento + aplica visibilidade (Data+Conta) + competência
     qs('#manual-quempagou').onchange = () => refreshQuemPagouHint();
-    refreshQuemPagouVisibility();
     refreshQuemPagouHint();
     qs('#manual-obs').value = '';
     Modal.open('modal-manual-lancamento');
@@ -1020,11 +1078,15 @@ const Financeiro = (() => {
     const isFixa      = qs('#manual-parcelado')?.value === 'fixa';
 
     if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
-    if (!isParcelado && !isFixa && status === 'pago' && !conta) {
+    // Conta obrigatória quando pago — EXCETO quando o sócio pagou do bolso
+    // (quemPagou): aí a despesa não sai de conta da empresa (conta_id='').
+    if (!isParcelado && !isFixa && !quemPagou && status === 'pago' && !conta) {
       Toast.warning('Selecione a conta quando o status for "Pago"'); return;
     }
 
-    const compFull = (compMonth || DateUtil.today().substring(0,7)) + '-01';
+    // Competência: o que o dono escolheu no avançado, ou derivada da data
+    // relevante (pagamento se pago, vencimento se a pagar) quando não tocada.
+    const compFull = ((_compTocada && compMonth) ? compMonth : deriveCompetencia()) + '-01';
 
     // ── Conta fixa (recorrente): grava o cadastro-mestre; a parcela do mês
     // nasce via gerarRecorrentes (backend, idempotente) ────────────────────
@@ -1266,19 +1328,29 @@ const Financeiro = (() => {
       return;
     }
 
-    qs('#manual-tipo').value     = p.tipo;
+    _recEditId = null;
+    _compTocada = true; // na edição, preserva a competência gravada (não deriva da data)
+    qs('#manual-title').textContent = 'Editar lançamento';
     qs('#manual-desc').value     = p.descricao;
     qs('#manual-valor').value    = p.valor;
     qs('#manual-desconto').value = '0';
     if (qs('#manual-valor-liq-row')) qs('#manual-valor-liq-row').style.display = 'none';
-    qs('#manual-comp-wrap').innerHTML = MonthPicker.render('manual-comp', Fmt.monthInput(p.data_competencia));
+    // Edição é de parcela avulsa: sem modo repetição
+    if (qs('#manual-parcelado'))      qs('#manual-parcelado').value = '';
+    if (qs('#manual-nparcelas-wrap')) qs('#manual-nparcelas-wrap').style.display = 'none';
+    if (qs('#seg-status')) qs('#seg-status').style.display = '';
+    qs('#manual-comp-wrap').innerHTML = MonthPicker.render('manual-comp', Fmt.monthInput(p.data_competencia), 'Financeiro.onCompChange()');
     qs('#manual-venc').value   = Fmt.dateInput(p.data_vencimento);
     qs('#manual-pagto').value  = Fmt.dateInput(p.data_pagamento);
-    qs('#manual-status').value = p.status;
     qs('#manual-conta').innerHTML = App.contaOptions(p.conta_id || '', '— Selecione (quando pago) —');
-    refreshManualSelects(p.cliente_id, p.categoria_id);
-    qs('#manual-tipo').onchange = () => refreshManualSelects();
     qs('#manual-obs').value    = p.observacoes || '';
+    qs('#manual-quempagou').value = '';
+    setTipo(p.tipo);                                // repinta segmento + label + selects
+    refreshManualSelects(p.cliente_id, p.categoria_id); // repopula com a seleção da parcela
+    setStatus(p.status);                            // repinta segmento + visibilidade + link cancelar
+    qs('#manual-cancelar-link').style.display = ''; // cancelar disponível na edição
+    // Abre "mais opções" se há algo avançado escondido (obs, ou competência ≠ derivada)
+    toggleMaisOpcoes(!!p.observacoes || Fmt.monthInput(p.data_competencia) !== deriveCompetencia());
     qs('#manual-save-btn').onclick = async () => {
       const status = qs('#manual-status').value;
       const contaEdit = qs('#manual-conta')?.value || '';
@@ -1538,7 +1610,8 @@ const Financeiro = (() => {
            toggleRecorrente, editarRecorrente, excluirRecorrente,
            refreshPagQuemPagouVisibility,
            openTransferencia, salvarTransferencia,
-           toggleParcelado,
+           toggleParcelado, setTipo, setStatus, toggleMaisOpcoes, toggleCancelado,
+           onCompChange, onDataChange,
            editarParcela, excluirParcela, tapParcela,
            onBuscaInput, onFilterChange, toggleFilterPanel, limparFiltros,
            onPeriodoTipoChange, openPeriodo,

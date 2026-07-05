@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.4.1">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.4.2">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.4.1">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.4.2">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.4.1">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.4.2">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.4.1" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.4.2" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.4.1" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.4.2" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.4.1" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.4.2" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -712,61 +712,35 @@
   <div class="modal-box modal-box-lg">
     <div class="modal-handle"></div>
     <div class="modal-header">
-      <h3>Lançamento Manual</h3>
+      <h3 id="manual-title">Novo lançamento</h3>
       <button class="modal-close" onclick="Modal.close('modal-manual-lancamento')">✕</button>
     </div>
     <div class="modal-body">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Tipo</label>
-          <select id="manual-tipo" class="input">
-            <option value="pagar">💸 A Pagar (Despesa)</option>
-            <option value="receber">💰 A Receber (Receita)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Status</label>
-          <select id="manual-status" class="input">
-            <option value="pendente">Pendente</option>
-            <option value="pago">Pago</option>
-            <option value="cancelado">Cancelado</option>
-          </select>
-        </div>
+      <!-- Tipo: segmented (o <select> escondido é a fonte de verdade lida pelo JS) -->
+      <div class="seg" id="seg-tipo" role="group" aria-label="Tipo do lançamento">
+        <button type="button" class="seg-btn active" data-val="pagar" onclick="Financeiro.setTipo('pagar')">💸 Despesa</button>
+        <button type="button" class="seg-btn" data-val="receber" onclick="Financeiro.setTipo('receber')">💰 Receita</button>
       </div>
+      <select id="manual-tipo" style="display:none" tabindex="-1" aria-hidden="true">
+        <option value="pagar">A Pagar (Despesa)</option>
+        <option value="receber">A Receber (Receita)</option>
+      </select>
+
       <div class="form-group">
         <label>Descrição *</label>
         <input type="text" id="manual-desc" class="input" placeholder="Ex: Almoço, combustível, serviço...">
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Valor Bruto (R$) *</label>
-          <input type="number" id="manual-valor" class="input" step="0.01" min="0" oninput="Financeiro.calcNetValor()">
-        </div>
-        <div class="form-group">
-          <label>Desconto (R$)</label>
-          <input type="number" id="manual-desconto" class="input" step="0.01" min="0" value="0" oninput="Financeiro.calcNetValor()">
-        </div>
-      </div>
-      <div id="manual-valor-liq-row" style="display:none;text-align:right;font-size:.82rem;font-weight:700;color:var(--primary);margin:-6px 0 8px"></div>
-      <!-- Repetição: parcelado (N vezes) ou conta fixa mensal (recorrente) -->
-      <div class="form-row" id="manual-parcelado-row">
-        <div class="form-group">
-          <label>Repetição</label>
-          <select id="manual-parcelado" class="input" onchange="Financeiro.toggleParcelado()">
-            <option value="">Não</option>
-            <option value="sim">Parcelado</option>
-            <option value="fixa">Todo mês (conta fixa)</option>
-          </select>
-        </div>
-        <div class="form-group" id="manual-nparcelas-wrap" style="display:none">
-          <label>Nº Parcelas</label>
-          <input type="number" id="manual-nparcelas" class="input" min="2" max="60" value="2"
-            oninput="Financeiro.calcNetValor()">
-        </div>
+      <div class="form-group">
+        <label>Valor (R$) *</label>
+        <input type="number" id="manual-valor" class="input" step="0.01" min="0" oninput="Financeiro.calcNetValor()">
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Cliente / Forn.</label>
+          <label>Categoria</label>
+          <select id="manual-categoria" class="input"></select>
+        </div>
+        <div class="form-group">
+          <label id="manual-cliente-label">Cliente / Forn.</label>
           <div class="input-row">
             <select id="manual-cliente" class="input"></select>
             <button type="button" class="btn-quick-add" title="Cadastrar novo"
@@ -774,48 +748,86 @@
           </div>
         </div>
       </div>
+
+      <!-- Status: segmented (Pago mostra Data+Conta; A pagar mostra Vencimento) -->
+      <div class="seg" id="seg-status" role="group" aria-label="Situação">
+        <button type="button" class="seg-btn active is-pago" data-val="pago" onclick="Financeiro.setStatus('pago')">✓ Pago</button>
+        <button type="button" class="seg-btn" data-val="pendente" onclick="Financeiro.setStatus('pendente')">○ A pagar</button>
+      </div>
+      <select id="manual-status" style="display:none" tabindex="-1" aria-hidden="true">
+        <option value="pendente">Pendente</option>
+        <option value="pago">Pago</option>
+        <option value="cancelado">Cancelado</option>
+      </select>
+      <span id="manual-cancelar-link" class="link-cancelar" style="display:none"
+        onclick="Financeiro.toggleCancelado()">Cancelar este lançamento</span>
+
       <div class="form-row">
+        <div class="form-group" id="manual-pagto-wrap">
+          <label>Data</label>
+          <input type="date" id="manual-pagto" class="input" onchange="Financeiro.onDataChange()">
+        </div>
+        <div class="form-group" id="manual-conta-wrap">
+          <label>Conta</label>
+          <select id="manual-conta" class="input"></select>
+        </div>
+      </div>
+      <div class="form-group" id="manual-venc-wrap" style="display:none">
+        <label id="manual-venc-label">Vencimento</label>
+        <input type="date" id="manual-venc" class="input" onchange="Financeiro.onDataChange()">
+      </div>
+
+      <!-- ▸ Mais opções (colapsado por padrão) -->
+      <button type="button" class="mais-opcoes-toggle" id="manual-mais-toggle" onclick="Financeiro.toggleMaisOpcoes()">
+        <span class="chev">▸</span> Mais opções
+        <span class="mais-hint">desconto · competência · parcelar · quem pagou · obs</span>
+      </button>
+      <div id="manual-mais-opcoes" style="display:none">
+        <div class="form-group">
+          <label>Desconto (R$)</label>
+          <input type="number" id="manual-desconto" class="input" step="0.01" min="0" value="0" oninput="Financeiro.calcNetValor()">
+          <div id="manual-valor-liq-row" style="display:none;text-align:right;font-size:.82rem;font-weight:700;color:var(--navy);margin:6px 0 0"></div>
+        </div>
+        <!-- Repetição: parcelado (N vezes) ou conta fixa mensal (recorrente) -->
+        <div class="form-row" id="manual-parcelado-row">
+          <div class="form-group">
+            <label>Repetição</label>
+            <select id="manual-parcelado" class="input" onchange="Financeiro.toggleParcelado()">
+              <option value="">Não</option>
+              <option value="sim">Parcelado</option>
+              <option value="fixa">Todo mês (conta fixa)</option>
+            </select>
+          </div>
+          <div class="form-group" id="manual-nparcelas-wrap" style="display:none">
+            <label>Nº Parcelas</label>
+            <input type="number" id="manual-nparcelas" class="input" min="2" max="60" value="2"
+              oninput="Financeiro.calcNetValor()">
+          </div>
+        </div>
         <div class="form-group">
           <label>Competência</label>
           <div id="manual-comp-wrap"></div>
+          <small style="display:block;color:var(--text-muted);font-size:.72rem;margin-top:6px;line-height:1.4">
+            Mês em que o lançamento conta no resultado. Por padrão, o mês do pagamento (se pago) ou do vencimento (se a pagar).
+          </small>
+        </div>
+        <!-- Campo "Quem pagou?" — só aparece quando tipo='pagar'.
+             Se Rodrigo/Odinei pagou do bolso: sistema cria a despesa + movimento na ficha do sócio -->
+        <div class="form-group" id="manual-quempagou-wrap" style="display:none">
+          <label>Quem pagou? <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+          <select id="manual-quempagou" class="input">
+            <option value="">Empresa (padrão)</option>
+            <option value="rodrigo">👤 Rodrigo (do bolso — gera fiado)</option>
+            <option value="odinei">👤 Odinei (do bolso — gera fiado)</option>
+          </select>
+          <small id="manual-quempagou-hint" class="hidden" style="display:block;color:var(--info);font-size:.72rem;margin-top:6px;line-height:1.4">
+            💡 A despesa entra no resultado e o sócio vai pra ficha (conta-corrente) pra ser reembolsado.
+          </small>
         </div>
         <div class="form-group">
-          <label>Vencimento</label>
-          <input type="date" id="manual-venc" class="input">
+          <label>Observações</label>
+          <textarea id="manual-obs" class="input" rows="2"></textarea>
         </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Data de Pagamento</label>
-          <input type="date" id="manual-pagto" class="input">
-        </div>
-        <div class="form-group">
-          <label>Categoria</label>
-          <select id="manual-categoria" class="input"></select>
-        </div>
-      </div>
-      <div class="form-group" id="manual-conta-wrap">
-        <label>Conta <small style="color:var(--text-muted);font-weight:400">(quando pago)</small></label>
-        <select id="manual-conta" class="input"></select>
-      </div>
-      <div class="form-group">
-        <label>Observações</label>
-        <textarea id="manual-obs" class="input" rows="2"></textarea>
-      </div>
-
-      <!-- Campo "Quem pagou?" — só aparece quando tipo='pagar'.
-           Se Rodrigo/Odinei pagou do bolso: sistema cria 3 lançamentos
-           automaticamente (despesa paga + receita-fiado paga + a-pagar de reembolso) -->
-      <div class="form-group" id="manual-quempagou-wrap" style="display:none">
-        <label>Quem pagou? <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
-        <select id="manual-quempagou" class="input">
-          <option value="">Empresa (padrão)</option>
-          <option value="rodrigo">👤 Rodrigo (do bolso — gera fiado)</option>
-          <option value="odinei">👤 Odinei (do bolso — gera fiado)</option>
-        </select>
-        <small id="manual-quempagou-hint" class="hidden" style="display:block;color:var(--info);font-size:.72rem;margin-top:6px;line-height:1.4">
-          💡 Será criado 3 lançamentos: a despesa (paga), uma receita de fiado (paga) e uma conta a pagar de reembolso.
-        </small>
       </div>
     </div>
     <div class="modal-footer">
@@ -984,22 +996,22 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.4.1"></script>
-<script src="assets/js/utils.js?v=3.4.1"></script>
-<script src="assets/js/notif.js?v=3.4.1"></script>
-<script src="assets/js/outbox.js?v=3.4.1"></script>
-<script src="assets/js/home.js?v=3.4.1"></script>
-<script src="assets/js/os.js?v=3.4.1"></script>
-<script src="assets/js/financeiro.js?v=3.4.1"></script>
-<script src="assets/js/clientes.js?v=3.4.1"></script>
-<script src="assets/js/estoque.js?v=3.4.1"></script>
-<script src="assets/js/compras.js?v=3.4.1"></script>
-<script src="assets/js/fiado.js?v=3.4.1"></script>
-<script src="assets/js/insights.js?v=3.4.1"></script>
-<script src="assets/js/config.js?v=3.4.1"></script>
+<script src="assets/js/api.js?v=3.4.2"></script>
+<script src="assets/js/utils.js?v=3.4.2"></script>
+<script src="assets/js/notif.js?v=3.4.2"></script>
+<script src="assets/js/outbox.js?v=3.4.2"></script>
+<script src="assets/js/home.js?v=3.4.2"></script>
+<script src="assets/js/os.js?v=3.4.2"></script>
+<script src="assets/js/financeiro.js?v=3.4.2"></script>
+<script src="assets/js/clientes.js?v=3.4.2"></script>
+<script src="assets/js/estoque.js?v=3.4.2"></script>
+<script src="assets/js/compras.js?v=3.4.2"></script>
+<script src="assets/js/fiado.js?v=3.4.2"></script>
+<script src="assets/js/insights.js?v=3.4.2"></script>
+<script src="assets/js/config.js?v=3.4.2"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.4.1"></script>
-<script src="assets/js/app.js?v=3.4.1"></script>
+<script src="assets/js/pdf.js?v=3.4.2"></script>
+<script src="assets/js/app.js?v=3.4.2"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

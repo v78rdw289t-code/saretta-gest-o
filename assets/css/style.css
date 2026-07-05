@@ -719,6 +719,40 @@ textarea.input { resize: vertical; min-height: 80px; }
   box-shadow: var(--shadow); font-weight: 700;
 }
 
+/* Segmented control — escolha rápida de 2 opções (Tipo, Status do lançamento) */
+.seg {
+  display: flex; gap: 4px;
+  background: var(--bg); padding: 5px;
+  border-radius: 50px; margin-bottom: 16px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.06);
+}
+.seg-btn {
+  flex: 1; padding: 11px 10px; text-align: center;
+  font-size: .84rem; font-weight: 600; color: var(--text-muted);
+  border: none; background: transparent; border-radius: 50px;
+  cursor: pointer; transition: all .2s;
+}
+.seg-btn.active { background: var(--card); color: var(--navy); box-shadow: var(--shadow); font-weight: 700; }
+/* "Pago" ativo em verde (sinal visual de já quitado) */
+.seg-btn.active.is-pago { background: var(--success); color: #fff; }
+/* Estado cancelado (só na edição): rótulo vermelho, nenhum lado ativo */
+.seg.is-cancelado { opacity: .6; }
+
+/* "Mais opções" — revela campos avançados (desconto, competência, etc.) */
+.mais-opcoes-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 12px 0; margin: 4px 0 8px;
+  background: none; border: none; border-top: 1px solid var(--border);
+  color: var(--navy); font-size: .85rem; font-weight: 700; cursor: pointer;
+}
+.mais-opcoes-toggle .chev { transition: transform .2s; display: inline-block; }
+.mais-opcoes-toggle.open .chev { transform: rotate(90deg); }
+.mais-opcoes-toggle .mais-hint { margin-left: auto; font-weight: 400; font-size: .72rem; color: var(--text-muted); }
+.link-cancelar {
+  display: inline-block; margin: -6px 0 14px;
+  font-size: .8rem; font-weight: 600; color: var(--danger, #E24B4A); cursor: pointer;
+}
+
 /* Section tabs — usadas para navegar entre sub-páginas (Ordens|Estoque|Lista, A Receber|Fiado|Compras|Resumo) */
 .section-tabs {
   display: flex; gap: 4px;
