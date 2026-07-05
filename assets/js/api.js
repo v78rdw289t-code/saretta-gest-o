@@ -31,6 +31,7 @@ const API = (() => {
     pagarParcela:    ()     => ['parcelas', 'fiado', 'contas'],
     excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'fechamento_os', 'estoque', 'estoque_movimentacoes'],
     excluirLancamento:  ()     => ['parcelas', 'fiado', 'fiado_mov'],
+    gerarRecorrentes:   ()     => ['parcelas', 'recorrentes'],
   };
 
   function invalidateSheets(sheets) {
@@ -177,6 +178,15 @@ const API = (() => {
     return !!(entry && Date.now() - entry.ts < STORAGE_TTL);
   }
 
+  // Overlay da caderneta offline: leituras de sheet inteira ganham por cima
+  // os creates/updates que ainda estão na fila (com _pendente:true) — senão a
+  // diária salva offline "some" da tela e o dono lança de novo. Nunca muta o
+  // objeto cacheado (Outbox.overlay devolve cópia quando há pendências).
+  function withOverlay(sheet, json, filters = null) {
+    if (typeof Outbox === 'undefined' || !sheet) return json;
+    try { return Outbox.overlay(sheet, json, filters); } catch { return json; }
+  }
+
   // Refetches em background — usado para stale-while-revalidate
   // Mantém um Set pra evitar disparar múltiplos refetches do mesmo URL
   const _backgroundFetches = new Set();
@@ -232,7 +242,8 @@ const API = (() => {
     const finish = (sheet, json) => {
       const item = queue.get(sheet);
       if (json && json.success) cache.set(item.key, { data: json, ts: Date.now() });
-      item.resolvers.forEach(r => r(json));
+      const out = (json && json.success) ? withOverlay(sheet, json) : json;
+      item.resolvers.forEach(r => r(out));
     };
     // Rede falhou de vez: serve o cache que tiver (mesmo velho) — melhor que travar
     const fallback = (sheet) => {
@@ -291,6 +302,15 @@ const API = (() => {
     const soSheet = action === 'read' && params.sheet && !params.id &&
                     Object.keys(params).length === 1;
 
+    // leituras de lista (sheet inteira OU filtrada, sem id) recebem o overlay
+    // da caderneta offline por cima do resultado
+    const ovSheet   = (action === 'read' && params.sheet && !params.id) ? params.sheet : null;
+    let   ovFilters = null;
+    if (ovSheet && !soSheet) {
+      ovFilters = { ...params };
+      delete ovFilters.sheet;
+    }
+
     if (useCache && cache.has(key)) {
       const { data, ts } = cache.get(key);
       const age = Date.now() - ts;
@@ -302,7 +322,7 @@ const API = (() => {
           if (soSheet) enqueueRead(params.sheet, key, true);
           else backgroundRefetch(urlStr, key);
         }
-        return data;
+        return ovSheet ? withOverlay(ovSheet, data, ovFilters) : data;
       }
     }
 
@@ -317,12 +337,13 @@ const API = (() => {
         cache.set(key, { data: json, ts: Date.now() });
         persistCache();
       }
-      return json;
+      return ovSheet ? withOverlay(ovSheet, json, ovFilters) : json;
     } catch (e) {
       // Rede falhou ou timeout (já com retry). Se tem cache (mesmo velho), usa.
       if (cache.has(key)) {
         showOfflineWarning(netErrorMsg(' — mostrando dados salvos'));
-        return cache.get(key).data;
+        const data = cache.get(key).data;
+        return ovSheet ? withOverlay(ovSheet, data, ovFilters) : data;
       }
       showOfflineWarning(netErrorMsg('. Tente de novo.'));
       return { success: false, error: 'offline', offline: true };
@@ -341,10 +362,7 @@ const API = (() => {
     return p;
   }
 
-  async function _post(action, body = {}) {
-    const base = window.APPS_SCRIPT_URL;
-    if (!base) { showConfigWarning(); return null; }
-
+  function invalidateForAction(action, body) {
     const invalidator = POST_INVALIDATES[action];
     if (invalidator) {
       try { invalidateSheets(invalidator(body)); }
@@ -353,23 +371,72 @@ const API = (() => {
       cache.clear();
       persistCache();
     }
+  }
 
+  // Envio cru do POST — lança erro de rede pro chamador decidir.
+  // SEM retry automático: se a 1ª tentativa chegou no servidor e a resposta
+  // se perdeu, repetir duplicaria o lançamento.
+  async function rawSend(action, body) {
     const token = (typeof LocalConfig !== 'undefined') ? LocalConfig.getToken() : '';
-    try {
-      // SEM retry automático em POST: se a 1ª tentativa chegou no servidor e a
-      // resposta se perdeu, repetir duplicaria o lançamento. O usuário decide.
-      const res = await fetchWithTimeout(base, {
-        method: 'POST',
-        body: JSON.stringify({ action, token, ...body }),
-      });
-      const json = await res.json();
-      if (json && json.error && /autoriz|token/i.test(json.error)) {
-        Toast.error('Acesso negado — confira o token em Configurações');
+    const res = await fetchWithTimeout(window.APPS_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action, token, ...body }),
+    });
+    const json = await res.json();
+    if (json && json.error && /autoriz|token/i.test(json.error)) {
+      Toast.error('Acesso negado — confira o token em Configurações');
+    }
+    return json;
+  }
+
+  async function _post(action, body = {}) {
+    const base = window.APPS_SCRIPT_URL;
+    if (!base) { showConfigWarning(); return null; }
+
+    // Caderneta offline (Outbox): POSTs enfileiráveis ganham id de idempotência
+    // e, sem rede (ou com fila esperando — a ordem importa), entram na fila em
+    // vez de falhar. O retorno {success:true, queued:true} mantém os handlers
+    // de salvar no caminho feliz sem nenhuma mudança neles.
+    const queueable = (typeof Outbox !== 'undefined') && Outbox.isQueueable(action, body);
+    if (queueable) {
+      Outbox.stampIds(action, body);
+      if (navigator.onLine === false) return Outbox.enqueue(action, body);
+      if (Outbox.pendentes() > 0) {
+        const r = Outbox.enqueue(action, body);
+        Outbox.flush(); // tenta esvaziar já — pode ser só a fila que ficou pra trás
+        return r;
       }
+    }
+
+    // Enfileirável NÃO invalida o cache antes do envio: se a rede falhar, é o
+    // cache intacto + overlay da fila que mantém a tela viva offline.
+    if (!queueable) invalidateForAction(action, body);
+
+    try {
+      const json = await rawSend(action, body);
+      if (queueable) invalidateForAction(action, body);
       return json;
     } catch (e) {
+      if (queueable) {
+        // TypeError = o request nem saiu (DNS/conexão) → fila normal.
+        // AbortError/parse = ambíguo (PODE ter chegado) → 'incerto', reenvio manual.
+        return Outbox.enqueue(action, body, (e && e.name === 'TypeError') ? 'pendente' : 'incerto');
+      }
       showOfflineWarning(netErrorMsg(' — não foi possível salvar. Tente de novo.'));
       return { success: false, error: 'offline', offline: true };
+    }
+  }
+
+  // Caminho interno usado pelo flush da caderneta: sem hooks de fila (evita
+  // recursão) e devolvendo o TIPO do erro de rede — o flush decide se para
+  // (rede caiu) ou marca 'incerto' (timeout ambíguo).
+  async function _postDireto(action, body = {}) {
+    try {
+      const json = await rawSend(action, body);
+      if (json && json.success) invalidateForAction(action, body);
+      return json;
+    } catch (e) {
+      return { success: false, error: 'offline', offline: true, errName: (e && e.name) || '' };
     }
   }
 
@@ -413,6 +480,7 @@ const API = (() => {
     pagarParcela(data) { return post('pagarParcela', data); },
     excluirOS(id) { return post('excluirOS', { id }); },
     excluirLancamento(parcelaId) { return post('excluirLancamento', { parcela_id: parcelaId }); },
+    gerarRecorrentes(data) { return post('gerarRecorrentes', data); },
   };
 
   function clearCache() {
@@ -435,7 +503,7 @@ const API = (() => {
   // Hidrata cache do localStorage assim que o módulo carrega
   hydrateCache();
 
-  return { get, post, db, clearCache, hasCache };
+  return { get, post, db, clearCache, hasCache, _postDireto };
 })();
 
 // ─── CONFIG LOCAL ────────────────────────────────────────────

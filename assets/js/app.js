@@ -166,6 +166,35 @@ const App = (() => {
 
     // Boot decide se mostra splash ou entra direto
     await bootApp();
+
+    // Contas fixas: pede ao backend pra gerar as parcelas do mês (1x por dia)
+    verificaRecorrentes();
+  }
+
+  // Dispara gerarRecorrentes com throttle diário. A geração roda NO backend
+  // (LockService + ultima_geracao = idempotente); aqui é só o gatilho.
+  // Backend antigo responde 'Ação inválida' → silêncio (tenta de novo após
+  // o dono republicar). Usa _postDireto: só invalida cache se DEU certo —
+  // um boot offline não pode apagar o cache que mantém as telas vivas.
+  function verificaRecorrentes() {
+    if (!LocalConfig.getUrl()) return;
+    if (navigator.onLine === false) return;
+    const KEY  = 'saretta_recorrentes_check';
+    const hoje = DateUtil.today();
+    try { if (localStorage.getItem(KEY) === hoje) return; } catch {}
+    API._postDireto('gerarRecorrentes', { mes: hoje.substring(0, 7) }).then(r => {
+      if (r && (r.success || /inválida|não encontrada/i.test(r.error || ''))) {
+        try { localStorage.setItem(KEY, hoje); } catch {}
+      }
+      if (r?.success && r.geradas > 0 && typeof Notif !== 'undefined') {
+        Notif.add({
+          tipo: 'money', titulo: `${r.geradas} conta(s) fixa(s) lançada(s)`,
+          texto: 'Parcelas do mês geradas automaticamente.',
+          action: { page: 'financeiro', params: { tab: 'pagar' } },
+          dedupeKey: 'recorrentes-' + hoje.substring(0, 7),
+        });
+      }
+    }).catch(() => {});
   }
 
   // Decide entre dois caminhos:

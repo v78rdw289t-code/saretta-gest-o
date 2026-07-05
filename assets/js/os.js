@@ -316,7 +316,10 @@ const OS = (() => {
       <div class="card mb-3">
         <div class="card-header">
           <h3>Materiais / Itens</h3>
-          ${currentOS.status !== 'fechado' ? `<button class="btn btn-sm btn-primary" onclick="OS.openItemForm()">+ Item</button>` : ''}
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-outline" onclick="OS.openFaltouMaterial()">🧾 Faltou</button>
+            ${currentOS.status !== 'fechado' ? `<button class="btn btn-sm btn-primary" onclick="OS.openItemForm()">+ Item</button>` : ''}
+          </div>
         </div>
         <div id="os-itens-list">${renderItens(itens)}</div>
       </div>
@@ -1128,16 +1131,22 @@ const OS = (() => {
     let finalEstId = estId;
 
     if (!itemId && estId) {
-      // Novo item do estoque: baixa + movimentação rastreada (uso em OS)
+      // Novo item do estoque: baixa + movimentação rastreada (uso em OS).
+      // Offline, a movimentação NÃO entra na caderneta (mexe em saldo de
+      // estoque = check-then-write) — o item grava e a baixa fica pra depois.
       const estRes = await API.db.read('estoque', estId);
       const est = estRes?.data?.[0];
       if (est) {
         finalDesc = est.descricao;
-        await API.db.registrarMovEstoque({
-          estoque_id: estId, tipo: 'saida', motivo: 'uso_os',
-          quantidade: qtd, origem: 'os', origem_id: osId,
-          observacoes: 'OS #' + (currentOS?.numero || ''),
-        });
+        if (navigator.onLine === false) {
+          Toast.warning('Sem internet — item salvo, mas a baixa no estoque não foi registrada. Ajuste depois em Estoque.');
+        } else {
+          await API.db.registrarMovEstoque({
+            estoque_id: estId, tipo: 'saida', motivo: 'uso_os',
+            quantidade: qtd, origem: 'os', origem_id: osId,
+            observacoes: 'OS #' + (currentOS?.numero || ''),
+          });
+        }
       }
     } else if (itemId) {
       // Edição: ajusta o estoque pela diferença, registrando a movimentação
@@ -1164,8 +1173,14 @@ const OS = (() => {
       ? await API.db.update('os_itens', itemId, itemData)
       : await API.db.create('os_itens', itemData);
 
-    // Se material pago por colaborador: gerar fiado de reembolso
-    if (res?.success && !itemId && quemPagou && total > 0) {
+    // Se material pago por colaborador: gerar fiado de reembolso.
+    // Item veio da caderneta (queued) = estamos offline: a cadeia parcela→fiado
+    // referencia ids entre si e o backend antigo regenera ids de create — não é
+    // seguro enfileirar. Fica pro dono lançar depois, com aviso honesto.
+    if (res?.success && res.queued && !itemId && quemPagou && total > 0) {
+      Toast.warning('Sem internet — o reembolso de quem pagou NÃO foi lançado. Registre depois no Financeiro.');
+    }
+    if (res?.success && !res.queued && !itemId && quemPagou && total > 0) {
       const pessoaFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
       const catFiado  = App.getCategorias().find(c => c.nome === `Fiado ${pessoaFmt}`)?.id || '';
       const osNum     = currentOS?.numero || '';
@@ -1226,6 +1241,47 @@ const OS = (() => {
       await loadData();
       openDetail(currentOS.id);
     });
+  }
+
+  // ─── FALTOU MATERIAL ─────────────────────────────────────────
+  // Atalho de campo: percebeu na obra que falta material → anota direto na
+  // lista de compras DO CLIENTE da OS, sem sair da tela (antes: OS → Estoque
+  // → aba Lista → achar o cliente, 6+ toques). Funciona offline (create de
+  // lista_compras está na whitelist da caderneta).
+  function openFaltouMaterial() {
+    if (!currentOS?.cliente_id) {
+      Toast.warning('OS sem cliente — adicione pela aba Lista do Estoque');
+      return;
+    }
+    qs('#modal-faltou-sub').textContent = 'Vai pra lista de compras de ' + App.clienteNome(currentOS.cliente_id);
+    qs('#modal-faltou-desc').value = '';
+    qs('#modal-faltou-qtd').value  = '1';
+    qs('#modal-faltou-und').value  = 'un';
+    Modal.open('modal-faltou');
+    setTimeout(() => qs('#modal-faltou-desc')?.focus(), 80);
+  }
+
+  function saveFaltouMaterial(maisUm) { return Guard.run('os-faltou', () => _saveFaltouMaterial(maisUm)); }
+  async function _saveFaltouMaterial(maisUm) {
+    const desc = qs('#modal-faltou-desc').value.trim();
+    if (!desc) { Toast.warning('Informe o que faltou'); return; }
+    const res = await API.db.create('lista_compras', {
+      cliente_id:   currentOS.cliente_id,
+      descricao:    desc,
+      quantidade:   Number(qs('#modal-faltou-qtd').value) || 1,
+      unidade:      qs('#modal-faltou-und').value.trim() || 'un',
+      status:       'pendente',
+      data_criacao: DateUtil.today(),
+    });
+    if (!res?.success) { Toast.error('Erro: ' + (res?.error || '')); return; }
+    if (!res.queued) Toast.success('Na lista de compras!');
+    if (maisUm) {
+      qs('#modal-faltou-desc').value = '';
+      qs('#modal-faltou-qtd').value  = '1';
+      qs('#modal-faltou-desc')?.focus();
+    } else {
+      Modal.close('modal-faltou');
+    }
   }
 
   // ─── FECHAMENTO ──────────────────────────────────────────────
@@ -1986,6 +2042,7 @@ const OS = (() => {
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
+    openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, mudarStatus,

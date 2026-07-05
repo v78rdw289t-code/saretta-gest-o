@@ -7,6 +7,8 @@ const Financeiro = (() => {
   let allOS = [], allDiarias = []; // p/ resolver a categoria efetiva das parcelas de OS
   let comprasItensByCompra = {};   // p/ ratear a despesa da compra pelas categorias dos itens
   let fechamentoOsByFech   = {};   // p/ ratear a parcela de lote de OS pelas categorias das OS
+  let allRecorrentes = [];         // contas fixas (card no Resumo)
+  let _recEditId = null;           // id da recorrente sendo editada no modal manual
   let currentTab = 'receber'; // receber | pagar | resumo
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
@@ -59,12 +61,13 @@ const Financeiro = (() => {
   async function loadData() {
     const shown = Loading.maybeShow('parcelas');
     // OS + sessões são usadas só p/ resolver a categoria efetiva das parcelas de OS
-    const [res, osRes, diRes, ciRes, foRes] = await Promise.all([
+    const [res, osRes, diRes, ciRes, foRes, recRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
       API.db.read('diarias'),
       API.db.read('compras_itens'),
       API.db.read('fechamento_os'),
+      API.db.read('recorrentes'), // pré-initDB volta [] (readMany) ou erro gracioso
     ]);
     if (shown) Loading.hide();
     allParcelas = res?.data || [];
@@ -72,6 +75,7 @@ const Financeiro = (() => {
     allDiarias  = diRes?.data || [];
     comprasItensByCompra = agruparComprasItens(ciRes?.data || []);
     fechamentoOsByFech   = agruparFechamentoOs(foRes?.data || []);
+    allRecorrentes = recRes?.data || [];
   }
 
   // Categoria efetiva de uma parcela (sessões → OS → parcela; lote → predominante) — utils.js
@@ -776,7 +780,93 @@ const Financeiro = (() => {
           <div class="card-body">${barCats(pagComp, 'text-red')}</div>
         </div>
       </div>
+
+      <!-- Contas fixas (recorrentes) — independe do mês selecionado -->
+      <div class="card mt-3">
+        <div class="card-header">
+          <h3>📆 Contas fixas</h3>
+          ${allRecorrentes.length ? `<span class="badge badge-info">${Fmt.currency(allRecorrentes.filter(r => r.ativo !== false && r.ativo !== 'false').reduce((s, r) => s + Number(r.valor || 0), 0))}/mês</span>` : ''}
+        </div>
+        <div class="card-body">${renderRecorrentesList()}</div>
+      </div>
     `;
+  }
+
+  // Lista do card "Contas fixas": cadastro-mestre das despesas mensais.
+  // A parcela de cada mês nasce sozinha (gerarRecorrentes no boot do app).
+  function renderRecorrentesList() {
+    if (!allRecorrentes.length) {
+      return `<p class="text-muted" style="font-size:.8rem;margin:0">
+        Nenhuma conta fixa. Em <strong>+ Lançamento</strong>, escolha
+        Repetição → <strong>Todo mês</strong> pra parar de redigitar aluguel, luz etc.
+      </p>`;
+    }
+    return allRecorrentes.map(r => {
+      const pausada = r.ativo === false || r.ativo === 'false';
+      return `
+        <div class="info-row">
+          <div style="min-width:0;flex:1;${pausada ? 'opacity:.55' : ''}">
+            <div style="font-size:.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.descricao}</div>
+            <div style="font-size:.72rem;color:var(--text-muted)">
+              <strong class="text-red">${Fmt.currency(r.valor)}</strong> · todo dia ${r.dia_vencimento}${pausada ? ' · <span style="color:#CC6600">pausada</span>' : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex:0 0 auto">
+            <button class="btn btn-sm btn-outline" title="${pausada ? 'Reativar' : 'Pausar'}"
+              onclick="Financeiro.toggleRecorrente('${r.id}', ${pausada})">${pausada ? '▶' : '⏸'}</button>
+            <button class="btn btn-sm btn-outline" title="Editar"
+              onclick="Financeiro.editarRecorrente('${r.id}')">✏️</button>
+            <button class="btn btn-sm btn-outline" title="Excluir"
+              onclick="Financeiro.excluirRecorrente('${r.id}')">🗑</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function toggleRecorrente(id, reativar) {
+    const campos = { ativo: !!reativar };
+    if (reativar) {
+      // Reativar NÃO gera retroativo dos meses pausados: marca a geração como
+      // "em dia" até o mês passado e lança só o mês corrente daqui pra frente.
+      const d = new Date(); d.setMonth(d.getMonth() - 1);
+      campos.ultima_geracao = d.toISOString().substring(0, 7);
+    }
+    Loading.show();
+    await API.db.update('recorrentes', id, campos);
+    if (reativar) await API.db.gerarRecorrentes({ mes: DateUtil.today().substring(0, 7) });
+    Loading.hide();
+    Toast.success(reativar ? 'Conta fixa reativada!' : 'Conta fixa pausada — não gera mais parcelas');
+    await loadData();
+    renderView();
+  }
+
+  function editarRecorrente(id) {
+    const rec = allRecorrentes.find(r => r.id === id);
+    if (!rec) return;
+    openManual();
+    _recEditId = id; // depois do openManual (que zera)
+    qs('#manual-tipo').value = 'pagar';
+    refreshManualSelects(rec.cliente_id || '', rec.categoria_id || '');
+    qs('#manual-desc').value  = rec.descricao || '';
+    qs('#manual-valor').value = rec.valor || '';
+    qs('#manual-parcelado').value = 'fixa';
+    // Vencimento exibido: dia da recorrente no mês corrente (clamp no último dia)
+    const mes    = DateUtil.today().substring(0, 7);
+    const ultimo = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate();
+    const dia    = Math.min(Number(rec.dia_vencimento) || 1, ultimo);
+    qs('#manual-venc').value = mes + '-' + String(dia).padStart(2, '0');
+    qs('#manual-obs').value  = rec.observacoes || '';
+    toggleParcelado();
+  }
+
+  function excluirRecorrente(id) {
+    const rec = allRecorrentes.find(r => r.id === id);
+    Modal.confirm(`Excluir a conta fixa "${rec?.descricao || ''}"? As parcelas já lançadas ficam.`, async () => {
+      await API.db.delete('recorrentes', id);
+      Toast.success('Conta fixa excluída');
+      await loadData();
+      renderView();
+    });
   }
 
   // Atualiza os selects de cliente/categoria conforme o tipo (receber/pagar)
@@ -816,33 +906,38 @@ const Financeiro = (() => {
     }
   }
 
-  // Mostra/esconde campos dependendo do modo parcelado
+  // Mostra/esconde campos dependendo do modo de repetição (parcelado/fixa)
   function toggleParcelado() {
-    const parcelado  = qs('#manual-parcelado')?.value === 'sim';
+    const modo       = qs('#manual-parcelado')?.value || '';
+    const parcelado  = modo === 'sim';
+    const fixa       = modo === 'fixa';
     const nWrap      = qs('#manual-nparcelas-wrap');
     if (nWrap) nWrap.style.display = parcelado ? '' : 'none';
 
-    // Parcelado → status/pagto/conta ficam ocultos (todas as parcelas nascem pendentes)
+    // Parcelado/fixa → status/pagto/conta ficam ocultos (parcelas nascem pendentes)
     const statusWrap = qs('#manual-status')?.closest('.form-group');
-    if (statusWrap)  statusWrap.style.display  = parcelado ? 'none' : '';
+    if (statusWrap)  statusWrap.style.display  = (parcelado || fixa) ? 'none' : '';
     const pagtoWrap  = qs('#manual-pagto')?.closest('.form-group');
-    if (pagtoWrap)   pagtoWrap.style.display   = parcelado ? 'none' : '';
-    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = parcelado ? 'none' : '';
-    // "Quem pagou" incompatível com parcelado
-    if (parcelado) {
+    if (pagtoWrap)   pagtoWrap.style.display   = (parcelado || fixa) ? 'none' : '';
+    if (qs('#manual-conta-wrap')) qs('#manual-conta-wrap').style.display = (parcelado || fixa) ? 'none' : '';
+    // "Quem pagou" incompatível com parcelado/fixa
+    if (parcelado || fixa) {
       const quemWrap = qs('#manual-quempagou-wrap');
       if (quemWrap) quemWrap.style.display = 'none';
     } else {
       refreshQuemPagouVisibility();
     }
-    // Ajusta label do vencimento para deixar claro que é o da 1ª parcela
+    // Ajusta label do vencimento conforme o modo
     const vencLabel = qs('#manual-venc')?.closest('.form-group')?.querySelector('label');
-    if (vencLabel) vencLabel.textContent = parcelado ? 'Vencimento 1ª Parcela' : 'Vencimento';
+    if (vencLabel) vencLabel.textContent = parcelado ? 'Vencimento 1ª Parcela'
+                                         : fixa      ? '1º vencimento (repete todo mês nesse dia)'
+                                         : 'Vencimento';
 
     calcNetValor();
   }
 
   function openManual() {
+    _recEditId = null;
     qs('#manual-save-btn').onclick = () => saveManual();
     qs('#manual-tipo').value   = 'pagar';
     qs('#manual-desc').value   = '';
@@ -922,13 +1017,59 @@ const Financeiro = (() => {
     const obs      = qs('#manual-obs').value;
 
     const isParcelado = qs('#manual-parcelado')?.value === 'sim';
+    const isFixa      = qs('#manual-parcelado')?.value === 'fixa';
 
     if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
-    if (!isParcelado && status === 'pago' && !conta) {
+    if (!isParcelado && !isFixa && status === 'pago' && !conta) {
       Toast.warning('Selecione a conta quando o status for "Pago"'); return;
     }
 
     const compFull = (compMonth || DateUtil.today().substring(0,7)) + '-01';
+
+    // ── Conta fixa (recorrente): grava o cadastro-mestre; a parcela do mês
+    // nasce via gerarRecorrentes (backend, idempotente) ────────────────────
+    if (isFixa) {
+      if (tipo !== 'pagar') { Toast.warning('Conta fixa (todo mês) é só pra despesas nesta versão'); return; }
+      const vencStr = venc || DateUtil.today();
+      const diaVenc = Number(vencStr.substring(8, 10)) || 1;
+      Loading.show();
+      let res;
+      if (_recEditId) {
+        // Edição: só o cadastro — parcelas já geradas ficam como estão
+        res = await API.db.update('recorrentes', _recEditId, {
+          descricao: desc, valor, categoria_id: categoria, cliente_id: cliente,
+          dia_vencimento: diaVenc, observacoes: obs,
+        });
+      } else {
+        // ultima_geracao = mês ANTERIOR ao 1º vencimento: se o 1º vencimento é
+        // neste mês, a parcela nasce já; se é um mês futuro, nasce quando chegar
+        // (e a geração NÃO retroage pra antes do cadastro).
+        const dAnt = new Date(vencStr.substring(0, 7) + '-01T00:00:00');
+        dAnt.setMonth(dAnt.getMonth() - 1);
+        res = await API.db.create('recorrentes', {
+          descricao: desc, tipo: 'pagar', valor, categoria_id: categoria,
+          cliente_id: cliente, dia_vencimento: diaVenc, ativo: true,
+          ultima_geracao: dAnt.toISOString().substring(0, 7),
+          observacoes: obs, data_criacao: DateUtil.today(),
+        });
+      }
+      let geradas = null;
+      if (res?.success && !_recEditId) {
+        const g = await API.db.gerarRecorrentes({ mes: DateUtil.today().substring(0, 7) });
+        if (g?.success) geradas = g.geradas;
+      }
+      Loading.hide();
+      if (!res?.success) { Toast.error('Erro: ' + (res?.error || '')); return; }
+      if (_recEditId)           Toast.success('Conta fixa atualizada!');
+      else if (geradas === null) Toast.success('Conta fixa salva! (parcelas nascem quando o servidor for atualizado)');
+      else if (geradas > 0)      Toast.success('Conta fixa salva! Parcela deste mês lançada.');
+      else                       Toast.success(`Conta fixa salva! 1ª parcela nasce em ${vencStr.substring(5, 7)}/${vencStr.substring(0, 4)}.`);
+      _recEditId = null;
+      Modal.close('modal-manual-lancamento');
+      await loadData();
+      renderView();
+      return;
+    }
 
     // ── Caminho parcelado: cria N parcelas mensais com grupo_id compartilhado ──
     if (isParcelado) {
@@ -936,11 +1077,7 @@ const Financeiro = (() => {
       const vencBase = new Date((venc || DateUtil.today()) + 'T00:00:00');
       if (isNaN(vencBase.getTime())) { Toast.warning('Informe o vencimento da 1ª parcela'); return; }
 
-      const grupoId = (crypto?.randomUUID?.() ||
-        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = Math.random() * 16 | 0;
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-        }));
+      const grupoId = genUUID();
 
       // Divide igualmente; a última absorve o centavo de arredondamento
       const valorUnit = Math.floor((valor / nParc) * 100) / 100;
@@ -992,11 +1129,7 @@ const Financeiro = (() => {
     // fantasma de "Devolução de fiado".
     if (tipo === 'pagar' && quemPagou) {
       const dataPago = pagto || venc || DateUtil.today();
-      const grupoId = (crypto?.randomUUID?.() ||
-        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = Math.random() * 16 | 0;
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-        }));
+      const grupoId = genUUID();
       Loading.show();
       // Despesa real (saiu do bolso do sócio, não da conta da empresa)
       const desp = await API.db.create('parcelas', {
@@ -1240,11 +1373,7 @@ const Financeiro = (() => {
     const desc = `Transferência: ${origemNome} → ${destinoNome}`;
     const comp = data.substring(0, 7) + '-01';
     // grupo_id une as 2 parcelas da transferência para exclusão em conjunto
-    const grupoTransf = (crypto?.randomUUID?.() ||
-      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = Math.random() * 16 | 0;
-        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-      }));
+    const grupoTransf = genUUID();
 
     Loading.show();
     const res = await API.db.batch([
@@ -1406,6 +1535,7 @@ const Financeiro = (() => {
            exportarPDF,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
+           toggleRecorrente, editarRecorrente, excluirRecorrente,
            refreshPagQuemPagouVisibility,
            openTransferencia, salvarTransferencia,
            toggleParcelado,

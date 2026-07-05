@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.3.1">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.4.0">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.3.1">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.4.0">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.3.1">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.4.0">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.3.1" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.4.0" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.3.1" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.4.0" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,12 +70,15 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.3.1" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.4.0" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
         <span class="header-sub">Gestão de Serviços</span>
       </div>
+      <button id="btn-outbox" class="header-btn hidden" aria-label="Caderneta offline" onclick="Outbox.open()">
+        📮<span id="outbox-badge" class="notif-badge">0</span>
+      </button>
       <button id="btn-notif" class="header-btn" aria-label="Notificações" onclick="Notif.open()">
         🔔<span id="notif-badge" class="notif-badge hidden">0</span>
       </button>
@@ -139,6 +142,28 @@
     <div class="modal-footer" style="display:flex;gap:8px">
       <button class="btn btn-outline" style="flex:1" onclick="Notif.limpar()">Limpar tudo</button>
       <button class="btn btn-primary" style="flex:1" onclick="Modal.close('modal-notificacoes')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Caderneta offline (fila de envios pendentes) -->
+<div id="modal-outbox" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>📮 Caderneta</h3>
+      <button class="modal-close" onclick="Modal.close('modal-outbox')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 10px">
+        Registros salvos sem internet ficam aqui e são enviados sozinhos
+        quando a conexão volta.
+      </p>
+      <div id="outbox-list"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px">
+      <button class="btn btn-outline" style="flex:1" onclick="Outbox.flush()">↻ Enviar agora</button>
+      <button class="btn btn-primary" style="flex:1" onclick="Modal.close('modal-outbox')">Fechar</button>
     </div>
   </div>
 </div>
@@ -341,6 +366,38 @@
     <div class="modal-footer">
       <button class="btn btn-primary btn-lg" onclick="OS.saveItem()">Adicionar</button>
       <button class="btn btn-outline"        onclick="Modal.close('modal-item')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Faltou material na OS → lista de compras do cliente -->
+<div id="modal-faltou" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>🧾 Faltou material</h3>
+      <button class="modal-close" onclick="Modal.close('modal-faltou')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="modal-faltou-sub" style="font-size:.78rem;color:var(--text-muted);margin:0 0 10px"></p>
+      <div class="form-group">
+        <label>O que faltou? *</label>
+        <input type="text" id="modal-faltou-desc" class="input" placeholder="Ex: Fita isolante, cano 25mm...">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantidade</label>
+          <input type="number" id="modal-faltou-qtd" class="input" step="0.01" value="1">
+        </div>
+        <div class="form-group">
+          <label>Unidade</label>
+          <input type="text" id="modal-faltou-und" class="input" placeholder="un" value="un">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-primary btn-lg" onclick="OS.saveFaltouMaterial(true)">Salvar e adicionar outro</button>
+      <button class="btn btn-outline" onclick="OS.saveFaltouMaterial(false)">Salvar e fechar</button>
     </div>
   </div>
 </div>
@@ -691,13 +748,14 @@
         </div>
       </div>
       <div id="manual-valor-liq-row" style="display:none;text-align:right;font-size:.82rem;font-weight:700;color:var(--primary);margin:-6px 0 8px"></div>
-      <!-- Compra Parcelada -->
+      <!-- Repetição: parcelado (N vezes) ou conta fixa mensal (recorrente) -->
       <div class="form-row" id="manual-parcelado-row">
         <div class="form-group">
-          <label>Parcelado?</label>
+          <label>Repetição</label>
           <select id="manual-parcelado" class="input" onchange="Financeiro.toggleParcelado()">
             <option value="">Não</option>
-            <option value="sim">Sim</option>
+            <option value="sim">Parcelado</option>
+            <option value="fixa">Todo mês (conta fixa)</option>
           </select>
         </div>
         <div class="form-group" id="manual-nparcelas-wrap" style="display:none">
@@ -926,21 +984,22 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.3.1"></script>
-<script src="assets/js/utils.js?v=3.3.1"></script>
-<script src="assets/js/notif.js?v=3.3.1"></script>
-<script src="assets/js/home.js?v=3.3.1"></script>
-<script src="assets/js/os.js?v=3.3.1"></script>
-<script src="assets/js/financeiro.js?v=3.3.1"></script>
-<script src="assets/js/clientes.js?v=3.3.1"></script>
-<script src="assets/js/estoque.js?v=3.3.1"></script>
-<script src="assets/js/compras.js?v=3.3.1"></script>
-<script src="assets/js/fiado.js?v=3.3.1"></script>
-<script src="assets/js/insights.js?v=3.3.1"></script>
-<script src="assets/js/config.js?v=3.3.1"></script>
+<script src="assets/js/api.js?v=3.4.0"></script>
+<script src="assets/js/utils.js?v=3.4.0"></script>
+<script src="assets/js/notif.js?v=3.4.0"></script>
+<script src="assets/js/outbox.js?v=3.4.0"></script>
+<script src="assets/js/home.js?v=3.4.0"></script>
+<script src="assets/js/os.js?v=3.4.0"></script>
+<script src="assets/js/financeiro.js?v=3.4.0"></script>
+<script src="assets/js/clientes.js?v=3.4.0"></script>
+<script src="assets/js/estoque.js?v=3.4.0"></script>
+<script src="assets/js/compras.js?v=3.4.0"></script>
+<script src="assets/js/fiado.js?v=3.4.0"></script>
+<script src="assets/js/insights.js?v=3.4.0"></script>
+<script src="assets/js/config.js?v=3.4.0"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.3.1"></script>
-<script src="assets/js/app.js?v=3.3.1"></script>
+<script src="assets/js/pdf.js?v=3.4.0"></script>
+<script src="assets/js/app.js?v=3.4.0"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

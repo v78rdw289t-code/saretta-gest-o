@@ -653,6 +653,18 @@ function filterRecords(records, query, fields) {
   return records.filter(r => fields.some(f => String(r[f] || '').toLowerCase().includes(q)));
 }
 
+// ─── UUID v4 (client-side) ───────────────────────────────────
+// Também usado como id de idempotência dos POSTs enfileirados na
+// caderneta offline (Outbox): o backend novo respeita data.id vindo
+// do cliente; o antigo sobrescreve — inofensivo nos dois casos.
+function genUUID() {
+  return (crypto?.randomUUID?.() ||
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    }));
+}
+
 // ─── GUARD: trava de duplo clique em ações que gravam ───────
 // Envolver o handler com Guard.run('chave', fn): enquanto a 1ª execução não
 // termina, cliques repetidos na mesma chave são IGNORADOS (era possível fechar

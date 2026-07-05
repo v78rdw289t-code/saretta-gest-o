@@ -60,6 +60,11 @@ const SHEET_HEADERS = {
   // direcao: empresa_deve (+, a empresa deve ao sócio) | socio_deve (−, o sócio deve à empresa)
   // motivo: despesa_bolso | emprestimo | acerto | ajuste · status: ativo | acertado
   fiado_mov:      ['id','pessoa','data','direcao','motivo','descricao','valor','parcela_id','conta_id','status','grupo_id','observacoes'],
+  // Contas fixas (aluguel, luz...): cadastro-mestre; a parcela do mês nasce via
+  // gerarRecorrentes (origem='recorrente'). ultima_geracao = 'yyyy-MM' do último
+  // mês já gerado (vazio = nunca gerou; a geração NÃO retroage antes do cadastro).
+  // tipo: v1 só 'pagar' (coluna existe p/ um futuro 'receber' sem migração).
+  recorrentes:    ['id','descricao','tipo','valor','categoria_id','cliente_id','dia_vencimento','ativo','ultima_geracao','observacoes','data_criacao'],
 };
 
 // ─── ROTEADOR ────────────────────────────────────────────────
@@ -112,6 +117,7 @@ function doPost(e) {
       case 'pagarParcela':      result = pagarParcela(data); break;
       case 'excluirLancamento': result = excluirLancamento(data.parcela_id); break;
       case 'excluirOS':         result = excluirOS(data.id); break;
+      case 'gerarRecorrentes':  result = gerarRecorrentes(data); break;
       default:                result = { success: false, error: 'Ação inválida' };
     }
     return respond(result);
@@ -204,7 +210,26 @@ function create(sheetName, data) {
     sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
     sh.setFrozenRows(1);
   }
-  data.id = Utilities.getUuid();
+  // Id de idempotência vindo do cliente (caderneta offline): se o app mandou
+  // um UUID em data.id, ele é respeitado — e se a linha JÁ existe (reenvio de
+  // um POST que na verdade tinha chegado, ex.: timeout ambíguo), vira no-op em
+  // vez de duplicar. O doPost roda sob LockService, então o check-then-append
+  // é atômico. Sem id do cliente, comportamento antigo (UUID do servidor).
+  const clientId = (typeof data.id === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.id)) ? data.id : '';
+  if (clientId) {
+    const idIdx = headers.indexOf('id');
+    for (let i = 1; i < all.length; i++) {
+      if (String(all[i][idIdx]) === clientId) {
+        const rec = {};
+        headers.forEach((h, j) => { rec[h] = all[i][j]; });
+        return { success: true, data: rec, jaExiste: true };
+      }
+    }
+    data.id = clientId;
+  } else {
+    data.id = Utilities.getUuid();
+  }
   const row = headers.map(h => (h && data[h] !== undefined) ? data[h] : '');
   sh.appendRow(row);
   return { success: true, data: { ...data } };
@@ -253,6 +278,70 @@ function batch(operations) {
     }
   });
   return { success: true, results };
+}
+
+// ─── CONTAS FIXAS RECORRENTES ────────────────────────────────
+// Meses 'yyyy-MM' APÓS depoisDe (exclusivo) até ate (inclusivo).
+// depoisDe vazio/inválido → só [ate]: recorrente recém-cadastrada gera o mês
+// corrente e NÃO retroage; depois disso o catch-up cobre meses pulados
+// (app fechado o mês inteiro → aluguel do mês pulado entra mesmo assim).
+function _mesesEntre(depoisDe, ate) {
+  if (!/^\d{4}-\d{2}$/.test(String(ate || ''))) return [];
+  if (!/^\d{4}-\d{2}$/.test(String(depoisDe || ''))) return [ate];
+  if (String(depoisDe) >= String(ate)) return [];
+  const out = [];
+  let y = Number(String(depoisDe).slice(0, 4)), m = Number(String(depoisDe).slice(5, 7));
+  const ay = Number(String(ate).slice(0, 4)), am = Number(String(ate).slice(5, 7));
+  while (y < ay || (y === ay && m < am)) {
+    m++; if (m > 12) { m = 1; y++; }
+    out.push(y + '-' + ('0' + m).slice(-2));
+  }
+  return out;
+}
+
+// Vencimento no mês com o dia clampado no último dia (31 → 28/29/30).
+function _vencNoMes(mes, dia) {
+  const y = Number(mes.slice(0, 4)), m = Number(mes.slice(5, 7));
+  const ultimo = new Date(y, m, 0).getDate();
+  const d = Math.max(1, Math.min(ultimo, parseInt(dia, 10) || 1));
+  return mes + '-' + ('0' + d).slice(-2);
+}
+
+// Gera as parcelas pendentes das contas fixas até data.mes (ou o mês do
+// servidor). Idempotente: ultima_geracao marca até onde já foi e o doPost
+// roda sob LockService — dois boots simultâneos não duplicam.
+function gerarRecorrentes(data) {
+  const mesAtual = /^\d{4}-\d{2}$/.test(String(data.mes || ''))
+    ? String(data.mes)
+    : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  const recs = read('recorrentes').data;
+  let geradas = 0;
+  recs.forEach(rec => {
+    if (rec.ativo === false || rec.ativo === 'false') return;
+    const meses = _mesesEntre(rec.ultima_geracao, mesAtual);
+    if (!meses.length) return;
+    meses.forEach(mes => {
+      create('parcelas', {
+        tipo: rec.tipo || 'pagar',
+        origem: 'recorrente',
+        origem_id: rec.id,
+        grupo_id: '',
+        cliente_id: rec.cliente_id || '',
+        descricao: rec.descricao,
+        valor: rec.valor,
+        data_competencia: mes + '-01',
+        data_vencimento: _vencNoMes(mes, rec.dia_vencimento),
+        data_pagamento: '',
+        status: 'pendente',
+        categoria_id: rec.categoria_id || '',
+        conta_id: '',
+        observacoes: rec.observacoes || '',
+      });
+      geradas++;
+    });
+    update('recorrentes', rec.id, { ultima_geracao: mesAtual });
+  });
+  return { success: true, geradas: geradas };
 }
 
 // ─── OPERAÇÕES COMPLEXAS ─────────────────────────────────────
