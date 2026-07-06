@@ -405,6 +405,10 @@
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
       <div style="font-size:.88rem;font-weight:800;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Itens da Compra</div>
+      <div class="form-group">
+        <label>Item já no estoque (opcional)</label>
+        <select id="item-estoque" class="input" onchange="Compras.onSelectEstoque()"></select>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label>Descrição</label>
