@@ -464,6 +464,23 @@ function fecharOSLote(data) {
   return { success: true, fechamento_id: fechId, parcela_id: parcela.data.id };
 }
 
+// Append em LOTE: grava várias linhas com 1 só setValues (em vez de 1
+// appendRow por registro, que relê a planilha toda vez). Respeita os
+// cabeçalhos REAIS da planilha e gera id (UUID) para quem não trouxe.
+function _appendRows(sheetName, records) {
+  if (!records || !records.length) return records;
+  const sh = getSheet(sheetName);
+  const lastCol = sh.getLastColumn();
+  const headers = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : SHEET_HEADERS[sheetName];
+  const idIdx = headers.indexOf('id');
+  const rows = records.map(rec => {
+    if (idIdx !== -1 && (rec.id === undefined || rec.id === '')) rec.id = Utilities.getUuid();
+    return headers.map(h => (h && rec[h] !== undefined) ? rec[h] : '');
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+  return records;
+}
+
 function registrarCompra(data) {
   // data: { fornecedor_id, data, valor_total (líquido), desconto, parcelas_count,
   //         primeira_data_vencimento, data_competencia, categoria_id (fallback p/ parcela),
@@ -505,8 +522,28 @@ function registrarCompra(data) {
 
   // Soma o valor líquido por categoria de item → categoria dominante (vai na parcela).
   const catTotais = {};
+  // Buffers de escrita em lote — evita reler a planilha a cada item (o que
+  // fazia a compra com muitos itens estourar o tempo limite).
+  const itensRows = [];   // compras_itens
+  const movRows   = [];   // estoque_movimentacoes
 
-  // Itens da compra + entrada no estoque (custo médio ponderado) + movimentação
+  // Estoque em memória: 1 leitura só. Resolve/soma tudo aqui e grava no fim.
+  const shEst   = getSheet('estoque');
+  const estVals = shEst.getDataRange().getValues();
+  const estHead = estVals[0];
+  const eCol = {}; estHead.forEach((h, i) => eCol[h] = i);
+  const _norm = s => String(s || '').trim().toLowerCase();
+  const byId  = {};   // id -> índice da linha
+  const byKey = {};   // "descrição|unidade" (ativos) -> {kind:'old',ri} | {kind:'new',obj}
+  for (let r = 1; r < estVals.length; r++) {
+    byId[String(estVals[r][eCol.id])] = r;
+    const at = estVals[r][eCol.ativo];
+    if (at !== false && at !== 'false')
+      byKey[_norm(estVals[r][eCol.descricao]) + '|' + _norm(estVals[r][eCol.unidade])] = { kind: 'old', ri: r };
+  }
+  const novosEst = [];   // novas linhas de estoque
+  let estDirty   = false; // alguma linha existente mudou?
+
   itens.forEach(item => {
     const qtd       = Number(item.quantidade || 0);
     const brutoItem = Number(item.valor_total || (qtd * Number(item.valor_unit || 0)));
@@ -515,22 +552,37 @@ function registrarCompra(data) {
     const catItem   = item.categoria_id || '';
     if (catItem) catTotais[catItem] = (catTotais[catItem] || 0) + liqItem;
 
-    // Resolve o item de estoque: vinculado, ou casa por descrição+unidade, ou cria novo.
-    let estId  = item.estoque_id || '';
-    let estRec = estId ? read('estoque', estId).data[0] : _acharEstoquePorDescricao(item.descricao, item.unidade);
-    if (estRec) {
-      estId = estRec.id;
-      const qOld = Number(estRec.quantidade || 0);
-      const aOld = Number(estRec.valor_unit || 0);
+    // Resolve o item de estoque: vinculado (id), ou casa por descrição+unidade,
+    // ou cria novo — inclusive casando itens repetidos DENTRO da mesma compra.
+    let estId = item.estoque_id || '';
+    let alvo  = (estId && byId[String(estId)] !== undefined) ? { kind: 'old', ri: byId[String(estId)] } : null;
+    if (!alvo) alvo = byKey[_norm(item.descricao) + '|' + _norm(item.unidade)] || null;
+
+    if (alvo && alvo.kind === 'old') {
+      const row  = estVals[alvo.ri];
+      estId = String(row[eCol.id]);
+      const qOld = Number(row[eCol.quantidade] || 0);
+      const aOld = Number(row[eCol.valor_unit] || 0);
       const qNew = qOld + qtd;
-      // Custo médio ponderado: (valor do estoque atual + valor da entrada) / qtd total.
-      const aNew = qNew > 0 ? Math.round(((qOld * aOld) + liqItem) / qNew * 100) / 100 : custoUnit;
-      const upd = { quantidade: qNew, valor_unit: aNew };
-      if (catItem && !estRec.categoria_id) upd.categoria_id = catItem;   // preenche só se faltava
-      if (data.fornecedor_id && !estRec.fornecedor_id) upd.fornecedor_id = data.fornecedor_id;
-      update('estoque', estId, upd);
+      // Custo médio ponderado: (valor atual + valor da entrada) / qtd total.
+      row[eCol.quantidade] = qNew;
+      row[eCol.valor_unit] = qNew > 0 ? Math.round(((qOld * aOld) + liqItem) / qNew * 100) / 100 : custoUnit;
+      if (catItem && !row[eCol.categoria_id]) row[eCol.categoria_id] = catItem;
+      if (data.fornecedor_id && !row[eCol.fornecedor_id]) row[eCol.fornecedor_id] = data.fornecedor_id;
+      estDirty = true;
+    } else if (alvo && alvo.kind === 'new') {
+      const o = alvo.obj;
+      estId = o.id;
+      const qOld = Number(o.quantidade || 0);
+      const aOld = Number(o.valor_unit || 0);
+      const qNew = qOld + qtd;
+      o.valor_unit = qNew > 0 ? Math.round(((qOld * aOld) + liqItem) / qNew * 100) / 100 : custoUnit;
+      o.quantidade = qNew;
+      if (catItem && !o.categoria_id) o.categoria_id = catItem;
     } else {
-      const novo = create('estoque', {
+      estId = Utilities.getUuid();
+      const novo = {
+        id:             estId,
         descricao:      item.descricao,
         quantidade:     qtd,
         valor_unit:     custoUnit,
@@ -540,12 +592,12 @@ function registrarCompra(data) {
         estoque_minimo: 0,
         data_entrada:   data.data,
         ativo:          true,
-      });
-      estId = novo.data.id;
+      };
+      novosEst.push(novo);
+      byKey[_norm(item.descricao) + '|' + _norm(item.unidade)] = { kind: 'new', obj: novo };
     }
 
-    // Linha da compra: guarda a categoria do item + valor líquido (p/ relatório financeiro).
-    create('compras_itens', {
+    itensRows.push({
       compra_id:   compraId,
       descricao:   item.descricao,
       estoque_id:  estId,
@@ -555,9 +607,7 @@ function registrarCompra(data) {
       valor_liq:   liqItem,
       valor_total: brutoItem,
     });
-
-    // Movimentação de entrada no razão do estoque.
-    create('estoque_movimentacoes', {
+    movRows.push({
       estoque_id:  estId,
       tipo:        'entrada',
       motivo:      'compra',
@@ -570,6 +620,13 @@ function registrarCompra(data) {
       observacoes: '',
     });
   });
+
+  // Grava tudo em lote: estoque alterado (1 escrita do bloco) + novas linhas,
+  // depois os itens da compra e as movimentações.
+  if (estDirty) shEst.getRange(1, 1, estVals.length, estHead.length).setValues(estVals);
+  _appendRows('estoque', novosEst);
+  _appendRows('compras_itens', itensRows);
+  _appendRows('estoque_movimentacoes', movRows);
 
   // Categoria que vai na parcela (a de maior valor; fallback p/ telas que não rateiam por item).
   let parcelaCatId = data.categoria_id || '';
@@ -585,32 +642,36 @@ function registrarCompra(data) {
   // grupo_id: une todas as parcelas desta transação para exclusão em conjunto
   const grupoIdCompra = Utilities.getUuid();
 
-  if (data.quem_pagou) {
-    // Sócio pagou a compra do bolso. A despesa real CONTA no resultado
-    // (conta_id='' = não saiu da conta da empresa); a dívida com o sócio
-    // vira movimento na ficha. SEM receita fantasma de "Devolução de fiado".
-    let primeiraVenc = new Date(data.primeira_data_vencimento);
-    for (let i = 0; i < parcCount; i++) {
-      const venc = new Date(primeiraVenc);
-      venc.setMonth(venc.getMonth() + i);
-      create('parcelas', {
-        tipo:            'pagar',
-        origem:          'compra',
-        origem_id:       compraId,
-        grupo_id:        grupoIdCompra,
-        cliente_id:      data.fornecedor_id || '',
-        descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
-        valor:           valorParc,
-        data_competencia:data.data_competencia,
-        data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-        data_pagamento:  dataPago,
-        status:          'pago',
-        conta_id:        '',  // saiu do bolso da pessoa, não da conta da empresa
-        categoria_id:    parcelaCatId,
-        observacoes:     data.observacoes || '',
-      });
-    }
-    // Ficha do sócio: empresa passa a dever a ele
+  // Parcelas a pagar (em lote). Se um sócio pagou do bolso: já 'pago', sem
+  // sair da conta da empresa (conta_id=''), e a dívida vira movimento na ficha.
+  // Senão: parcelas 'pendentes'.
+  const pagoBolso = !!data.quem_pagou;
+  const parcelaRows = [];
+  let primeiraVenc = new Date(data.primeira_data_vencimento);
+  for (let i = 0; i < parcCount; i++) {
+    const venc = new Date(primeiraVenc);
+    venc.setMonth(venc.getMonth() + i);
+    parcelaRows.push({
+      tipo:            'pagar',
+      origem:          'compra',
+      origem_id:       compraId,
+      grupo_id:        grupoIdCompra,
+      cliente_id:      data.fornecedor_id || '',
+      descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
+      valor:           valorParc,
+      data_competencia:data.data_competencia,
+      data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      data_pagamento:  pagoBolso ? dataPago : '',
+      status:          pagoBolso ? 'pago' : 'pendente',
+      conta_id:        '',
+      categoria_id:    parcelaCatId,
+      observacoes:     data.observacoes || '',
+    });
+  }
+  _appendRows('parcelas', parcelaRows);
+
+  if (pagoBolso) {
+    // Ficha do sócio: empresa passa a dever a ele. SEM receita fantasma.
     _fiadoMovCreate({
       pessoa:      data.quem_pagou,
       data:        dataPago,
@@ -621,28 +682,6 @@ function registrarCompra(data) {
       grupo_id:    grupoIdCompra,
       observacoes: data.observacoes || '',
     });
-  } else {
-    // Caminho normal: parcelas pendentes
-    let primeiraVenc = new Date(data.primeira_data_vencimento);
-    for (let i = 0; i < parcCount; i++) {
-      const venc = new Date(primeiraVenc);
-      venc.setMonth(venc.getMonth() + i);
-      create('parcelas', {
-        tipo:            'pagar',
-        origem:          'compra',
-        origem_id:       compraId,
-        grupo_id:        grupoIdCompra,
-        cliente_id:      data.fornecedor_id || '',
-        descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
-        valor:           valorParc,
-        data_competencia:data.data_competencia,
-        data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-        data_pagamento:  '',
-        status:          'pendente',
-        categoria_id:    parcelaCatId,
-        observacoes:     data.observacoes || '',
-      });
-    }
   }
 
   return { success: true, compra_id: compraId };
