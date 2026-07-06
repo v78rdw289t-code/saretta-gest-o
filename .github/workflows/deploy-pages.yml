@@ -1,0 +1,41 @@
+name: Deploy 3.5 to GitHub Pages
+
+# Publica a branch de produção (saretta-gestao3.5) no GitHub Pages.
+# O grupo de concorrência serializa os deploys e evita o erro
+# "Deployment failed, try again later" causado por publicações simultâneas.
+
+on:
+  push:
+    branches: [saretta-gestao3.5]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Pages (fonte = GitHub Actions)
+        uses: actions/configure-pages@v5
+
+      - name: Empacotar site (raiz do repositório)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Publicar no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
