@@ -65,6 +65,10 @@ const SHEET_HEADERS = {
   // mês já gerado (vazio = nunca gerou; a geração NÃO retroage antes do cadastro).
   // tipo: v1 só 'pagar' (coluna existe p/ um futuro 'receber' sem migração).
   recorrentes:    ['id','descricao','tipo','valor','categoria_id','cliente_id','dia_vencimento','ativo','ultima_geracao','observacoes','data_criacao'],
+  // Agenda: visitas/compromissos agendados. CRUD genérico (sem action própria).
+  // tipo: visita|orcamento|compromisso|lembrete · status: agendado|feito|cancelado
+  // cliente_id/os_id opcionais (linka a um cliente e/ou OS). ordem: desempate no dia.
+  compromissos:   ['id','data','hora_inicio','hora_fim','tipo','titulo','cliente_id','os_id','status','ordem','observacoes','data_criacao','data_atualizacao'],
 };
 
 // ─── ROTEADOR ────────────────────────────────────────────────

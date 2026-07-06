@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.4.3">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.5.0">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.4.3">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.5.0">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.4.3">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.5.0">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.4.3" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.5.0" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.4.3" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.5.0" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.4.3" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.5.0" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -88,6 +88,7 @@
     <!-- PAGES -->
     <div id="content">
       <section id="page-home"       class="page"></section>
+      <section id="page-agenda"     class="page hidden"></section>
       <section id="page-os"         class="page hidden"></section>
       <section id="page-financeiro" class="page hidden"></section>
       <section id="page-clientes"   class="page hidden"></section>
@@ -309,6 +310,65 @@
     <div class="modal-footer">
       <button id="modal-diaria-save-btn" class="btn btn-primary btn-lg" onclick="OS.saveDiaria()">Salvar Dia</button>
       <button class="btn btn-outline"        onclick="Modal.close('modal-diaria')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Compromisso (Agenda) -->
+<div id="modal-compromisso" class="modal">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3 id="modal-compromisso-title">Novo compromisso</h3>
+      <button class="modal-close" onclick="Modal.close('modal-compromisso')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="comp-id">
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Data</label>
+          <input type="date" id="comp-data" class="input">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Tipo</label>
+          <select id="comp-tipo" class="input">
+            <option value="visita">👤 Visita</option>
+            <option value="orcamento">📄 Orçamento</option>
+            <option value="compromisso">📌 Compromisso</option>
+            <option value="lembrete">🔔 Lembrete</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Título <small style="color:var(--text-muted);font-weight:400">(ou deixe e escolha um cliente)</small></label>
+        <input type="text" id="comp-titulo" class="input" placeholder="Ex.: Visitar galpão para orçamento">
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Hora início <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+          <input type="time" id="comp-hora-ini" class="input">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Hora fim <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+          <input type="time" id="comp-hora-fim" class="input">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Cliente <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+        <select id="comp-cliente" class="input"></select>
+      </div>
+      <div class="form-group">
+        <label>OS <small style="color:var(--text-muted);font-weight:400">(opcional — vincula a uma OS)</small></label>
+        <select id="comp-os" class="input"></select>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Observação <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+        <textarea id="comp-obs" class="input" rows="2" placeholder="Detalhes, endereço, o que levar..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Agenda.saveForm()">Salvar</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-compromisso')">Cancelar</button>
     </div>
   </div>
 </div>
@@ -999,22 +1059,23 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.4.3"></script>
-<script src="assets/js/utils.js?v=3.4.3"></script>
-<script src="assets/js/notif.js?v=3.4.3"></script>
-<script src="assets/js/outbox.js?v=3.4.3"></script>
-<script src="assets/js/home.js?v=3.4.3"></script>
-<script src="assets/js/os.js?v=3.4.3"></script>
-<script src="assets/js/financeiro.js?v=3.4.3"></script>
-<script src="assets/js/clientes.js?v=3.4.3"></script>
-<script src="assets/js/estoque.js?v=3.4.3"></script>
-<script src="assets/js/compras.js?v=3.4.3"></script>
-<script src="assets/js/fiado.js?v=3.4.3"></script>
-<script src="assets/js/insights.js?v=3.4.3"></script>
-<script src="assets/js/config.js?v=3.4.3"></script>
+<script src="assets/js/api.js?v=3.5.0"></script>
+<script src="assets/js/utils.js?v=3.5.0"></script>
+<script src="assets/js/notif.js?v=3.5.0"></script>
+<script src="assets/js/outbox.js?v=3.5.0"></script>
+<script src="assets/js/home.js?v=3.5.0"></script>
+<script src="assets/js/agenda.js?v=3.5.0"></script>
+<script src="assets/js/os.js?v=3.5.0"></script>
+<script src="assets/js/financeiro.js?v=3.5.0"></script>
+<script src="assets/js/clientes.js?v=3.5.0"></script>
+<script src="assets/js/estoque.js?v=3.5.0"></script>
+<script src="assets/js/compras.js?v=3.5.0"></script>
+<script src="assets/js/fiado.js?v=3.5.0"></script>
+<script src="assets/js/insights.js?v=3.5.0"></script>
+<script src="assets/js/config.js?v=3.5.0"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.4.3"></script>
-<script src="assets/js/app.js?v=3.4.3"></script>
+<script src="assets/js/pdf.js?v=3.5.0"></script>
+<script src="assets/js/app.js?v=3.5.0"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

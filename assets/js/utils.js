@@ -85,6 +85,17 @@ const Fmt = {
     const s = this.dateInput(v);
     return s ? s.substring(0, 7) : '';
   },
+  // Rótulo relativo a hoje: "hoje"/"amanhã"/"ontem"/dia-da-semana (até 6 dias)/dd/mm/aaaa.
+  dataRelativa(v) {
+    const s = this.dateInput(v);
+    if (!s) return '—';
+    const dias = DateUtil.diasAte(s);
+    if (dias === 0)  return 'hoje';
+    if (dias === 1)  return 'amanhã';
+    if (dias === -1) return 'ontem';
+    if (dias > 1 && dias <= 6) return DateUtil.weekdayLong(s);
+    return this.date(s);
+  },
 };
 
 // ─── Datas ───────────────────────────────────────────────────
@@ -120,6 +131,43 @@ const DateUtil = {
       d.setDate(d.getDate() + 1);
     }
     return n;
+  },
+  // ─── Semana (para a Agenda) ───────────────────────────────
+  addDays(dateStr, n) {
+    const d = new Date(String(dateStr).substring(0, 10) + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    d.setDate(d.getDate() + Number(n || 0));
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  },
+  // Segunda-feira da semana de `dateStr`, deslocada `offset` semanas.
+  weekStart(dateStr, offset = 0) {
+    const base = String(dateStr || this.today()).substring(0, 10);
+    const d = new Date(base + 'T00:00:00');
+    if (isNaN(d.getTime())) return this.today();
+    const wd = (d.getDay() + 6) % 7; // 0 = segunda
+    d.setDate(d.getDate() - wd + offset * 7);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  },
+  // As 7 datas (seg→dom) da semana de `dateStr`, deslocada `offset` semanas.
+  weekDays(dateStr, offset = 0) {
+    const seg = this.weekStart(dateStr, offset);
+    return Array.from({ length: 7 }, (_, i) => this.addDays(seg, i));
+  },
+  weekdayShort(dateStr) {
+    const d = new Date(String(dateStr).substring(0, 10) + 'T00:00:00');
+    return isNaN(d.getTime()) ? '' : ['dom','seg','ter','qua','qui','sex','sáb'][d.getDay()];
+  },
+  weekdayLong(dateStr) {
+    const d = new Date(String(dateStr).substring(0, 10) + 'T00:00:00');
+    return isNaN(d.getTime()) ? '' : ['domingo','segunda','terça','quarta','quinta','sexta','sábado'][d.getDay()];
+  },
+  ehHoje(dateStr) { return String(dateStr).substring(0, 10) === this.today(); },
+  // Nº de dias de hoje até `dateStr` (negativo = passado). Usa meia-noite local.
+  diasAte(dateStr) {
+    const a = new Date(this.today() + 'T00:00:00');
+    const b = new Date(String(dateStr).substring(0, 10) + 'T00:00:00');
+    if (isNaN(b.getTime())) return null;
+    return Math.round((b - a) / 86400000);
   },
 };
 

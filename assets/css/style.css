@@ -589,6 +589,70 @@ img { max-width: 100%; }
 .lanc-status.is-pago { background: var(--success-lt); color: #1a9e54; }
 .lanc-status.is-pend { background: var(--gold-lt);    color: #8A6D1E; }
 
+/* ─── AGENDA DA SEMANA (home + página) ────────────────────── */
+.ag-weeknav { display: flex; align-items: center; justify-content: space-between; margin: 2px 2px 8px; }
+.ag-nav-btn {
+  width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0;
+  border: 1.5px solid var(--border); background: var(--card);
+  color: var(--text-muted); font-size: 1.05rem; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: transform .12s, background .15s;
+}
+.ag-nav-btn:active { transform: scale(.9); background: var(--bg); }
+.ag-weeklabel { font-size: .72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; }
+.ag-strip { display: flex; gap: 5px; margin-bottom: 12px; }
+.ag-day {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 7px 2px 6px; border-radius: 12px; background: var(--card);
+  border: 1.5px solid var(--border); cursor: pointer; transition: all .15s;
+}
+.ag-day:active { transform: scale(.95); }
+.ag-day-wd  { font-size: .56rem; font-weight: 700; color: var(--text-light); text-transform: uppercase; }
+.ag-day-n   { font-size: 1rem; font-weight: 800; color: var(--text); line-height: 1.1; }
+.ag-day-dot { font-size: .6rem; font-weight: 800; color: var(--gold-dk); min-height: .82em; line-height: 1; }
+.ag-day.is-sel  { border-color: var(--gold); background: var(--gold-lt); }
+.ag-day.is-hoje { background: var(--navy); border-color: var(--navy); }
+.ag-day.is-hoje .ag-day-wd  { color: #9DB0D4; }
+.ag-day.is-hoje .ag-day-n   { color: #fff; }
+.ag-day.is-hoje .ag-day-dot { color: var(--gold); }
+.ag-day.is-hoje.is-sel { box-shadow: 0 0 0 2px var(--gold); }
+
+.ag-daylabel { display: flex; align-items: center; justify-content: space-between; margin: 2px 2px 8px; }
+.ag-daylabel > span:first-child { font-size: .82rem; font-weight: 800; color: var(--text); }
+.ag-rel { color: var(--text-muted); font-weight: 600; }
+.ag-daycount { font-size: .7rem; color: var(--text-light); flex-shrink: 0; }
+
+.ag-item {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px;
+  background: var(--card); border: 1.5px solid var(--border); border-left: 4px solid var(--navy);
+  border-radius: 12px; margin-bottom: 8px; cursor: pointer; transition: background .15s;
+}
+.ag-item:active { background: var(--bg); }
+.ag-ico {
+  width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: #EAF0FB;
+  display: flex; align-items: center; justify-content: center; font-size: 1.05rem; font-weight: 800;
+}
+.ag-body  { flex: 1; min-width: 0; }
+.ag-title { font-size: .88rem; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-sub   { font-size: .72rem; color: var(--text-muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-more  { flex-shrink: 0; color: var(--text-light); font-size: 1.1rem; font-weight: 700; }
+.ag-oschip { background: var(--gold-lt); color: var(--gold-dk); font-weight: 700; padding: 1px 7px; border-radius: 20px; font-size: .68rem; }
+.ag-tag { font-size: .64rem; font-weight: 700; padding: 1px 7px; border-radius: 20px; background: var(--bg); color: var(--text-muted); }
+.ag-item.is-feito { opacity: .55; }
+.ag-item.is-feito .ag-title { text-decoration: line-through; }
+/* Marcadores read-only: contas a vencer + OS iniciando */
+.ag-item.is-conta { border-left-color: var(--danger); background: var(--danger-lt); border-color: #F7C6C4; }
+.ag-item.is-conta .ag-ico { background: var(--card); color: var(--danger); }
+.ag-item.is-conta .ag-tag { background: var(--card); }
+.ag-item.is-conta.is-rec { border-left-color: var(--success); background: var(--success-lt); border-color: rgba(48,209,88,.3); }
+.ag-item.is-conta.is-rec .ag-ico { color: #1a9e54; }
+.ag-item.is-os { border-left-color: var(--gold); }
+.ag-item.is-os .ag-ico { background: var(--gold-lt); }
+.ag-empty { text-align: center; color: var(--text-muted); font-size: .82rem; padding: 12px 0 14px; }
+.ag-empty-add { background: none; border: none; color: var(--gold-dk); font-weight: 800; font-size: .82rem; cursor: pointer; }
+/* Página Agenda: semana empilhada */
+.ag-dayblock { margin-bottom: 18px; }
+.ag-dayblock.is-hoje .ag-daylabel > span:first-child { color: var(--gold-dk); }
+
 /* ─── FORMULÁRIOS ─────────────────────────────────────────── */
 .form-group { margin-bottom: 16px; }
 .form-group label {

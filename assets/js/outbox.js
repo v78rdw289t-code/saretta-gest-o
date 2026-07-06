@@ -23,8 +23,8 @@ const Outbox = (() => {
   const KEY = 'saretta_outbox_v1';
 
   // Whitelist v1: sheets seguras por ação (CRUD puro, sem lógica no servidor)
-  const OK_CREATE = ['diarias', 'lista_compras', 'parcelas', 'os_itens', 'fiado_mov'];
-  const OK_UPDATE = ['diarias', 'lista_compras', 'os', 'parcelas'];
+  const OK_CREATE = ['diarias', 'lista_compras', 'parcelas', 'os_itens', 'fiado_mov', 'compromissos'];
+  const OK_UPDATE = ['diarias', 'lista_compras', 'os', 'parcelas', 'compromissos'];
 
   function _opOk(op) {
     if (op.action === 'create') return OK_CREATE.includes(op.sheet);

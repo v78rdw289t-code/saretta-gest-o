@@ -3,12 +3,13 @@
 // ============================================================
 
 const App = (() => {
-  const pages = ['home','os','financeiro','clientes','estoque','compras','fiado','insights','config'];
+  const pages = ['home','agenda','os','financeiro','clientes','estoque','compras','fiado','insights','config'];
   // v1.3: sub-páginas que vivem dentro de uma página pai no nav.
   // App.navigate('fiado') automaticamente roteia pra dentro de Financeiro.
   const SUB_PAGES = {
     compras:  'estoque',
     fiado:    'financeiro',
+    agenda:   'home',
   };
   let currentPage = 'home';
   let currentParent = 'home'; // para active state no nav quando estamos numa sub-página
@@ -64,7 +65,7 @@ const App = (() => {
     document.dispatchEvent(new CustomEvent('pageChange', { detail: page }));
 
     // Chamar renderizador do módulo e ESPERAR ele terminar
-    const modules = { home: Home, os: OS, financeiro: Financeiro, clientes: Clientes,
+    const modules = { home: Home, agenda: Agenda, os: OS, financeiro: Financeiro, clientes: Clientes,
                       estoque: Estoque, compras: Compras, fiado: Fiado, insights: Insights, config: Config };
     const mod = modules[page];
     if (mod && typeof mod.render === 'function') {

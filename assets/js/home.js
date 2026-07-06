@@ -47,6 +47,18 @@ const Home = (() => {
 
       <div id="home-search-results" class="hidden"></div>
 
+      <!-- Agenda da semana — organização do dia (visitas/compromissos + contas/OS) -->
+      <div class="home-section-head">
+        <h2 class="home-section-title">📅 Agenda da semana</h2>
+        <div class="home-section-actions">
+          <button class="home-section-add" onclick="Agenda.openForm()">＋ Novo</button>
+          <button class="home-section-link" onclick="App.navigate('agenda')">Ver tudo ›</button>
+        </div>
+      </div>
+      <div id="home-agenda">
+        <div class="loading-pulse" style="height:58px;border-radius:12px"></div>
+      </div>
+
       <!-- OS em andamento — primeira seção (o que está rodando agora) -->
       <div class="home-section-head">
         <h2 class="home-section-title">🔧 OS em andamento</h2>
@@ -96,11 +108,13 @@ const Home = (() => {
       const cfgMsg = '<p class="text-muted p-3" style="margin:0">Configure a conexão em Configurações</p>';
       qs('#home-os-andamento').innerHTML = cfgMsg;
       qs('#home-lancamentos').innerHTML = cfgMsg;
+      const ag = qs('#home-agenda'); if (ag) ag.innerHTML = cfgMsg;
       const est = qs('#home-estoque-info'); if (est) est.textContent = 'Configure a conexão';
       return;
     }
 
     // Dispara em paralelo, SEM await — cada bloco se preenche sozinho.
+    Agenda.renderHomeSection();
     loadOSAndamento();
     loadEstoqueCard();
     loadUltimosLancamentos();
