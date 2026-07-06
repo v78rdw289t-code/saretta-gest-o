@@ -469,7 +469,18 @@ function registrarCompra(data) {
   //         primeira_data_vencimento, data_competencia, categoria_id (fallback p/ parcela),
   //         quem_pagou (opcional),
   //         itens: [{descricao, estoque_id, categoria_id, quantidade, valor_unit, valor_total, unidade}],
-  //         observacoes }
+  //         observacoes, idempotency_id (opcional) }
+  // Idempotência: se o app mandou um id estável e a compra JÁ existe (reenvio
+  // depois de um timeout que na verdade tinha chegado), devolve a existente sem
+  // reprocessar — nada de itens/estoque/parcelas em dobro. Roda sob LockService.
+  const idem = (typeof data.idempotency_id === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.idempotency_id))
+    ? data.idempotency_id : '';
+  if (idem) {
+    const ja = read('compras', idem).data[0];
+    if (ja) return { success: true, compra_id: ja.id, jaRegistrada: true };
+  }
+
   const itens = data.itens || [];
   // Bruto = soma dos itens; líquido = com o desconto da compra aplicado.
   const bruto = itens.reduce((s, it) =>
@@ -482,6 +493,7 @@ function registrarCompra(data) {
   const ratio = bruto > 0 ? (liquido / bruto) : 1;
 
   const compra = create('compras', {
+    id:            idem || undefined,   // usa o id do cliente → create() dedupa por id
     fornecedor_id: data.fornecedor_id,
     data:          data.data,
     valor_total:   liquido,

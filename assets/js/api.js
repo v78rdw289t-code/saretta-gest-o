@@ -373,6 +373,15 @@ const API = (() => {
     }
   }
 
+  // Ações "pesadas" (muitas escritas na planilha) merecem mais paciência:
+  // uma compra com vários itens roda dezenas de operações no Apps Script e
+  // passa fácil dos 15s. O id de idempotência (ver registrarCompra) garante
+  // que, mesmo se ainda estourar, um reenvio não duplica.
+  const POST_TIMEOUT = {
+    registrarCompra: 60000,
+    fecharOS:        60000,
+  };
+
   // Envio cru do POST — lança erro de rede pro chamador decidir.
   // SEM retry automático: se a 1ª tentativa chegou no servidor e a resposta
   // se perdeu, repetir duplicaria o lançamento.
@@ -381,7 +390,7 @@ const API = (() => {
     const res = await fetchWithTimeout(window.APPS_SCRIPT_URL, {
       method: 'POST',
       body: JSON.stringify({ action, token, ...body }),
-    });
+    }, POST_TIMEOUT[action] || NET_TIMEOUT);
     const json = await res.json();
     if (json && json.error && /autoriz|token/i.test(json.error)) {
       Toast.error('Acesso negado — confira o token em Configurações');

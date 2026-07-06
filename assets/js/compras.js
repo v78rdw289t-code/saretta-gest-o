@@ -6,6 +6,7 @@ const Compras = (() => {
   let allCompras = [];
   let itensForm  = [];
   let estoqueList = [];
+  let idemId     = '';   // id de idempotência da compra em edição (evita duplicar em reenvio)
 
   async function render() {
     await loadData();
@@ -150,6 +151,7 @@ const Compras = (() => {
 
   async function openForm() {
     itensForm = [];
+    idemId = genUUID();   // um id por compra; um reenvio depois de timeout reaproveita e não duplica
     qs('#compra-forn').innerHTML  = App.clienteOptions('fornecedor');
     qs('#compra-data').value      = DateUtil.today();
     qs('#compra-venc').value      = DateUtil.today();
@@ -254,6 +256,7 @@ const Compras = (() => {
 
     Loading.show();
     const res = await API.db.registrarCompra({
+      idempotency_id: idemId,
       fornecedor_id: fornId, data, valor_total: total,
       parcelas_count: parc, primeira_data_vencimento: venc,
       data_competencia: comp, desconto: desconto,
@@ -263,11 +266,14 @@ const Compras = (() => {
     Loading.hide();
 
     if (res?.success) {
-      const msg = quemPagou
-        ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
-        : 'Compra registrada! Estoque e financeiro atualizados.';
+      const msg = res.jaRegistrada
+        ? 'Compra já estava registrada — nada foi duplicado.'
+        : (quemPagou
+            ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
+            : 'Compra registrada! Estoque e financeiro atualizados.');
       Toast.success(msg);
       Modal.close('modal-compra');
+      idemId = genUUID();   // próxima compra ganha um id novo
       await loadData(); renderList();
     } else Toast.error('Erro: ' + res?.error);
   }
