@@ -1,12 +1,13 @@
-name: Deploy 3.5 to GitHub Pages
+name: Deploy para GitHub Pages
 
-# Publica a branch de produção (saretta-gestao3.5) no GitHub Pages.
-# O grupo de concorrência serializa os deploys e evita o erro
-# "Deployment failed, try again later" causado por publicações simultâneas.
+# Publica a branch de produção (main) no GitHub Pages.
+# As versões novas são desenvolvidas em outras branches e mescladas na
+# main quando for publicar. O grupo de concorrência serializa os deploys
+# e evita o erro "Deployment failed, try again later".
 
 on:
   push:
-    branches: [saretta-gestao3.5]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
