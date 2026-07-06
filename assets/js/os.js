@@ -888,9 +888,8 @@ const OS = (() => {
     // Sempre começa com pelo menos 1 período em branco para preencher
     if (_blocos.length === 0) _blocos = [{ inicio: '', fim: '', reajuste: false, fatores: [] }];
 
-    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
-    qs('#modal-diaria-info').innerHTML =
-      `<span style="font-size:.75rem;color:var(--text-muted)">Valor hora base: ${Fmt.currency(baseRate)}/h</span>`;
+    // "Mais opções" (valor fixo/observação) começa colapsado; abre se já há algo preenchido (edição)
+    toggleMaisOpcoes(!!(d?.valor_manual || d?.observacoes));
 
     renderBlocos();
     await calcDiariaPreview();
@@ -911,7 +910,7 @@ const OS = (() => {
       return `
       <div class="bloco-row ${b.reajuste ? 'bloco-reajuste' : ''}">
         <div class="bloco-head">
-          <span class="bloco-num">${b.reajuste ? '⚡' : '🕐'} Período ${i + 1}${dur > 0 ? ` <small>· ${Fmt.hours(dur)}</small>` : ''}</span>
+          <span class="bloco-num">${b.reajuste ? '⚡' : '🕐'} Período ${i + 1}${dur > 0 ? ` <small>· ${Fmt.hours(dur)}</small>` : ''}${b.reajuste && fatoresAtivos > 0 ? ` <small class="bloco-pct">+${fatoresAtivos}%</small>` : ''}</span>
           <button type="button" class="bloco-del" title="Remover período" onclick="OS.removeBloco(${i})">🗑</button>
         </div>
         <div class="bloco-times">
@@ -921,10 +920,10 @@ const OS = (() => {
           <input type="time" class="input" value="${b.fim || ''}"
             oninput="OS.setBloco(${i},'fim',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Fim">
         </div>
-        <label class="checkbox-item bloco-reaj-check">
-          <input type="checkbox" ${b.reajuste ? 'checked' : ''} onchange="OS.toggleBlocoReajuste(${i})">
-          <span>Reajuste / fatores de risco${b.reajuste && fatoresAtivos > 0 ? ` <small class="bloco-pct">+${fatoresAtivos}%</small>` : ''}</span>
-        </label>
+        <button type="button" class="bloco-reaj-toggle ${b.reajuste ? 'on' : ''}"
+          aria-pressed="${b.reajuste}" onclick="OS.toggleBlocoReajuste(${i})">
+          ⚡ Reajuste / fatores de risco
+        </button>
         ${b.reajuste ? `
           <div class="bloco-fatores">
             ${_diariaFatores.map(f => {
@@ -990,16 +989,26 @@ const OS = (() => {
     if (qs('#modal-diaria-horas')) qs('#modal-diaria-horas').textContent = Fmt.hours(bk.horas);
     if (qs('#modal-diaria-valor')) qs('#modal-diaria-valor').textContent = Fmt.currency(totalValor);
 
-    // Breakdown normal × reajuste (só quando há reajuste e não é valor fixo)
-    const breakdown = qs('#modal-diaria-breakdown');
-    if (breakdown) {
-      if (bk.hReajuste > 0 && !manual) {
-        breakdown.style.display = '';
-        breakdown.innerHTML = `${Fmt.hours(bk.hNormal)} normal (${Fmt.currency(bk.valorNormal)}) + <span style="color:var(--gold-dk);font-weight:700">⚡ ${Fmt.hours(bk.hReajuste)} reajuste (${Fmt.currency(bk.valorReajuste)})</span>`;
+    // Sublinha da caixa verde: base/h + quebra normal×reajuste, ou aviso de valor fixo
+    const sub = qs('#modal-diaria-base-sub');
+    if (sub) {
+      if (manual) {
+        sub.innerHTML = `valor fixo aplicado · cálculo seria ${Fmt.currency(bk.valor)}`;
+      } else if (bk.hReajuste > 0) {
+        sub.innerHTML = `base ${Fmt.currency(baseRate)}/h · ${Fmt.hours(bk.hNormal)} normal (${Fmt.currency(bk.valorNormal)}) + <span class="calc-sub-reaj">⚡ ${Fmt.hours(bk.hReajuste)} reajuste (${Fmt.currency(bk.valorReajuste)})</span>`;
       } else {
-        breakdown.style.display = 'none';
+        sub.innerHTML = `base ${Fmt.currency(baseRate)}/h`;
       }
     }
+  }
+
+  function toggleMaisOpcoes(forceOpen) {
+    const body = qs('#diaria-mais-opcoes');
+    const btn  = qs('#diaria-mais-toggle');
+    if (!body) return;
+    const abrir = (typeof forceOpen === 'boolean') ? forceOpen : body.style.display === 'none';
+    body.style.display = abrir ? '' : 'none';
+    btn?.classList.toggle('open', abrir);
   }
 
   // trava de duplo clique (Guard) — o corpo real está em _saveDiaria
@@ -2042,7 +2051,7 @@ const OS = (() => {
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, saveForm,
     openInsightsOS,
-    openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria,
+    openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
     openFaltouMaterial, saveFaltouMaterial,

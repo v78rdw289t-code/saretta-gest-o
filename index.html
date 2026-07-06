@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.4.2">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.4.3">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.4.2">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.4.3">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.4.2">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.4.3">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.4.2" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.4.3" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.4.2" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.4.3" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.4.2" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.4.3" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -274,7 +274,7 @@
         <button type="button" class="btn-add-bloco" onclick="OS.addBloco()">＋ Adicionar período</button>
       </div>
 
-      <!-- RESUMO CALCULADO -->
+      <!-- RESUMO CALCULADO (base + quebra ficam na sublinha, dentro da caixa) -->
       <div class="calc-preview" style="margin-top:14px">
         <div class="calc-item">
           <label>Total de Horas</label>
@@ -284,23 +284,26 @@
           <label>Valor Calculado</label>
           <span id="modal-diaria-valor">R$ 0,00</span>
         </div>
-      </div>
-      <div id="modal-diaria-breakdown"
-        style="display:none;text-align:center;font-size:.75rem;color:var(--text-muted);margin:-4px 0 6px"></div>
-
-      <div id="modal-diaria-info" style="margin:4px 0 6px"></div>
-
-      <div class="form-group">
-        <label>Valor fixo <small style="color:var(--text-muted);font-weight:400">(opcional — substitui o cálculo)</small></label>
-        <input type="number" id="modal-diaria-manual" class="input" step="0.01"
-          placeholder="R$ 0,00 — deixe vazio para usar o calculado"
-          oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+        <div id="modal-diaria-base-sub" class="calc-sub"></div>
       </div>
 
-      <div class="form-group" style="margin-bottom:0">
-        <label>Observação <small style="color:var(--text-muted);font-weight:400">(opcional — ex.: justificar um reajuste)</small></label>
-        <textarea id="modal-diaria-obs" class="input" rows="2"
-          placeholder="Ex.: trabalho em altura na fachada, exigiu cinto e andaime"></textarea>
+      <!-- ▸ Mais opções (colapsado por padrão) — override e justificativa raros -->
+      <button type="button" class="mais-opcoes-toggle" id="diaria-mais-toggle" onclick="OS.toggleMaisOpcoes()">
+        <span class="chev">▸</span> Mais opções
+        <span class="mais-hint">valor fixo · observação</span>
+      </button>
+      <div id="diaria-mais-opcoes" style="display:none">
+        <div class="form-group">
+          <label>Valor fixo <small style="color:var(--text-muted);font-weight:400">(opcional — substitui o cálculo)</small></label>
+          <input type="number" id="modal-diaria-manual" class="input" step="0.01"
+            placeholder="R$ 0,00 — deixe vazio para usar o calculado"
+            oninput="OS.calcDiariaPreview()" onchange="OS.calcDiariaPreview()">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Observação <small style="color:var(--text-muted);font-weight:400">(opcional — ex.: justificar um reajuste)</small></label>
+          <textarea id="modal-diaria-obs" class="input" rows="2"
+            placeholder="Ex.: trabalho em altura na fachada, exigiu cinto e andaime"></textarea>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -996,22 +999,22 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.4.2"></script>
-<script src="assets/js/utils.js?v=3.4.2"></script>
-<script src="assets/js/notif.js?v=3.4.2"></script>
-<script src="assets/js/outbox.js?v=3.4.2"></script>
-<script src="assets/js/home.js?v=3.4.2"></script>
-<script src="assets/js/os.js?v=3.4.2"></script>
-<script src="assets/js/financeiro.js?v=3.4.2"></script>
-<script src="assets/js/clientes.js?v=3.4.2"></script>
-<script src="assets/js/estoque.js?v=3.4.2"></script>
-<script src="assets/js/compras.js?v=3.4.2"></script>
-<script src="assets/js/fiado.js?v=3.4.2"></script>
-<script src="assets/js/insights.js?v=3.4.2"></script>
-<script src="assets/js/config.js?v=3.4.2"></script>
+<script src="assets/js/api.js?v=3.4.3"></script>
+<script src="assets/js/utils.js?v=3.4.3"></script>
+<script src="assets/js/notif.js?v=3.4.3"></script>
+<script src="assets/js/outbox.js?v=3.4.3"></script>
+<script src="assets/js/home.js?v=3.4.3"></script>
+<script src="assets/js/os.js?v=3.4.3"></script>
+<script src="assets/js/financeiro.js?v=3.4.3"></script>
+<script src="assets/js/clientes.js?v=3.4.3"></script>
+<script src="assets/js/estoque.js?v=3.4.3"></script>
+<script src="assets/js/compras.js?v=3.4.3"></script>
+<script src="assets/js/fiado.js?v=3.4.3"></script>
+<script src="assets/js/insights.js?v=3.4.3"></script>
+<script src="assets/js/config.js?v=3.4.3"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.4.2"></script>
-<script src="assets/js/app.js?v=3.4.2"></script>
+<script src="assets/js/pdf.js?v=3.4.3"></script>
+<script src="assets/js/app.js?v=3.4.3"></script>
 
 <script>
   if ('serviceWorker' in navigator) {
