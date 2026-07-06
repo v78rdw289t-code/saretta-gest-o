@@ -5,6 +5,7 @@
 const Compras = (() => {
   let allCompras = [];
   let itensForm  = [];
+  let estoqueList = [];
 
   async function render() {
     await loadData();
@@ -147,7 +148,7 @@ const Compras = (() => {
     );
   }
 
-  function openForm() {
+  async function openForm() {
     itensForm = [];
     qs('#compra-forn').innerHTML  = App.clienteOptions('fornecedor');
     qs('#compra-data').value      = DateUtil.today();
@@ -160,8 +161,32 @@ const Compras = (() => {
     const qp = qs('#compra-quempagou');
     if (qp) qp.value = '';
     qs('#compra-quempagou-hint')?.classList.add('hidden');
+    await loadEstoque();
     renderItensForm();
     Modal.open('modal-compra');
+  }
+
+  async function loadEstoque() {
+    const res = await API.db.read('estoque');
+    estoqueList = (res?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+    const sel = qs('#item-estoque');
+    if (!sel) return;
+    sel.innerHTML =
+      '<option value="">— Novo item (cadastrar no estoque) —</option>' +
+      estoqueList.map(e =>
+        `<option value="${e.id}" data-unit="${e.valor_unit}" data-und="${e.unidade || 'un'}" data-cat="${e.categoria_id || ''}">${e.descricao} (Qtd: ${e.quantidade} ${e.unidade || 'un'})</option>`
+      ).join('');
+  }
+
+  // Ao escolher um item do estoque, preenche descrição/unidade/valor/categoria automaticamente.
+  function onSelectEstoque() {
+    const sel = qs('#item-estoque');
+    if (!sel || !sel.value) return;
+    const opt = sel.options[sel.selectedIndex];
+    qs('#item-desc').value     = opt.text.split(' (')[0];
+    qs('#item-unit-val').value = opt.dataset.unit || '';
+    qs('#item-und').value      = opt.dataset.und || 'un';
+    if (opt.dataset.cat && qs('#item-cat')) qs('#item-cat').value = opt.dataset.cat;
   }
 
   function onQuemPagouChange() {
@@ -177,7 +202,8 @@ const Compras = (() => {
         const cat = item.categoria_id ? (App.getCategorias().find(c => String(c.id) === String(item.categoria_id))?.nome || '') : '';
         return `
         <div class="item-row">
-          <span>${item.descricao} × ${item.quantidade} ${item.unidade||''}${cat ? ' · <em style="color:var(--text-muted)">'+cat+'</em>' : ''} = ${Fmt.currency(item.valor_total)}</span>
+          <span>${item.descricao} × ${item.quantidade} ${item.unidade||''}${cat ? ' · <em style="color:var(--text-muted)">'+cat+'</em>' : ''} = ${Fmt.currency(item.valor_total)}
+            ${item.estoque_id ? '<span class="badge badge-success">↑ estoque</span>' : '<span class="badge badge-secondary">novo</span>'}</span>
           <button type="button" class="btn btn-sm btn-danger" onclick="Compras.removeItem(${i})">✕</button>
         </div>`;
       }).join('');
@@ -189,6 +215,7 @@ const Compras = (() => {
   }
 
   function addItem() {
+    const estId = qs('#item-estoque')?.value || '';
     const desc  = qs('#item-desc').value.trim();
     const qtd   = Number(qs('#item-qtd').value) || 1;
     const unit  = Number(qs('#item-unit-val').value) || 0;
@@ -196,10 +223,12 @@ const Compras = (() => {
     const total = qtd * unit;
     const catId = qs('#item-cat')?.value || '';
     if (!desc) { Toast.warning('Informe a descrição do item'); return; }
-    itensForm.push({ descricao: desc, quantidade: qtd, valor_unit: unit, valor_total: total, unidade: und, categoria_id: catId });
+    itensForm.push({ estoque_id: estId, descricao: desc, quantidade: qtd, valor_unit: unit, valor_total: total, unidade: und, categoria_id: catId });
+    if (qs('#item-estoque')) qs('#item-estoque').value = '';
     qs('#item-desc').value = '';
     qs('#item-qtd').value  = '1';
     qs('#item-unit-val').value = '';
+    qs('#item-und').value  = '';
     renderItensForm();
   }
 
@@ -247,5 +276,5 @@ const Compras = (() => {
     openDetail(id);
   }
 
-  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, onQuemPagouChange, addItem, removeItem, saveForm };
+  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, onSelectEstoque, onQuemPagouChange, addItem, removeItem, saveForm };
 })();
