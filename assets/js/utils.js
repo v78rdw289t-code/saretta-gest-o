@@ -448,12 +448,13 @@ const Calculator = {
 };
 
 // ─── Gerador de número de OS ─────────────────────────────────
-async function nextOSNumber() {
+// Próximo número DENTRO do prefixo (OS-XXX e ORC-XXX têm sequências separadas).
+async function nextOSNumber(prefixo = 'OS') {
   const res = await API.db.read('os');
-  const items = res?.data || [];
-  if (items.length === 0) return 'OS-001';
+  const items = (res?.data || []).filter(o => String(o.numero || '').toUpperCase().startsWith(prefixo.toUpperCase() + '-'));
   const nums = items.map(o => parseInt((o.numero || '').replace(/\D/g, '')) || 0);
-  return 'OS-' + String(Math.max(...nums) + 1).padStart(3, '0');
+  const prox = (nums.length ? Math.max(...nums) : 0) + 1;
+  return prefixo + '-' + String(prox).padStart(3, '0');
 }
 
 // ─── Status badge ────────────────────────────────────────────

@@ -9,9 +9,7 @@ const OS = (() => {
   let _diariaFatores = []; // fatores disponíveis (config), carregados ao abrir o modal
   let currentOS = null;
   let currentView = 'list'; // list | detail | form | diaria | fechamento
-  // Orçamento (planejado) da OS aberta — separado da execução
-  let currentOrc      = null; // cabeçalho (linha de 'orcamentos') ou null
-  let currentOrcItens = [];   // itens planejados desta OS ('orcamento_itens')
+  let _registroView = 'os'; // lista: 'os' | 'orcamento'
 
   // Resultado mais recente da calculadora do detalhe — usado pelo modal
   // de fechamento. Atualizado a cada interação na calculadora.
@@ -55,8 +53,9 @@ const OS = (() => {
   // persiste na sessão — voltar do detalhe não reseta a aba.
   function renderList(filtroStatus = _currentStatus, filtroTipo = '', q = '') {
     currentView = 'list';
-    let items = allOS;
-    if (filtroStatus) items = items.filter(o => o.status === filtroStatus);
+    const isOrcView = _registroView === 'orcamento';
+    let items = allOS.filter(o => (o.registro || 'os') === _registroView);
+    if (filtroStatus && !isOrcView) items = items.filter(o => o.status === filtroStatus);
     if (filtroTipo)   items = items.filter(o => o.tipo === filtroTipo);
     if (q)            items = filterRecords(items, q, ['numero','nome','observacoes']).concat(
                                items.filter(o =>
@@ -89,11 +88,18 @@ const OS = (() => {
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
-        <h1>Ordens de Serviço</h1>
+        <h1>${isOrcView ? 'Orçamentos' : 'Ordens de Serviço'}</h1>
         <div style="display:flex;gap:8px">
-          <button class="btn ${_loteMode ? 'btn-gold' : 'btn-outline'} btn-sm" onclick="OS.toggleLoteMode()">${_loteMode ? '✕ Cancelar' : '☑ Fechar em lote'}</button>
-          ${_loteMode ? '' : '<button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>'}
+          ${!isOrcView ? `<button class="btn ${_loteMode ? 'btn-gold' : 'btn-outline'} btn-sm" onclick="OS.toggleLoteMode()">${_loteMode ? '✕ Cancelar' : '☑ Fechar em lote'}</button>` : ''}
+          ${_loteMode ? '' : (isOrcView
+            ? `<button class="btn btn-primary" onclick="OS.openForm(null,'orcamento')">+ Novo Orçamento</button>`
+            : `<button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>`)}
         </div>
+      </div>
+
+      <div class="tab-bar mb-3">
+        <button class="tab-btn ${!isOrcView ? 'active' : ''}" onclick="OS.setRegistroView('os')">🧾 OS</button>
+        <button class="tab-btn ${isOrcView ? 'active' : ''}" onclick="OS.setRegistroView('orcamento')">📄 Orçamentos</button>
       </div>
 
       ${_loteMode ? `
@@ -101,56 +107,77 @@ const OS = (() => {
         Toque nas OS <strong>do mesmo cliente</strong> que quer juntar num fechamento só (1 parcela).
       </div>` : ''}
 
-      <div class="stats-grid mb-3">
-        <div class="stat-card stat-blue" style="cursor:pointer" onclick="OS.setStatus('andamento')">
-          <div class="stat-label">Andamento</div>
-          <div class="stat-value">${totalAndamento}</div>
+      ${isOrcView ? `
+        <div class="stats-grid mb-3">
+          <div class="stat-card stat-navy">
+            <div class="stat-label">Orçamentos</div>
+            <div class="stat-value">${items.length}</div>
+          </div>
+          <div class="stat-card stat-green">
+            <div class="stat-label">Viraram OS</div>
+            <div class="stat-value">${items.filter(o => allOS.some(x => x.orcamento_id === o.id)).length}</div>
+          </div>
         </div>
-        <div class="stat-card stat-orange" style="cursor:pointer" onclick="OS.setStatus('acerto')">
-          <div class="stat-label">Em Acerto</div>
-          <div class="stat-value">${totalAcerto}</div>
+        <div class="mb-3">
+          <input type="text" id="os-search" placeholder="Buscar orçamento ou cliente..." class="input-search" value="${q}"
+            oninput="OS.applyFilters()">
         </div>
-        <div class="stat-card stat-green">
-          <div class="stat-label">Fechadas (mês)</div>
-          <div class="stat-value">${fechadasMes}</div>
+      ` : `
+        <div class="stats-grid mb-3">
+          <div class="stat-card stat-blue" style="cursor:pointer" onclick="OS.setStatus('andamento')">
+            <div class="stat-label">Andamento</div>
+            <div class="stat-value">${totalAndamento}</div>
+          </div>
+          <div class="stat-card stat-orange" style="cursor:pointer" onclick="OS.setStatus('acerto')">
+            <div class="stat-label">Em Acerto</div>
+            <div class="stat-value">${totalAcerto}</div>
+          </div>
+          <div class="stat-card stat-green">
+            <div class="stat-label">Fechadas (mês)</div>
+            <div class="stat-value">${fechadasMes}</div>
+          </div>
+          <div class="stat-card stat-navy">
+            <div class="stat-label">Receita (mês)</div>
+            <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaMes)}</div>
+          </div>
         </div>
-        <div class="stat-card stat-navy">
-          <div class="stat-label">Receita (mês)</div>
-          <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaMes)}</div>
+        <div class="mb-3">
+          <input type="text" id="os-search" placeholder="Buscar OS ou cliente..." class="input-search" value="${q}"
+            oninput="OS.applyFilters()">
         </div>
-      </div>
-
-      <div class="mb-3">
-        <input type="text" id="os-search" placeholder="Buscar OS ou cliente..." class="input-search" value="${q}"
-          oninput="OS.applyFilters()">
-      </div>
-      <div class="tab-bar mb-3">
-        <button class="tab-btn ${filtroStatus===''       ?'active':''}" onclick="OS.setStatus('')">Todas</button>
-        <button class="tab-btn ${filtroStatus==='andamento'?'active':''}" onclick="OS.setStatus('andamento')">Andamento</button>
-        <button class="tab-btn ${filtroStatus==='acerto' ?'active':''}" onclick="OS.setStatus('acerto')">Acerto</button>
-        <button class="tab-btn ${filtroStatus==='fechado'?'active':''}" onclick="OS.setStatus('fechado')">Fechadas</button>
-      </div>
+        <div class="tab-bar mb-3">
+          <button class="tab-btn ${filtroStatus===''       ?'active':''}" onclick="OS.setStatus('')">Todas</button>
+          <button class="tab-btn ${filtroStatus==='andamento'?'active':''}" onclick="OS.setStatus('andamento')">Andamento</button>
+          <button class="tab-btn ${filtroStatus==='acerto' ?'active':''}" onclick="OS.setStatus('acerto')">Acerto</button>
+          <button class="tab-btn ${filtroStatus==='fechado'?'active':''}" onclick="OS.setStatus('fechado')">Fechadas</button>
+        </div>
+      `}
       <div class="entity-list">
         ${items.length === 0
-          ? '<div class="entity-empty">Nenhuma OS encontrada</div>'
+          ? `<div class="entity-empty">${isOrcView ? 'Nenhum orçamento ainda' : 'Nenhuma OS encontrada'}</div>`
           : items.map(o => {
             const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
+            const numShort = (o.numero || '').replace(/^(OS|ORC)-/i, '');
+            const jaGerou = isOrcView && allOS.some(x => x.orcamento_id === o.id);
             // Em modo lote: só OS não fechadas e (após a 1ª marcada) do mesmo cliente
             const selecionavel = !_loteMode || (o.status !== 'fechado' && (!_loteCliente || o.cliente_id === _loteCliente));
             const marcada = _loteMode && _loteSel.has(o.id);
             const clique = _loteMode
               ? (selecionavel ? `OS.toggleLoteSel('${o.id}')` : '')
               : `OS.tapCard('${o.id}')`;
+            const badges = isOrcView
+              ? `<span class="badge badge-gold">📄 Orçamento</span>${jaGerou ? ' <span class="badge badge-success">✓ Gerou OS</span>' : ''}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`
+              : `${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`;
             return `
             <div class="entity-item${_loteMode && !selecionavel ? ' lote-off' : ''}${marcada ? ' lote-on' : ''}" onclick="${clique}">
               ${_loteMode ? `<span class="lote-check${marcada ? ' on' : ''}">${marcada ? '✓' : ''}</span>` : ''}
-              <div class="avatar ${statusAv(o.status)}">
-                <span style="font-size:.75rem;font-weight:800">${o.numero?.replace('OS-','')}</span>
+              <div class="avatar ${isOrcView ? 'av-gold' : statusAv(o.status)}">
+                <span style="font-size:.75rem;font-weight:800">${numShort}</span>
               </div>
               <div class="entity-info">
                 <div class="entity-name">${App.clienteNome(o.cliente_id)}${o.nome ? ` <span style="font-weight:500;color:var(--text-muted);font-size:.85em">· ${o.nome}</span>` : ''}</div>
-                <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
-                <div class="entity-badges">${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}</div>
+                <div class="entity-sub">${Fmt.date(o.data_inicio)}${!isOrcView && o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}${isOrcView && o.prazo_dias ? ' · ' + o.prazo_dias + ' dia(s)' : ''}</div>
+                <div class="entity-badges">${badges}</div>
               </div>
               <div class="entity-right">
                 <span class="entity-chevron">›</span>
@@ -208,6 +235,12 @@ const OS = (() => {
     applyFilters();
   }
 
+  // Alterna a lista entre OS e Orçamentos
+  function setRegistroView(v) {
+    _registroView = v;
+    renderList(_currentStatus, '', qs('#os-search')?.value || '');
+  }
+
   function _maisOpcoes(id) {
     const o = allOS.find(x => x.id === id) || currentOS;
     const actions = [
@@ -258,20 +291,18 @@ const OS = (() => {
     }
     currentOS = novoOS;
     currentView = 'detail';
+    // Orçamento tem tela própria (simplificada) — sai daqui.
+    if (currentOS.registro === 'orcamento') return renderOrcamentoDetail();
     const diarias = allDiarias.filter(d => d.os_id === id)
                                .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === id);
     // Parcelas (lançamentos financeiros) geradas por esta OS — origem='os',
     // ou a parcela única de um fechamento em lote que inclui esta OS (origem='os_lote',
     // vínculo via fechamento_os: os_id → fechamento_id → parcela.origem_id).
-    const [parcRes, fosRes, orcItRes, orcRes] = await Promise.all([
+    const [parcRes, fosRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('fechamento_os'),
-      API.db.read('orcamento_itens', null, { os_id: id }),
-      API.db.read('orcamentos', null, { os_id: id }),
     ]);
-    currentOrcItens = orcItRes?.data || [];
-    currentOrc      = (orcRes?.data || [])[0] || null;
     const fechIds  = (fosRes?.data || []).filter(f => f.os_id === id).map(f => f.fechamento_id);
     const parcelas = (parcRes?.data || [])
       .filter(p => (p.origem === 'os' && p.origem_id === id) ||
@@ -322,12 +353,18 @@ const OS = (() => {
         </div>
       </div>
 
-      <!-- Orçamento (planejado) -->
-      ${renderOrcamento(currentOrc, currentOrcItens,
-          Number(currentOS.valor_fechamento || 0)
-          || (diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0)
-              + itens.reduce((s, i) => s + Number(i.valor_total || 0), 0)),
-          currentOS.status)}
+      <!-- Referência do orçamento de origem (se a OS veio de um orçamento) -->
+      ${currentOS.orcamento_id ? `
+        <div class="card mb-3" style="cursor:pointer" onclick="OS.openDetail('${currentOS.orcamento_id}')">
+          <div class="card-body" style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:1.3rem">📋</span>
+            <div style="flex:1">
+              <div class="info-label">Orçado em ${currentOS.orcado_data ? Fmt.date(currentOS.orcado_data) : '—'}</div>
+              <strong>${Fmt.currency(currentOS.orcado_valor)}</strong>${currentOS.prazo_dias ? ` · prazo ${currentOS.prazo_dias} dia(s)` : ''}
+            </div>
+            <span class="entity-chevron">›</span>
+          </div>
+        </div>` : ''}
 
       <!-- Itens -->
       <div class="card mb-3">
@@ -743,29 +780,33 @@ const OS = (() => {
     </table></div>`;
   }
 
-  // ─── FORM OS ────────────────────────────────────────────
-  async function openForm(id = null) {
+  // ─── FORM OS / ORÇAMENTO ────────────────────────────────
+  async function openForm(id = null, registro = 'os') {
     let os = null;
     if (id) {
       os = allOS.find(o => o.id === id) || (await API.db.read('os', id))?.data?.[0];
     }
-    const numero = os ? os.numero : await nextOSNumber();
+    const reg    = os ? (os.registro || 'os') : registro;
+    const isOrc  = reg === 'orcamento';
+    const numero = os ? os.numero : await nextOSNumber(isOrc ? 'ORC' : 'OS');
+    const titulo = isOrc ? (os ? 'Editar Orçamento' : 'Novo Orçamento') : (os ? 'Editar OS' : 'Nova OS');
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
         <button class="btn btn-outline" onclick="${id ? `OS.openDetail('${id}')` : 'OS.render()'}">← Voltar</button>
-        <h1>${os ? 'Editar OS' : 'Nova OS'}</h1>
+        <h1>${titulo}</h1>
       </div>
       <div class="card">
         <div class="card-body">
           <form id="os-form" onsubmit="OS.saveForm(event, '${id || ''}')">
+            <input type="hidden" name="registro" value="${reg}">
             <div class="form-group">
               <label>Número</label>
               <input type="text" name="numero" class="input" value="${numero}" required>
             </div>
             <div class="form-group">
-              <label>Nome da OS <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
-              <input type="text" name="nome" class="input" value="${os?.nome || ''}" placeholder="Ex: Reforma do galpão, Cerca leste...">
+              <label>Nome <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+              <input type="text" name="nome" class="input" value="${os?.nome || ''}" placeholder="${isOrc ? 'Ex: Troca de fiação, Portão...' : 'Ex: Reforma do galpão, Cerca leste...'}">
             </div>
             <div class="form-group">
               <label>Cliente *</label>
@@ -783,31 +824,44 @@ const OS = (() => {
                 ${App.categoriaOptions('os', os?.categoria_id)}
               </select>
             </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Data Início</label>
-                <input type="date" name="data_inicio" class="input" value="${Fmt.dateInput(os?.data_inicio) || DateUtil.today()}">
+            ${isOrc ? `
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Data do orçamento</label>
+                  <input type="date" name="data_inicio" class="input" value="${Fmt.dateInput(os?.data_inicio) || DateUtil.today()}">
+                </div>
+                <div class="form-group">
+                  <label>Prazo estimado (dias)</label>
+                  <input type="number" name="prazo_dias" class="input" min="0" step="1" value="${os?.prazo_dias || ''}" placeholder="Ex: 5">
+                </div>
+              </div>
+            ` : `
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Data Início</label>
+                  <input type="date" name="data_inicio" class="input" value="${Fmt.dateInput(os?.data_inicio) || DateUtil.today()}">
+                </div>
+                <div class="form-group">
+                  <label>Data Fim</label>
+                  <input type="date" name="data_fim" class="input" value="${Fmt.dateInput(os?.data_fim)}">
+                </div>
               </div>
               <div class="form-group">
-                <label>Data Fim</label>
-                <input type="date" name="data_fim" class="input" value="${Fmt.dateInput(os?.data_fim)}">
+                <label>Status</label>
+                <select name="status" class="input">
+                  <option value="andamento" ${(!os||os.status==='andamento')?'selected':''}>Em Andamento</option>
+                  <option value="rascunho"  ${os?.status==='rascunho' ?'selected':''}>Rascunho</option>
+                  <option value="acerto"    ${os?.status==='acerto'   ?'selected':''}>Em Acerto</option>
+                  <option value="fechado"   ${os?.status==='fechado'  ?'selected':''}>Fechado</option>
+                </select>
               </div>
-            </div>
-            <div class="form-group">
-              <label>Status</label>
-              <select name="status" class="input">
-                <option value="andamento" ${(!os||os.status==='andamento')?'selected':''}>Em Andamento</option>
-                <option value="rascunho"  ${os?.status==='rascunho' ?'selected':''}>Rascunho</option>
-                <option value="acerto"    ${os?.status==='acerto'   ?'selected':''}>Em Acerto</option>
-                <option value="fechado"   ${os?.status==='fechado'  ?'selected':''}>Fechado</option>
-              </select>
-            </div>
+            `}
             <div class="form-group">
               <label>Observações</label>
               <textarea name="observacoes" class="input" rows="3">${os?.observacoes || ''}</textarea>
             </div>
             <div class="form-actions">
-              <button type="submit" class="btn btn-primary">Salvar OS</button>
+              <button type="submit" class="btn btn-primary">${isOrc ? 'Salvar Orçamento' : 'Salvar OS'}</button>
               <button type="button" class="btn btn-outline" onclick="${id ? `OS.openDetail('${id}')` : 'OS.render()'}">Cancelar</button>
             </div>
           </form>
@@ -825,6 +879,7 @@ const OS = (() => {
     const data = Object.fromEntries(fd.entries());
     data.data_atualizacao = new Date().toISOString();
 
+    const isOrc = data.registro === 'orcamento';
     Loading.show();
     let res;
     if (id) {
@@ -832,13 +887,15 @@ const OS = (() => {
     } else {
       // Tipo unificado: toda OS é por sessões (campo mantido p/ compat com dados/legado).
       data.tipo = 'normal';
+      if (isOrc && !data.status) data.status = 'orcamento';
       data.data_criacao = new Date().toISOString();
       res = await API.db.create('os', data);
     }
     Loading.hide();
 
     if (res?.success) {
-      Toast.success(id ? 'OS atualizada!' : 'OS criada!');
+      const nome = isOrc ? 'Orçamento' : 'OS';
+      Toast.success(id ? `${nome} atualizado!` : `${nome} criado!`);
       await loadData();
       if (id) openDetail(id);
       else {
@@ -1269,94 +1326,98 @@ const OS = (() => {
     });
   }
 
-  // ─── ORÇAMENTO (planejado) ───────────────────────────────────
-  // Seção separada da execução: materiais + mão de obra estimados, desconto
-  // e observações. Alimenta o PDF de orçamento. NÃO mexe em estoque.
-  function _orcTotais(orcItens, desconto) {
-    const itens   = orcItens.filter(i => i.tipo !== 'mao_obra').reduce((s, i) => s + Number(i.valor_total || 0), 0);
-    const maoObra = orcItens.filter(i => i.tipo === 'mao_obra').reduce((s, i) => s + Number(i.valor_total || 0), 0);
-    const subtotal = itens + maoObra;
-    const desc = Number(desconto || 0);
-    return { itens, maoObra, subtotal, desconto: desc, total: Math.max(0, subtotal - desc) };
-  }
+  // ─── ORÇAMENTO (registro tipo OS, simplificado) ──────────────
+  // Orçamento = registro 'os' com registro='orcamento'. Itens em os_itens
+  // (SEM baixa de estoque). Valor = soma dos itens. "Gerar OS" cria uma OS
+  // nova só com cliente + categoria + referência (orçado em X: valor/data/prazo).
 
-  function renderOrcamento(orc, orcItens, realizado, status) {
-    const t = _orcTotais(orcItens, Number(orc?.desconto || 0));
-    const materiais = orcItens.filter(i => i.tipo !== 'mao_obra');
-    const maoObra   = orcItens.filter(i => i.tipo === 'mao_obra');
-    const podeEditar = status !== 'fechado';
-    const linha = (i) => `
-      <div class="entity-item" style="cursor:default">
-        <div class="entity-info">
-          <div class="entity-name">${i.descricao}</div>
-          <div class="entity-sub">${i.quantidade} × ${Fmt.currency(i.valor_unit)}</div>
+  // Tela do orçamento — chamada por openDetail quando registro==='orcamento'.
+  function renderOrcamentoDetail() {
+    const o = currentOS;
+    const itens = allItens.filter(i => i.os_id === o.id);
+    const total = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const cliente = App.clienteNome(o.cliente_id);
+    const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
+    const jaGerou = allOS.some(x => x.orcamento_id === o.id);
+    const section = qs('#page-os');
+    section.innerHTML = `
+      <div class="page-header" style="gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="OS.render()">← Voltar</button>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px">📄 Orçamento ${o.numero}${catNome ? ` · ${catNome}` : ''}</div>
+          <div style="font-weight:800;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.nome || cliente}</div>
+          ${o.nome ? `<div style="font-size:.78rem;color:var(--text-muted)">${cliente}</div>` : ''}
         </div>
-        <div class="entity-right" style="display:flex;align-items:center;gap:6px">
-          <span class="entity-value">${Fmt.currency(i.valor_total)}</span>
-          ${podeEditar ? `<button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm('${i.id}')">✎</button>
-          <button class="btn btn-sm btn-danger" onclick="OS.deleteOrcItem('${i.id}')">✕</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="OS.openForm('${o.id}','orcamento')">Editar</button>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-bottom:16px">
+        <button class="btn btn-gold" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.gerarOSdeOrcamento('${o.id}')">
+          ${jaGerou ? '↻ Gerar OS de novo' : '➜ Gerar OS'}
+        </button>
+        <button class="btn btn-outline" style="font-size:1rem;padding:13px 14px" onclick="Doc.gerar('${o.id}','orcamento')">📄 PDF</button>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><div class="info-label">Cliente</div><strong>${cliente}</strong></div>
+          <div><div class="info-label">Data</div><strong>${Fmt.date(o.data_inicio)}</strong></div>
+          ${catNome ? `<div><div class="info-label">Categoria</div><strong>${catNome}</strong></div>` : ''}
+          <div><div class="info-label">Prazo</div><strong>${o.prazo_dias ? o.prazo_dias + ' dia(s)' : '—'}</strong></div>
+          ${jaGerou ? `<div style="grid-column:1/-1"><span class="badge badge-success">✓ Já gerou OS</span></div>` : ''}
+          ${o.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${o.observacoes}</span></div>` : ''}
         </div>
-      </div>`;
-    const grupo = (titulo, arr) => arr.length ? `
-      <div class="info-label" style="margin:10px 0 4px">${titulo}</div>
-      <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">${arr.map(linha).join('')}</div>` : '';
-    const vazio = orcItens.length === 0;
-    return `
+      </div>
+
       <div class="card mb-3">
         <div class="card-header">
-          <h3>📄 Orçamento</h3>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            ${podeEditar ? `
-              <button class="btn btn-sm btn-primary" onclick="OS.openOrcItemForm(null,'material')">+ Item</button>
-              <button class="btn btn-sm btn-outline"  onclick="OS.openOrcItemForm(null,'mao_obra')">+ Mão de obra</button>
-              <button class="btn btn-sm btn-outline"  onclick="OS.openOrcHeader()">Desconto/Obs</button>` : ''}
-            ${!vazio ? `<button class="btn btn-sm btn-gold" onclick="Doc.gerar('${currentOS.id}','orcamento')">📄 PDF</button>` : ''}
-          </div>
+          <h3>Itens do Orçamento</h3>
+          <button class="btn btn-sm btn-primary" onclick="OS.openOrcItemForm()">+ Item</button>
         </div>
-        <div class="card-body">
-          ${vazio ? `<p class="text-muted" style="margin:0">Nenhum orçamento montado. Use <strong>+ Item</strong> e <strong>+ Mão de obra</strong> para montar a proposta ao cliente.</p>` : `
-            ${grupo('Materiais / Itens', materiais)}
-            ${grupo('Mão de obra', maoObra)}
-            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:8px">
-              ${t.desconto > 0 ? `
-                <div class="info-row"><span>Subtotal</span><span>${Fmt.currency(t.subtotal)}</span></div>
-                <div class="info-row"><span>Desconto</span><span>− ${Fmt.currency(t.desconto)}</span></div>` : ''}
-              <div class="info-row" style="font-weight:800"><span>Total estimado</span><span class="text-navy">${Fmt.currency(t.total)}</span></div>
-              <div class="info-row" style="font-size:.78rem;color:var(--text-muted)"><span>Orçado × Realizado</span><span>${Fmt.currency(t.total)} × ${Fmt.currency(realizado)}</span></div>
-            </div>
-            ${orc?.observacoes ? `<div style="margin-top:8px;font-size:.8rem;color:var(--text-muted)">📝 ${orc.observacoes}</div>` : ''}
-          `}
+        <div>${renderOrcItens(itens)}</div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body info-row" style="font-weight:800;font-size:1.05rem">
+          <span>Total estimado</span><span class="text-navy">${Fmt.currency(total)}</span>
         </div>
-      </div>`;
+      </div>
+    `;
   }
 
-  function openOrcItemForm(itemId = null, tipoDefault = 'material') {
+  function renderOrcItens(itens) {
+    if (itens.length === 0) return '<p class="p-3 text-muted">Nenhum item — use “+ Item”.</p>';
+    return `<div class="table-responsive"><table class="table">
+      <thead><tr><th>Tipo</th><th>Descrição</th><th>Qtd</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
+      <tbody>
+        ${itens.map(i => `
+          <tr>
+            <td><span class="badge ${i.tipo === 'material' ? 'badge-info' : 'badge-secondary'}">${i.tipo || 'serviço'}</span></td>
+            <td>${i.descricao}</td>
+            <td>${i.quantidade}</td>
+            <td>${Fmt.currency(i.valor_unit)}</td>
+            <td>${Fmt.currency(i.valor_total)}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm('${i.id}')">Editar</button>
+              <button class="btn btn-sm btn-danger"  onclick="OS.deleteOrcItem('${i.id}')">✕</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+  }
+
+  // Item do orçamento: grava em os_itens (os_id = orçamento), SEM mexer no estoque.
+  function openOrcItemForm(itemId = null) {
     if (!currentOS) return;
-    const item = itemId ? currentOrcItens.find(i => i.id === itemId) : null;
+    const item = itemId ? allItens.find(i => i.id === itemId) : null;
     qs('#orc-item-id').value    = itemId || '';
-    qs('#orc-item-tipo').value  = item?.tipo || tipoDefault;
+    qs('#orc-item-tipo').value  = item?.tipo || 'material';
     qs('#orc-item-desc').value  = item?.descricao || '';
     qs('#orc-item-qtd').value   = item?.quantidade || '1';
     qs('#orc-item-unit').value  = item?.valor_unit || '';
     qs('#orc-item-total').value = item?.valor_total || '';
-    qs('#modal-orc-item-title').textContent = item ? 'Editar item do orçamento' : 'Adicionar ao orçamento';
+    qs('#modal-orc-item-title').textContent = item ? 'Editar item' : 'Adicionar item';
     Modal.open('modal-orc-item');
-  }
-
-  // Recalcula e grava os totais do cabeçalho do orçamento (cria se ainda não existe).
-  async function _recalcOrcHeader(osId, desconto) {
-    const itRes = await API.db.read('orcamento_itens', null, { os_id: osId });
-    const t = _orcTotais(itRes?.data || [], desconto);
-    const hdrRes = await API.db.read('orcamentos', null, { os_id: osId });
-    const hdr = (hdrRes?.data || [])[0] || null;
-    const patch = {
-      os_id: osId, desconto: Number(desconto || 0),
-      valor_itens: t.itens, valor_mao_obra: t.maoObra, valor_total: t.total,
-      data_atualizacao: DateUtil.today(),
-    };
-    return hdr
-      ? API.db.update('orcamentos', hdr.id, patch)
-      : API.db.create('orcamentos', { ...patch, validade: 15, observacoes: '', data_criacao: DateUtil.today() });
   }
 
   function saveOrcItem() { return Guard.run('orc-item', _saveOrcItem); }
@@ -1368,62 +1429,62 @@ const OS = (() => {
     const unit   = Number(qs('#orc-item-unit').value) || 0;
     const total  = Number(qs('#orc-item-total').value) || (qtd * unit);
     if (!desc) { Toast.warning('Informe a descrição'); return; }
-    const itemData = { os_id: osId, tipo: qs('#orc-item-tipo').value, descricao: desc, quantidade: qtd, valor_unit: unit, valor_total: total };
+    // Orçamento NÃO mexe em estoque: estoque_id sempre vazio.
+    const itemData = { os_id: osId, tipo: qs('#orc-item-tipo').value, descricao: desc, estoque_id: '', quantidade: qtd, valor_unit: unit, valor_total: total };
 
     Loading.show();
     const res = itemId
-      ? await API.db.update('orcamento_itens', itemId, itemData)
-      : await API.db.create('orcamento_itens', itemData);
-    if (res?.success) await _recalcOrcHeader(osId, Number(currentOrc?.desconto || 0));
+      ? await API.db.update('os_itens', itemId, itemData)
+      : await API.db.create('os_itens', itemData);
     Loading.hide();
 
     if (res?.success) {
-      Toast.success(itemId ? 'Item atualizado' : 'Item adicionado ao orçamento');
+      Toast.success(itemId ? 'Item atualizado' : 'Item adicionado');
       Modal.close('modal-orc-item');
+      await loadData();
       openDetail(osId);
     } else Toast.error('Erro: ' + (res?.error || ''));
   }
 
   async function deleteOrcItem(id) {
     Modal.confirm('Remover este item do orçamento?', async () => {
-      await API.db.delete('orcamento_itens', id);
-      await _recalcOrcHeader(currentOS.id, Number(currentOrc?.desconto || 0));
+      await API.db.delete('os_itens', id);
       Toast.success('Item removido');
+      await loadData();
       openDetail(currentOS.id);
     });
   }
 
-  function openOrcHeader() {
-    if (!currentOS) return;
-    qs('#orc-hdr-desconto').value = currentOrc?.desconto  || 0;
-    qs('#orc-hdr-validade').value = currentOrc?.validade  || 15;
-    qs('#orc-hdr-obs').value      = currentOrc?.observacoes || '';
-    Modal.open('modal-orc-header');
-  }
-
-  function saveOrcHeader() { return Guard.run('orc-header', _saveOrcHeader); }
-  async function _saveOrcHeader() {
-    const osId     = currentOS.id;
-    const desconto = Number(qs('#orc-hdr-desconto').value) || 0;
-    const validade = Number(qs('#orc-hdr-validade').value) || 15;
-    const obs      = qs('#orc-hdr-obs').value.trim();
-    const itRes    = await API.db.read('orcamento_itens', null, { os_id: osId });
-    const t        = _orcTotais(itRes?.data || [], desconto);
-    const patch    = {
-      os_id: osId, desconto, validade, observacoes: obs,
-      valor_itens: t.itens, valor_mao_obra: t.maoObra, valor_total: t.total,
-      data_atualizacao: DateUtil.today(),
-    };
-    Loading.show();
-    const res = currentOrc
-      ? await API.db.update('orcamentos', currentOrc.id, patch)
-      : await API.db.create('orcamentos', { ...patch, data_criacao: DateUtil.today() });
-    Loading.hide();
-    if (res?.success) {
-      Toast.success('Orçamento atualizado');
-      Modal.close('modal-orc-header');
-      openDetail(osId);
-    } else Toast.error('Erro: ' + (res?.error || ''));
+  // Gera uma OS nova a partir do orçamento: só cliente + categoria + referência.
+  function gerarOSdeOrcamento(orcId) { return Guard.run('orc-gerar', () => _gerarOSdeOrcamento(orcId)); }
+  async function _gerarOSdeOrcamento(orcId) {
+    const orc = allOS.find(o => o.id === orcId) || currentOS;
+    if (!orc) return;
+    Modal.confirm('Gerar uma OS a partir deste orçamento? O orçamento continua salvo.', async () => {
+      const valor = allItens.filter(i => i.os_id === orcId).reduce((s, i) => s + Number(i.valor_total || 0), 0);
+      Loading.show();
+      const res = await API.db.create('os', {
+        numero:       await nextOSNumber('OS'),
+        nome:         '',
+        cliente_id:   orc.cliente_id,
+        categoria_id: orc.categoria_id || '',
+        registro:     'os',
+        tipo:         'normal',
+        status:       'andamento',
+        data_inicio:  DateUtil.today(),
+        orcamento_id: orcId,
+        orcado_valor: valor,
+        orcado_data:  orc.data_inicio || DateUtil.today(),
+        prazo_dias:   orc.prazo_dias || '',
+        data_criacao: new Date().toISOString(),
+      });
+      Loading.hide();
+      if (res?.success && res.data?.id) {
+        Toast.success('OS gerada a partir do orçamento!');
+        await loadData();
+        openDetail(res.data.id);
+      } else Toast.error('Erro: ' + (res?.error || ''));
+    });
   }
 
   // ─── FALTOU MATERIAL ─────────────────────────────────────────
@@ -2220,12 +2281,12 @@ const OS = (() => {
   }
 
   return {
-    render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, saveForm,
+    render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, saveForm,
     openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
-    openOrcItemForm, saveOrcItem, deleteOrcItem, openOrcHeader, saveOrcHeader,
+    openOrcItemForm, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,

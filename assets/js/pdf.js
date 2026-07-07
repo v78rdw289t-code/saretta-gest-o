@@ -31,56 +31,36 @@ const Doc = (() => {
   // modo: 'os' (serviço realizado) | 'orcamento' (proposta)
   async function gerar(osId, modo = 'os') {
     Loading.show();
-    const isOrc = modo === 'orcamento';
-    const reads = [
+    const [osRes, cliRes, diaRes, itRes] = await Promise.all([
       API.db.read('os'),
       API.db.read('clientes'),
       API.db.read('diarias'),
       API.db.read('os_itens'),
-    ];
-    if (isOrc) reads.push(
-      API.db.read('orcamento_itens', null, { os_id: osId }),
-      API.db.read('orcamentos', null, { os_id: osId }),
-    );
-    const [osRes, cliRes, diaRes, itRes, orcItRes, orcRes] = await Promise.all(reads);
+    ]);
     const cfg = await Calculator.getConfig();
     Loading.hide();
 
     const os = (osRes?.data || []).find(o => o.id === osId);
-    if (!os) { Toast.error('OS não encontrada'); return; }
-    const cliente = (cliRes?.data || []).find(c => c.id === os.cliente_id) || {};
-    const emp     = _empresa(cfg);
+    if (!os) { Toast.error('Registro não encontrado'); return; }
+    const cliente  = (cliRes?.data || []).find(c => c.id === os.cliente_id) || {};
+    const diarias  = (diaRes?.data || []).filter(d => d.os_id === osId);
+    const itens    = (itRes?.data  || []).filter(i => i.os_id === osId);
+    const emp      = _empresa(cfg);
 
-    // Fonte dos valores: orçamento (planejado) vs execução (realizado).
-    let itens, maoObraItens = [], diarias = [], linhas = [];
-    let totalItens = 0, maoObra = 0, totalHoras = 0;
-    let subtotal = 0, desconto = 0, total = 0, validadeDias = 15, obsDoc = '';
-    if (isOrc) {
-      const orcItens = orcItRes?.data || [];
-      const hdr = (orcRes?.data || [])[0] || {};
-      itens        = orcItens.filter(i => i.tipo !== 'mao_obra');
-      maoObraItens = orcItens.filter(i => i.tipo === 'mao_obra');
-      totalItens   = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
-      maoObra      = maoObraItens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
-      subtotal     = totalItens + maoObra;
-      desconto     = Number(hdr.desconto || 0);
-      total        = Math.max(0, subtotal - desconto);
-      validadeDias = Number(hdr.validade || 15);
-      obsDoc       = hdr.observacoes || '';
-    } else {
-      diarias    = (diaRes?.data || []).filter(d => d.os_id === osId);
-      itens      = (itRes?.data  || []).filter(i => i.os_id === osId);
-      totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
-      maoObra    = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
-      totalHoras = diarias.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
-      total      = Number(os.valor_calculado || 0) || (maoObra + totalItens);
-      linhas     = _linhasExecucao(diarias);
-    }
+    const isOrc      = modo === 'orcamento';
+    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const maoObra    = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    const totalHoras = diarias.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
+    // Orçamento: valor = soma dos itens; OS: valor calculado ou (mão de obra + itens).
+    const total      = isOrc ? (maoObra + totalItens) : (Number(os.valor_calculado || 0) || (maoObra + totalItens));
+    const prazoDias  = Number(os.prazo_dias || 0);
 
-    const titulo  = isOrc ? 'ORÇAMENTO' : 'ORDEM DE SERVIÇO';
-    const catNome = os.categoria_id ? App.categoriaNome(os.categoria_id) : '';
-    const hoje    = new Date().toLocaleDateString('pt-BR');
-    const logo    = 'assets/img/logo-app.png?v=2.0.3';
+    const linhas    = _linhasExecucao(diarias);
+    const titulo    = isOrc ? 'ORÇAMENTO' : 'ORDEM DE SERVIÇO';
+    const catNome   = os.categoria_id ? App.categoriaNome(os.categoria_id) : '';
+    const hoje      = new Date().toLocaleDateString('pt-BR');
+
+    const logo = 'assets/img/logo-app.png?v=2.0.3';
 
     const html = `
       <div class="doc-page">
@@ -119,22 +99,8 @@ const Doc = (() => {
           ${os.observacoes ? `<div class="doc-obs">${os.observacoes}</div>` : ''}
         </section>
 
-        <!-- Mão de obra (orçamento) OU dias trabalhados (execução) -->
-        ${isOrc ? (maoObraItens.length > 0 ? `
-        <section class="doc-bloco">
-          <div class="doc-bloco-titulo">Mão de obra</div>
-          <table class="doc-table">
-            <thead><tr><th>Descrição</th><th class="r">Qtd</th><th class="r">Valor</th></tr></thead>
-            <tbody>
-              ${maoObraItens.map(i => `
-                <tr>
-                  <td>${i.descricao || 'Serviço'}</td>
-                  <td class="r">${i.quantidade || 1}</td>
-                  <td class="r">${Fmt.currency(i.valor_total || 0)}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </section>` : '') : (linhas.length > 0 ? `
+        <!-- Dias trabalhados (só na OS executada; orçamento não tem sessões) -->
+        ${linhas.length > 0 ? `
         <section class="doc-bloco">
           <div class="doc-bloco-titulo">Dias trabalhados</div>
           <table class="doc-table">
@@ -145,7 +111,7 @@ const Doc = (() => {
               <tr class="doc-tr-total"><td>Total trabalhado</td><td class="r">${Fmt.hours(totalHoras)}</td></tr>
             </tbody>
           </table>
-        </section>` : '')}
+        </section>` : ''}
 
         <!-- Itens / materiais -->
         ${itens.length > 0 ? `
@@ -167,17 +133,11 @@ const Doc = (() => {
         <!-- Resumo de valores -->
         <section class="doc-resumo">
           ${maoObra > 0 ? `<div class="doc-row"><span>Mão de obra${!isOrc && totalHoras > 0 ? ` (${Fmt.hours(totalHoras)})` : ''}</span><span>${Fmt.currency(maoObra)}</span></div>` : ''}
-          ${totalItens > 0 ? `<div class="doc-row"><span>Materiais e itens</span><span>${Fmt.currency(totalItens)}</span></div>` : ''}
-          ${isOrc && desconto > 0 ? `
-            <div class="doc-row"><span>Subtotal</span><span>${Fmt.currency(subtotal)}</span></div>
-            <div class="doc-row"><span>Desconto</span><span>− ${Fmt.currency(desconto)}</span></div>` : ''}
+          ${totalItens > 0 ? `<div class="doc-row"><span>${isOrc ? 'Itens e serviços' : 'Materiais e itens'}</span><span>${Fmt.currency(totalItens)}</span></div>` : ''}
           <div class="doc-row doc-total"><span>${isOrc ? 'Total estimado' : 'Total'}</span><span>${Fmt.currency(total)}</span></div>
         </section>
 
-        ${isOrc ? `
-          ${obsDoc ? `<p class="doc-obs">${obsDoc}</p>` : ''}
-          <p class="doc-validade">Orçamento válido por ${validadeDias} dias. Sujeito a confirmação após avaliação no local.</p>
-        ` : ''}
+        ${isOrc ? `<p class="doc-validade">${prazoDias > 0 ? `Prazo estimado: ${prazoDias} dia(s). ` : ''}Sujeito a confirmação após avaliação no local.</p>` : ''}
 
         <footer class="doc-foot">
           <div class="doc-foot-slogan">${emp.slogan}</div>
