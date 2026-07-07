@@ -1457,7 +1457,15 @@ textarea.input { resize: vertical; min-height: 80px; }
   box-shadow: 0 2px 12px rgba(0,0,0,.25);
 }
 .doc-bar-title { font-size: .85rem; font-weight: 700; color: rgba(255,255,255,.85); }
-#doc-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+#doc-scroll { flex: 1; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+
+/* No celular: aperta o documento pra caber melhor na tela (o PDF final é A4). */
+@media (max-width: 560px) {
+  #doc-scroll { padding: 10px; }
+  .doc-page   { padding: 18px 16px 18px; font-size: 12px; }
+  .doc-table th, .doc-table td { padding: 5px 6px; }
+  .doc-table td { font-size: .76rem; }
+}
 
 /* Folha do documento (proporção ~A4) */
 .doc-page {

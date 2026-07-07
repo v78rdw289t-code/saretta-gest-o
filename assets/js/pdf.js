@@ -353,20 +353,16 @@ const Doc = (() => {
         ${_clienteBloco(cliente)}
         <section class="doc-bloco">
           <div class="doc-bloco-titulo">Ordens de serviço</div>
-          <table class="doc-table">
-            <thead><tr><th>OS</th><th class="r">Horas</th><th class="r">Mão de obra</th><th class="r">Materiais</th><th class="r">Total</th><th>Status</th></tr></thead>
-            <tbody>
-              ${linhas.map(l => `
-                <tr>
-                  <td>${l.numero}${l.nome ? ` · ${l.nome}` : ''}</td>
-                  <td class="r">${l.horas ? Fmt.hours(l.horas) : '—'}</td>
-                  <td class="r">${Fmt.currency(l.maoObra || 0)}</td>
-                  <td class="r">${Fmt.currency(l.materiais || 0)}</td>
-                  <td class="r">${Fmt.currency(l.total || 0)}</td>
-                  <td>${l.recebida ? '<span style="color:#1a7f37;font-weight:700">Recebida</span>' : '<span style="color:#b45309;font-weight:700">A receber</span>'}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
+          ${linhas.map(l => `
+            <div style="display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-bottom:1px solid #eef2f9">
+              <div style="min-width:0">
+                <div style="font-weight:700">${l.numero}${l.nome ? ` · ${l.nome}` : ''}
+                  <span style="font-size:.7rem;font-weight:700;color:${l.recebida ? '#1a7f37' : '#b45309'};white-space:nowrap">• ${l.recebida ? 'Recebida' : 'A receber'}</span>
+                </div>
+                <div style="font-size:.76rem;color:#6b7a92;margin-top:2px">${l.horas ? Fmt.hours(l.horas) + ' · ' : ''}Mão de obra ${Fmt.currency(l.maoObra || 0)}${l.materiais > 0 ? ` · Materiais ${Fmt.currency(l.materiais)}` : ''}</div>
+              </div>
+              <div style="font-weight:800;white-space:nowrap">${Fmt.currency(l.total || 0)}</div>
+            </div>`).join('')}
         </section>
         <section class="doc-resumo">
           ${desconto > 0 ? `
