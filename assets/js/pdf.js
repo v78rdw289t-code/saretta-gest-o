@@ -254,7 +254,10 @@ const Doc = (() => {
     // Clonar num container solto captura o documento INTEIRO e ainda deixa o
     // PDF com layout consistente, sem depender da largura do aparelho.
     const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;background:#fff;';
+    // absolute em (0,0) atrás do overlay (z abaixo do #doc-overlay). Offset
+    // negativo (left:-10000) QUEBRAVA a captura do html2canvas — por isso fica
+    // em 0,0, invisível por trás do documento aberto.
+    holder.style.cssText = 'position:absolute;left:0;top:0;width:760px;background:#fff;z-index:1;';
     const clone = src.cloneNode(true);
     clone.style.maxWidth = 'none';
     clone.style.width = '100%';
@@ -264,9 +267,10 @@ const Doc = (() => {
       margin:      [10, 10, 12, 10],
       filename:    _nomeArquivo + '.pdf',
       image:       { type: 'jpeg', quality: 0.98 },
-      // windowWidth 800 → as media queries mobile (<=560px) NÃO se aplicam ao
-      // clone: o PDF sai sempre no layout "desktop", completo e nítido.
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 800 },
+      // windowWidth 760 → as media queries mobile (<=560px) NÃO se aplicam ao
+      // clone (PDF sempre no layout completo). scrollX/Y:0 evita a captura sair
+      // deslocada/cortada no celular.
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 760, scrollX: 0, scrollY: 0 },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
       // Pagina entre linhas (sem cortar uma linha no meio) e cria as folhas
       // seguintes sozinho — documentos longos não são mais truncados.
