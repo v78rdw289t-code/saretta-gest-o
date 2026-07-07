@@ -299,7 +299,7 @@ const Doc = (() => {
   // ─── Helpers compartilhados dos documentos do cliente ───────
   function _docHead(emp, tipo, num) {
     const hoje = new Date().toLocaleDateString('pt-BR');
-    const logo = 'assets/img/logo-app.png?v=3.5.5';
+    const logo = 'assets/img/logo-app.png?v=3.5.6';
     return `
       <header class="doc-head">
         <img src="${logo}" class="doc-logo" alt="" onerror="this.style.display='none'">
@@ -431,14 +431,13 @@ const Doc = (() => {
           <div class="doc-bloco-titulo">Cobranças a receber</div>
           ${itens.length ? `
           <table class="doc-table">
-            <thead><tr><th>Descrição</th><th>Vencimento</th><th class="r">Valor</th></tr></thead>
+            <thead><tr><th>Descrição</th><th class="r">Valor</th></tr></thead>
             <tbody>
               ${itens.map(i => `<tr>
                 <td>${i.descricao || '—'}</td>
-                <td>${i.vencimento ? Fmt.date(i.vencimento) : '—'}${i.atrasada ? ' <strong style="color:#c81e1e">(atrasada)</strong>' : ''}</td>
                 <td class="r">${Fmt.currency(i.valor || 0)}</td>
               </tr>`).join('')}
-              <tr class="doc-tr-total"><td colspan="2">Total a receber (${itens.length})</td><td class="r">${Fmt.currency(total)}</td></tr>
+              <tr class="doc-tr-total"><td>Total a receber (${itens.length})</td><td class="r">${Fmt.currency(total)}</td></tr>
             </tbody>
           </table>` : '<p class="doc-cli-info">Nenhum valor em aberto. 🎉</p>'}
         </section>

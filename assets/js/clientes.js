@@ -6,9 +6,12 @@ const Clientes = (() => {
   let allClientes = [];
   let _filtroTipo = '';
   let _view       = 'lista';   // lista | resumo
-  // Modo de seleção de OS para gerar o documento-resumo (na tela do cliente)
+  // Modos de seleção na tela do cliente: 'resumo' (OS → documento-resumo) e
+  // 'recibo' (parcelas pagas → recibo). Só um ativo por vez.
   let _resumoMode = false;
   let _resumoSel  = new Set();
+  let _reciboMode = false;
+  let _reciboSel  = new Set();
   let _ctx        = null;      // contexto do cliente aberto (p/ gerar os documentos)
   const _ehFiado  = o => o === 'fiado' || o === 'fiado_pago' || origemForaResultado(o);
 
@@ -449,11 +452,12 @@ const Clientes = (() => {
 
       ${!isForn ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn btn-outline btn-sm" onclick="Clientes.gerarReciboTotal()">🧾 Recibo</button>
+        <button class="btn ${_reciboMode ? 'btn-gold' : 'btn-outline'} btn-sm" onclick="Clientes.toggleReciboMode()">${_reciboMode ? '✕ Cancelar' : '🧾 Recibo'}</button>
         <button class="btn btn-outline btn-sm" onclick="Clientes.gerarEmAberto()">📄 Em aberto</button>
         <button class="btn ${_resumoMode ? 'btn-gold' : 'btn-primary'} btn-sm" onclick="Clientes.toggleResumoMode()">${_resumoMode ? '✕ Cancelar' : '📄 Resumo de OS'}</button>
       </div>
       ${_resumoMode ? `<div class="lote-hint" style="margin-top:10px;margin-bottom:0">Marque as OS do resumo. Selo verde = recebida, laranja = a receber.</div>` : ''}
+      ${_reciboMode ? `<div class="lote-hint" style="margin-top:10px;margin-bottom:0">Marque os pagamentos que entram no recibo (nas Movimentações, abaixo).</div>` : ''}
       ` : ''}
 
       ${osList.length > 0 ? `
@@ -504,22 +508,36 @@ const Clientes = (() => {
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
           ${(isForn ? fornPagar : parcelas).length === 0
             ? '<div class="entity-empty">Nenhuma movimentação</div>'
-            : (isForn ? fornPagar : parcelas).map(p => `
-              <div class="entity-item">
+            : (isForn ? fornPagar : parcelas).map(p => {
+                const selectable = !isForn && p.tipo === 'receber' && p.status === 'pago';
+                const sel = _reciboSel.has(p.id);
+                return `
+              <div class="entity-item${_reciboMode && selectable && sel ? ' lote-on' : ''}${_reciboMode && !selectable ? ' lote-off' : ''}"${_reciboMode && selectable ? ` onclick="Clientes.toggleReciboSel('${p.id}')"` : ''}>
+                ${_reciboMode && selectable ? `<span class="lote-check${sel ? ' on' : ''}">${sel ? '✓' : ''}</span>` : ''}
                 <div class="avatar avatar-sm ${p.tipo==='receber'?'av-green':'av-red'} avatar-icon">${p.tipo==='receber'?'↓':'↑'}</div>
                 <div class="entity-info">
                   <div class="entity-name">${p.descricao}</div>
                   <div class="entity-sub">Venc. ${Fmt.date(p.data_vencimento)}</div>
-                  ${!isForn && p.tipo==='receber' && p.status==='pago' ? `<button class="btn btn-sm btn-outline" style="margin-top:6px" onclick="Clientes.gerarReciboParcela('${p.id}')">🧾 Recibo</button>` : ''}
+                  ${!_reciboMode && selectable ? `<button class="btn btn-sm btn-outline" style="margin-top:6px" onclick="Clientes.gerarReciboParcela('${p.id}')">🧾 Recibo</button>` : ''}
                 </div>
                 <div class="entity-right">
                   <span class="entity-value ${p.tipo==='receber'?'text-green':'text-red'}">${Fmt.currency(p.valor)}</span>
                   ${statusBadge(p.status)}
                 </div>
-              </div>
-            `).join('')}
+              </div>`;
+            }).join('')}
         </div>
       </div>
+
+      ${_reciboMode && !isForn ? `
+      <div style="height:84px"></div>
+      <div class="lote-bar">
+        <div class="lote-bar-info">
+          <strong>${_reciboSel.size} pagamento(s)</strong>
+          <span>${_reciboSel.size ? Fmt.currency(parcelas.filter(p => _reciboSel.has(p.id)).reduce((s, p) => s + Number(p.valor || 0), 0)) : 'marque os pagamentos'}</span>
+        </div>
+        <button class="btn btn-gold" ${_reciboSel.size >= 1 ? '' : 'disabled'} onclick="Clientes.gerarRecibo()">Gerar recibo →</button>
+      </div>` : ''}
 
       <div class="mt-4 mb-4">
         <button class="btn btn-danger btn-full" onclick="Clientes.confirmDelete('${c.id}')">🗑 Inativar Cadastro</button>
@@ -530,11 +548,22 @@ const Clientes = (() => {
   // ─── Documentos do cliente (resumo de OS, recibo, em aberto) ─
   function toggleResumoMode() {
     _resumoMode = !_resumoMode;
+    _reciboMode = false; _reciboSel.clear();
     _resumoSel.clear();
     if (_ctx) openDetail(_ctx.id);
   }
   function toggleResumoSel(osId) {
     if (_resumoSel.has(osId)) _resumoSel.delete(osId); else _resumoSel.add(osId);
+    if (_ctx) openDetail(_ctx.id);
+  }
+  function toggleReciboMode() {
+    _reciboMode = !_reciboMode;
+    _resumoMode = false; _resumoSel.clear();
+    _reciboSel.clear();
+    if (_ctx) openDetail(_ctx.id);
+  }
+  function toggleReciboSel(parcelaId) {
+    if (_reciboSel.has(parcelaId)) _reciboSel.delete(parcelaId); else _reciboSel.add(parcelaId);
     if (_ctx) openDetail(_ctx.id);
   }
   function gerarResumo() {
@@ -554,12 +583,13 @@ const Clientes = (() => {
     if (itens.length === 0) { Toast.info('Nenhum valor em aberto para este cliente.'); return; }
     Doc.valoresEmAberto(_ctx.cliente, { itens });
   }
-  function gerarReciboTotal() {
-    if (!_ctx) return;
+  // Recibo dos pagamentos SELECIONADOS (marcados no modo recibo).
+  function gerarRecibo() {
+    if (!_ctx || _reciboSel.size === 0) return;
     const pagos = _ctx.allParc
-      .filter(p => p.tipo === 'receber' && p.status === 'pago' && !_ehFiado(p.origem))
+      .filter(p => _reciboSel.has(p.id))
       .sort((a, b) => String(a.data_pagamento || '') < String(b.data_pagamento || '') ? -1 : 1);
-    if (pagos.length === 0) { Toast.info('Este cliente ainda não tem pagamentos recebidos.'); return; }
+    if (pagos.length === 0) return;
     const valor = pagos.reduce((s, p) => s + Number(p.valor || 0), 0);
     const pagamentos = pagos.map(p => ({ data: p.data_pagamento || p.data_vencimento, descricao: p.descricao, valor: Number(p.valor || 0) }));
     Doc.recibo(_ctx.cliente, { valor, referencia: 'serviços prestados', pagamentos });
@@ -627,5 +657,6 @@ const Clientes = (() => {
   }
 
   return { render, renderList, renderResumo, goView, applyFilters, openDetail, openForm, saveForm, confirmDelete,
-           toggleResumoMode, toggleResumoSel, gerarResumo, gerarEmAberto, gerarReciboTotal, gerarReciboParcela };
+           toggleResumoMode, toggleResumoSel, gerarResumo, gerarEmAberto,
+           toggleReciboMode, toggleReciboSel, gerarRecibo, gerarReciboParcela };
 })();
