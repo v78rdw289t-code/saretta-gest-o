@@ -296,5 +296,156 @@ const Doc = (() => {
     document.body.classList.remove('doc-open');
   }
 
-  return { gerar, relatorioFinanceiro, baixar, compartilhar, fechar };
+  // ─── Helpers compartilhados dos documentos do cliente ───────
+  function _docHead(emp, tipo, num) {
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const logo = 'assets/img/logo-app.png?v=3.5.5';
+    return `
+      <header class="doc-head">
+        <img src="${logo}" class="doc-logo" alt="" onerror="this.style.display='none'">
+        <div class="doc-emp">
+          <div class="doc-emp-nome">${emp.nome}</div>
+          <div class="doc-emp-sub">${emp.sub}</div>
+          <div class="doc-emp-contato">${[emp.doc, emp.telefone, emp.cidade].filter(Boolean).join(' · ')}</div>
+        </div>
+        <div class="doc-meta">
+          <div class="doc-tipo">${tipo}</div>
+          ${num ? `<div class="doc-num">${num}</div>` : ''}
+          <div class="doc-data">${hoje}</div>
+        </div>
+      </header>`;
+  }
+
+  function _clienteBloco(cliente) {
+    return `
+      <section class="doc-bloco">
+        <div class="doc-bloco-titulo">Cliente</div>
+        <div class="doc-cli-nome">${cliente?.nome || '—'}</div>
+        <div class="doc-cli-info">${[cliente?.endereco, cliente?.telefone].filter(Boolean).join(' · ') || ''}</div>
+      </section>`;
+  }
+
+  function _docFoot(emp) {
+    return `
+      <footer class="doc-foot">
+        <div class="doc-foot-slogan">${emp.slogan}</div>
+        <div>${emp.nome}${emp.telefone ? ' · ' + emp.telefone : ''}</div>
+      </footer>`;
+  }
+
+  // ─── Resumo de várias OS (compacto, 1 linha por OS) ─────────
+  // linhas: [{ numero, nome, horas, maoObra, materiais, total, recebida }]
+  async function resumoOS(cliente, linhas, opts = {}) {
+    const cfg = await Calculator.getConfig();
+    const emp = _empresa(cfg);
+    const desconto      = Number(opts.desconto || 0);
+    const totalGeral    = linhas.reduce((s, l) => s + Number(l.total || 0), 0);
+    const totalRecebido = linhas.filter(l => l.recebida).reduce((s, l) => s + Number(l.total || 0), 0);
+    const totalFinal    = Math.max(0, totalGeral - desconto);
+    const totalAReceber = Math.max(0, totalFinal - totalRecebido);
+
+    const html = `
+      <div class="doc-page">
+        ${_docHead(emp, 'RESUMO DE SERVIÇOS', '')}
+        ${_clienteBloco(cliente)}
+        <section class="doc-bloco">
+          <div class="doc-bloco-titulo">Ordens de serviço</div>
+          <table class="doc-table">
+            <thead><tr><th>OS</th><th class="r">Horas</th><th class="r">Mão de obra</th><th class="r">Materiais</th><th class="r">Total</th><th>Status</th></tr></thead>
+            <tbody>
+              ${linhas.map(l => `
+                <tr>
+                  <td>${l.numero}${l.nome ? ` · ${l.nome}` : ''}</td>
+                  <td class="r">${l.horas ? Fmt.hours(l.horas) : '—'}</td>
+                  <td class="r">${Fmt.currency(l.maoObra || 0)}</td>
+                  <td class="r">${Fmt.currency(l.materiais || 0)}</td>
+                  <td class="r">${Fmt.currency(l.total || 0)}</td>
+                  <td>${l.recebida ? '<span style="color:#1a7f37;font-weight:700">Recebida</span>' : '<span style="color:#b45309;font-weight:700">A receber</span>'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </section>
+        <section class="doc-resumo">
+          ${desconto > 0 ? `
+            <div class="doc-row"><span>Subtotal (${linhas.length} OS)</span><span>${Fmt.currency(totalGeral)}</span></div>
+            <div class="doc-row"><span>Desconto</span><span>− ${Fmt.currency(desconto)}</span></div>` : ''}
+          <div class="doc-row doc-total"><span>Total${desconto > 0 ? '' : ` (${linhas.length} OS)`}</span><span>${Fmt.currency(totalFinal)}</span></div>
+          ${totalRecebido > 0 ? `<div class="doc-row"><span>Já recebido</span><span style="color:#1a7f37">${Fmt.currency(totalRecebido)}</span></div>` : ''}
+          <div class="doc-row"><span>A receber</span><span style="color:#b45309;font-weight:700">${Fmt.currency(totalAReceber)}</span></div>
+        </section>
+        ${_docFoot(emp)}
+      </div>`;
+    _abrir(html, `resumo ${cliente?.nome || ''}`.trim());
+  }
+
+  // ─── Recibo de pagamento (total recebido OU pagamento avulso) ─
+  // d: { valor, referencia, pagamentos?: [{data, descricao, valor}] }
+  async function recibo(cliente, d = {}) {
+    const cfg = await Calculator.getConfig();
+    const emp = _empresa(cfg);
+    const valor = Number(d.valor || 0);
+    const hojeStr = new Date().toLocaleDateString('pt-BR');
+
+    const html = `
+      <div class="doc-page">
+        ${_docHead(emp, 'RECIBO', '')}
+        <section class="doc-bloco" style="margin-top:14px">
+          <p style="font-size:.95rem;line-height:1.7;margin:0">
+            Recebemos de <strong>${cliente?.nome || '—'}</strong> a quantia de
+            <strong>${Fmt.currency(valor)}</strong>${d.referencia ? `, referente a <strong>${d.referencia}</strong>` : ''}.
+          </p>
+        </section>
+        ${(d.pagamentos && d.pagamentos.length) ? `
+        <section class="doc-bloco">
+          <div class="doc-bloco-titulo">Pagamentos incluídos</div>
+          <table class="doc-table">
+            <thead><tr><th>Data</th><th>Descrição</th><th class="r">Valor</th></tr></thead>
+            <tbody>
+              ${d.pagamentos.map(p => `<tr><td>${p.data ? Fmt.date(p.data) : '—'}</td><td>${p.descricao || '—'}</td><td class="r">${Fmt.currency(p.valor || 0)}</td></tr>`).join('')}
+              <tr class="doc-tr-total"><td colspan="2">Total</td><td class="r">${Fmt.currency(valor)}</td></tr>
+            </tbody>
+          </table>
+        </section>` : ''}
+        <p class="doc-cli-info" style="margin-top:18px">${emp.cidade ? emp.cidade + ', ' : ''}${hojeStr}.</p>
+        <div style="margin-top:44px;text-align:center">
+          <div style="border-top:1px solid #333;width:60%;margin:0 auto;padding-top:6px">${emp.nome}${emp.doc ? ' · ' + emp.doc : ''}</div>
+        </div>
+        ${_docFoot(emp)}
+      </div>`;
+    _abrir(html, `recibo ${cliente?.nome || ''}`.trim());
+  }
+
+  // ─── Extrato de valores em aberto (a receber pendente) ──────
+  // d: { itens: [{descricao, vencimento, valor, atrasada}] }
+  async function valoresEmAberto(cliente, d = {}) {
+    const cfg = await Calculator.getConfig();
+    const emp = _empresa(cfg);
+    const itens = d.itens || [];
+    const total = itens.reduce((s, i) => s + Number(i.valor || 0), 0);
+
+    const html = `
+      <div class="doc-page">
+        ${_docHead(emp, 'VALORES EM ABERTO', '')}
+        ${_clienteBloco(cliente)}
+        <section class="doc-bloco">
+          <div class="doc-bloco-titulo">Cobranças a receber</div>
+          ${itens.length ? `
+          <table class="doc-table">
+            <thead><tr><th>Descrição</th><th>Vencimento</th><th class="r">Valor</th></tr></thead>
+            <tbody>
+              ${itens.map(i => `<tr>
+                <td>${i.descricao || '—'}</td>
+                <td>${i.vencimento ? Fmt.date(i.vencimento) : '—'}${i.atrasada ? ' <strong style="color:#c81e1e">(atrasada)</strong>' : ''}</td>
+                <td class="r">${Fmt.currency(i.valor || 0)}</td>
+              </tr>`).join('')}
+              <tr class="doc-tr-total"><td colspan="2">Total a receber (${itens.length})</td><td class="r">${Fmt.currency(total)}</td></tr>
+            </tbody>
+          </table>` : '<p class="doc-cli-info">Nenhum valor em aberto. 🎉</p>'}
+        </section>
+        ${_docFoot(emp)}
+      </div>`;
+    _abrir(html, `em aberto ${cliente?.nome || ''}`.trim());
+  }
+
+  return { gerar, relatorioFinanceiro, resumoOS, recibo, valoresEmAberto, baixar, compartilhar, fechar };
 })();

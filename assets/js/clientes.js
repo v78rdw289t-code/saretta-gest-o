@@ -6,6 +6,11 @@ const Clientes = (() => {
   let allClientes = [];
   let _filtroTipo = '';
   let _view       = 'lista';   // lista | resumo
+  // Modo de seleção de OS para gerar o documento-resumo (na tela do cliente)
+  let _resumoMode = false;
+  let _resumoSel  = new Set();
+  let _ctx        = null;      // contexto do cliente aberto (p/ gerar os documentos)
+  const _ehFiado  = o => o === 'fiado' || o === 'fiado_pago' || origemForaResultado(o);
 
   async function render() {
     await loadData();
@@ -325,14 +330,47 @@ const Clientes = (() => {
       return '<span class="badge badge-secondary">' + (t || '—') + '</span>';
     };
 
-    const [osRes, parRes] = await Promise.all([
+    const [osRes, parRes, fosRes, diaRes, itRes] = await Promise.all([
       API.db.read('os', null, { cliente_id: id }),
       API.db.read('parcelas', null, { cliente_id: id }),
+      API.db.read('fechamento_os'),
+      API.db.read('diarias'),
+      API.db.read('os_itens'),
     ]);
-    const osList   = (osRes?.data || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
+    // OS reais do cliente (orçamentos têm vida própria — ficam de fora daqui)
+    const osList   = (osRes?.data || [])
+                       .filter(o => (o.registro || 'os') !== 'orcamento')
+                       .sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
     const allParc  = parRes?.data || [];
+    const fechOs   = fosRes?.data || [];
+    const diarias  = diaRes?.data || [];
+    const osItens  = itRes?.data  || [];
     const _origemFiado = o => o === 'fiado' || o === 'fiado_pago' || origemForaResultado(o);
     const isForn   = c.tipo === 'fornecedor';
+
+    // Classifica cada OS em recebida/a receber pelas parcelas ligadas (direto
+    // origem='os', ou via lote origem='os_lote' → fechamento_os).
+    const fechIdsByOs = {};
+    fechOs.forEach(f => { (fechIdsByOs[f.os_id] = fechIdsByOs[f.os_id] || []).push(f.fechamento_id); });
+    const parcelasDaOs = (o) => allParc.filter(p =>
+      (p.origem === 'os' && String(p.origem_id) === String(o.id)) ||
+      (p.origem === 'os_lote' && (fechIdsByOs[o.id] || []).includes(p.origem_id)));
+    const recebidaByOs = {};
+    osList.forEach(o => {
+      const rec = parcelasDaOs(o).filter(p => p.tipo === 'receber' && p.status !== 'cancelado');
+      recebidaByOs[o.id] = rec.length > 0 && rec.every(p => p.status === 'pago');
+    });
+    // Linha compacta de resumo por OS (horas/mão de obra/materiais/total).
+    const linhaResumo = (o) => {
+      const ds  = diarias.filter(d => d.os_id === o.id);
+      const its = osItens.filter(i => i.os_id === o.id);
+      const horas     = ds.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
+      const maoObra   = ds.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+      const materiais = its.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+      const total     = Number(o.valor_fechamento || 0) || Number(o.valor_calculado || 0) || (maoObra + materiais);
+      return { numero: o.numero, nome: o.nome || '', horas, maoObra, materiais, total, recebida: !!recebidaByOs[o.id] };
+    };
+    _ctx = { id, cliente: c, osList, allParc, recebidaByOs, linhaResumo };
 
     // ── Fornecedor: todos os lançamentos a pagar (sem filtro de origem) ──
     const fornPagar     = allParc.filter(p => p.tipo === 'pagar')
@@ -409,26 +447,53 @@ const Clientes = (() => {
         </div>
       </div>
 
+      ${!isForn ? `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-outline btn-sm" onclick="Clientes.gerarReciboTotal()">🧾 Recibo</button>
+        <button class="btn btn-outline btn-sm" onclick="Clientes.gerarEmAberto()">📄 Em aberto</button>
+        <button class="btn ${_resumoMode ? 'btn-gold' : 'btn-primary'} btn-sm" onclick="Clientes.toggleResumoMode()">${_resumoMode ? '✕ Cancelar' : '📄 Resumo de OS'}</button>
+      </div>
+      ${_resumoMode ? `<div class="lote-hint" style="margin-top:10px;margin-bottom:0">Marque as OS do resumo. Selo verde = recebida, laranja = a receber.</div>` : ''}
+      ` : ''}
+
       ${osList.length > 0 ? `
       <div class="card mt-4">
         <div class="card-header"><h3>Ordens de Serviço</h3></div>
         <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-          ${osList.map(o => `
-            <div class="entity-item" onclick="App.navigate('os', {id:'${o.id}'})">
+          ${osList.map(o => {
+            const rec  = !!recebidaByOs[o.id];
+            const sel  = _resumoSel.has(o.id);
+            const selo = rec ? '<span class="badge badge-success">recebida</span>' : '<span class="badge badge-warning">a receber</span>';
+            const clique = _resumoMode ? `Clientes.toggleResumoSel('${o.id}')` : `App.navigate('os', {id:'${o.id}'})`;
+            return `
+            <div class="entity-item${_resumoMode && sel ? ' lote-on' : ''}" onclick="${clique}">
+              ${_resumoMode ? `<span class="lote-check${sel ? ' on' : ''}">${sel ? '✓' : ''}</span>` : ''}
               <div class="avatar avatar-sm ${o.status === 'fechado' ? 'av-green' : o.status === 'andamento' ? 'av-blue' : 'av-orange'} avatar-icon">🔧</div>
               <div class="entity-info">
-                <div class="entity-name">${o.numero}</div>
+                <div class="entity-name">${o.numero}${o.nome ? ` · ${o.nome}` : ''}</div>
                 <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
-                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
+                <div class="entity-badges">${statusBadge(o.status)} ${selo}</div>
               </div>
               <div class="entity-right">
                 ${o.valor_fechamento ? `<span class="entity-value">${Fmt.currency(o.valor_fechamento)}</span>` : ''}
-                <span class="entity-chevron">›</span>
+                ${_resumoMode ? '' : '<span class="entity-chevron">›</span>'}
               </div>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
       </div>
+      ${_resumoMode ? `
+      <div style="height:84px"></div>
+      <div class="lote-bar">
+        <div class="lote-bar-info">
+          <strong>${_resumoSel.size} OS selecionada(s)</strong>
+          <span>${_resumoSel.size ? Fmt.currency(osList.filter(o => _resumoSel.has(o.id)).reduce((s, o) => s + Number(linhaResumo(o).total || 0), 0)) : 'marque as OS'}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="number" id="resumo-desconto" class="input" style="width:98px" placeholder="Desconto" min="0" step="0.01">
+          <button class="btn btn-gold" ${_resumoSel.size >= 1 ? '' : 'disabled'} onclick="Clientes.gerarResumo()">Gerar →</button>
+        </div>
+      </div>` : ''}
       ` : ''}
 
       <div class="card mt-4">
@@ -445,6 +510,7 @@ const Clientes = (() => {
                 <div class="entity-info">
                   <div class="entity-name">${p.descricao}</div>
                   <div class="entity-sub">Venc. ${Fmt.date(p.data_vencimento)}</div>
+                  ${!isForn && p.tipo==='receber' && p.status==='pago' ? `<button class="btn btn-sm btn-outline" style="margin-top:6px" onclick="Clientes.gerarReciboParcela('${p.id}')">🧾 Recibo</button>` : ''}
                 </div>
                 <div class="entity-right">
                   <span class="entity-value ${p.tipo==='receber'?'text-green':'text-red'}">${Fmt.currency(p.valor)}</span>
@@ -459,6 +525,54 @@ const Clientes = (() => {
         <button class="btn btn-danger btn-full" onclick="Clientes.confirmDelete('${c.id}')">🗑 Inativar Cadastro</button>
       </div>
     `;
+  }
+
+  // ─── Documentos do cliente (resumo de OS, recibo, em aberto) ─
+  function toggleResumoMode() {
+    _resumoMode = !_resumoMode;
+    _resumoSel.clear();
+    if (_ctx) openDetail(_ctx.id);
+  }
+  function toggleResumoSel(osId) {
+    if (_resumoSel.has(osId)) _resumoSel.delete(osId); else _resumoSel.add(osId);
+    if (_ctx) openDetail(_ctx.id);
+  }
+  function gerarResumo() {
+    if (!_ctx || _resumoSel.size === 0) return;
+    const desconto = Number(qs('#resumo-desconto')?.value) || 0;
+    const linhas = _ctx.osList.filter(o => _resumoSel.has(o.id)).map(o => _ctx.linhaResumo(o));
+    Doc.resumoOS(_ctx.cliente, linhas, { desconto });
+  }
+  function gerarEmAberto() {
+    if (!_ctx) return;
+    const hoje = DateUtil.today();
+    const itens = _ctx.allParc
+      .filter(p => p.tipo === 'receber' && p.status !== 'pago' && p.status !== 'cancelado' && !_ehFiado(p.origem))
+      .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1)
+      .map(p => ({ descricao: p.descricao, vencimento: p.data_vencimento, valor: Number(p.valor || 0),
+                   atrasada: String(p.data_vencimento || '').substring(0, 10) < hoje }));
+    if (itens.length === 0) { Toast.info('Nenhum valor em aberto para este cliente.'); return; }
+    Doc.valoresEmAberto(_ctx.cliente, { itens });
+  }
+  function gerarReciboTotal() {
+    if (!_ctx) return;
+    const pagos = _ctx.allParc
+      .filter(p => p.tipo === 'receber' && p.status === 'pago' && !_ehFiado(p.origem))
+      .sort((a, b) => String(a.data_pagamento || '') < String(b.data_pagamento || '') ? -1 : 1);
+    if (pagos.length === 0) { Toast.info('Este cliente ainda não tem pagamentos recebidos.'); return; }
+    const valor = pagos.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const pagamentos = pagos.map(p => ({ data: p.data_pagamento || p.data_vencimento, descricao: p.descricao, valor: Number(p.valor || 0) }));
+    Doc.recibo(_ctx.cliente, { valor, referencia: 'serviços prestados', pagamentos });
+  }
+  function gerarReciboParcela(parcelaId) {
+    if (!_ctx) return;
+    const p = _ctx.allParc.find(x => x.id === parcelaId);
+    if (!p) return;
+    Doc.recibo(_ctx.cliente, {
+      valor: Number(p.valor || 0),
+      referencia: p.descricao,
+      pagamentos: [{ data: p.data_pagamento || p.data_vencimento, descricao: p.descricao, valor: Number(p.valor || 0) }],
+    });
   }
 
   function openForm(id = null) {
@@ -512,5 +626,6 @@ const Clientes = (() => {
     });
   }
 
-  return { render, renderList, renderResumo, goView, applyFilters, openDetail, openForm, saveForm, confirmDelete };
+  return { render, renderList, renderResumo, goView, applyFilters, openDetail, openForm, saveForm, confirmDelete,
+           toggleResumoMode, toggleResumoSel, gerarResumo, gerarEmAberto, gerarReciboTotal, gerarReciboParcela };
 })();
