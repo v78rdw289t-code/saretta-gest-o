@@ -244,22 +244,39 @@ const Doc = (() => {
     document.body.classList.add('doc-open');
   }
 
-  // Gera o PDF (Blob) a partir do HTML do documento — funciona em PC e celular
+  // Gera o PDF (Blob) a partir do HTML do documento — funciona em PC e celular.
   async function _gerarBlob() {
-    const el = qs('#doc-scroll .doc-page');
-    if (!el || typeof html2pdf === 'undefined') throw new Error('PDF indisponível');
+    const src = qs('#doc-scroll .doc-page');
+    if (!src || typeof html2pdf === 'undefined') throw new Error('PDF indisponível');
+    // Renderiza a partir de um CLONE fora do #doc-scroll, com largura fixa.
+    // No celular o html2canvas cortava o documento (capturava só a 1ª "tela")
+    // porque a .doc-page fica dentro de um container com altura fixa + overflow.
+    // Clonar num container solto captura o documento INTEIRO e ainda deixa o
+    // PDF com layout consistente, sem depender da largura do aparelho.
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;background:#fff;';
+    const clone = src.cloneNode(true);
+    clone.style.maxWidth = 'none';
+    clone.style.width = '100%';
+    holder.appendChild(clone);
+    document.body.appendChild(holder);
     const opt = {
       margin:      [10, 10, 12, 10],
       filename:    _nomeArquivo + '.pdf',
       image:       { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      // windowWidth 800 → as media queries mobile (<=560px) NÃO se aplicam ao
+      // clone: o PDF sai sempre no layout "desktop", completo e nítido.
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 800 },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      // 'avoid-all' mantinha tudo numa página só e CORTAVA documentos longos
-      // (ex.: em aberto / resumo com muitas OS). Agora pagina entre linhas,
-      // sem cortar uma linha no meio (avoid: 'tr').
+      // Pagina entre linhas (sem cortar uma linha no meio) e cria as folhas
+      // seguintes sozinho — documentos longos não são mais truncados.
       pagebreak:   { mode: ['css', 'legacy'], avoid: 'tr' },
     };
-    return await html2pdf().set(opt).from(el).outputPdf('blob');
+    try {
+      return await html2pdf().set(opt).from(clone).outputPdf('blob');
+    } finally {
+      holder.remove();
+    }
   }
 
   async function baixar() {
