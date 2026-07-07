@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.5.2">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.5.3">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.5.2">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.5.3">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.5.2">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.5.3">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.5.2" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.5.3" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.5.2" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.5.3" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.5.2" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.5.3" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -429,6 +429,82 @@
     <div class="modal-footer">
       <button class="btn btn-primary btn-lg" onclick="OS.saveItem()">Adicionar</button>
       <button class="btn btn-outline"        onclick="Modal.close('modal-item')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Item do Orçamento (planejado) da OS -->
+<div id="modal-orc-item" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3 id="modal-orc-item-title">Adicionar ao orçamento</h3>
+      <button class="modal-close" onclick="Modal.close('modal-orc-item')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="orc-item-id">
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="orc-item-tipo" class="input">
+          <option value="material">📦 Material / Item</option>
+          <option value="mao_obra">🔧 Mão de obra</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Descrição *</label>
+        <input type="text" id="orc-item-desc" class="input" placeholder="Ex: Cabo 2,5mm  /  Instalação (8h)">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantidade</label>
+          <input type="number" id="orc-item-qtd" class="input" step="0.01" value="1"
+            onchange="qs('#orc-item-total').value=(+this.value*(+qs('#orc-item-unit').value||0)).toFixed(2)">
+        </div>
+        <div class="form-group">
+          <label>Valor Unitário</label>
+          <input type="number" id="orc-item-unit" class="input" step="0.01"
+            onchange="qs('#orc-item-total').value=((+qs('#orc-item-qtd').value||1)*(+this.value||0)).toFixed(2)">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Valor Total</label>
+        <input type="number" id="orc-item-total" class="input" step="0.01">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="OS.saveOrcItem()">Salvar</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-orc-item')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Desconto / observações do Orçamento -->
+<div id="modal-orc-header" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Desconto e observações</h3>
+      <button class="modal-close" onclick="Modal.close('modal-orc-header')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Desconto (R$)</label>
+          <input type="number" id="orc-hdr-desconto" class="input" step="0.01" min="0" value="0">
+        </div>
+        <div class="form-group">
+          <label>Validade (dias)</label>
+          <input type="number" id="orc-hdr-validade" class="input" step="1" min="0" value="15">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observações / condições</label>
+        <textarea id="orc-hdr-obs" class="input" rows="3" placeholder="Ex: válido para pagamento à vista; material não incluso..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="OS.saveOrcHeader()">Salvar</button>
+      <button class="btn btn-outline"        onclick="Modal.close('modal-orc-header')">Cancelar</button>
     </div>
   </div>
 </div>
@@ -1063,23 +1139,23 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.5.2"></script>
-<script src="assets/js/utils.js?v=3.5.2"></script>
-<script src="assets/js/notif.js?v=3.5.2"></script>
-<script src="assets/js/outbox.js?v=3.5.2"></script>
-<script src="assets/js/home.js?v=3.5.2"></script>
-<script src="assets/js/agenda.js?v=3.5.2"></script>
-<script src="assets/js/os.js?v=3.5.2"></script>
-<script src="assets/js/financeiro.js?v=3.5.2"></script>
-<script src="assets/js/clientes.js?v=3.5.2"></script>
-<script src="assets/js/estoque.js?v=3.5.2"></script>
-<script src="assets/js/compras.js?v=3.5.2"></script>
-<script src="assets/js/fiado.js?v=3.5.2"></script>
-<script src="assets/js/insights.js?v=3.5.2"></script>
-<script src="assets/js/config.js?v=3.5.2"></script>
+<script src="assets/js/api.js?v=3.5.3"></script>
+<script src="assets/js/utils.js?v=3.5.3"></script>
+<script src="assets/js/notif.js?v=3.5.3"></script>
+<script src="assets/js/outbox.js?v=3.5.3"></script>
+<script src="assets/js/home.js?v=3.5.3"></script>
+<script src="assets/js/agenda.js?v=3.5.3"></script>
+<script src="assets/js/os.js?v=3.5.3"></script>
+<script src="assets/js/financeiro.js?v=3.5.3"></script>
+<script src="assets/js/clientes.js?v=3.5.3"></script>
+<script src="assets/js/estoque.js?v=3.5.3"></script>
+<script src="assets/js/compras.js?v=3.5.3"></script>
+<script src="assets/js/fiado.js?v=3.5.3"></script>
+<script src="assets/js/insights.js?v=3.5.3"></script>
+<script src="assets/js/config.js?v=3.5.3"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.5.2"></script>
-<script src="assets/js/app.js?v=3.5.2"></script>
+<script src="assets/js/pdf.js?v=3.5.3"></script>
+<script src="assets/js/app.js?v=3.5.3"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

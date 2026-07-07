@@ -38,6 +38,10 @@ const SHEET_HEADERS = {
   categorias:     ['id','nome','tipo','ativo'],
   os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao'],
   os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total'],
+  // Orçamento (planejado) da OS — separado da execução. 1 cabeçalho por OS +
+  // N itens planejados (tipo: material | mao_obra). Só entra no PDF de orçamento.
+  orcamentos:     ['id','os_id','desconto','validade','observacoes','valor_itens','valor_mao_obra','valor_total','data_criacao','data_atualizacao'],
+  orcamento_itens:['id','os_id','tipo','descricao','quantidade','valor_unit','valor_total'],
   diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes','reajuste_json','blocos_json'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
   fechamento_dias:['id','fechamento_id','diaria_id'],
@@ -170,7 +174,10 @@ function sheetToRecords(sh) {
 }
 
 function read(sheetName, id = null, filters = null) {
-  const sh = getSheet(sheetName);
+  // Aba ainda não criada (ex.: initializeSheets pendente): volta vazio em vez
+  // de derrubar a tela — mesma tolerância do readMany.
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) return { success: true, data: [] };
   let records = sheetToRecords(sh);
   if (id) records = records.filter(r => String(r.id) === String(id));
   if (filters) {
