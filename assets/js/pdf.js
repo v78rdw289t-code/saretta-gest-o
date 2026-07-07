@@ -254,7 +254,10 @@ const Doc = (() => {
       image:       { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }, // não corta linhas; cria folhas extras sozinho
+      // 'avoid-all' mantinha tudo numa página só e CORTAVA documentos longos
+      // (ex.: em aberto / resumo com muitas OS). Agora pagina entre linhas,
+      // sem cortar uma linha no meio (avoid: 'tr').
+      pagebreak:   { mode: ['css', 'legacy'], avoid: 'tr' },
     };
     return await html2pdf().set(opt).from(el).outputPdf('blob');
   }
