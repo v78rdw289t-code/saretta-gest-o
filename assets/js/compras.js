@@ -7,6 +7,7 @@ const Compras = (() => {
   let itensForm  = [];
   let estoqueList = [];
   let idemId     = '';   // id de idempotência da compra em edição (evita duplicar em reenvio)
+  let editId     = '';   // id da compra sendo EDITADA (vazio = nova compra)
 
   async function render() {
     await loadData();
@@ -69,7 +70,10 @@ const Compras = (() => {
       <div class="page-header">
         <button class="btn btn-outline" onclick="Compras.render()">← Voltar</button>
         <h1>Compra — ${Fmt.date(compra.data)}</h1>
-        <button class="btn btn-danger" onclick="Compras.confirmDelete('${id}')">Excluir</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline" onclick="Compras.openForm('${id}')">Editar</button>
+          <button class="btn btn-danger" onclick="Compras.confirmDelete('${id}')">Excluir</button>
+        </div>
       </div>
       <div class="grid-2col">
         <div class="card">
@@ -127,43 +131,65 @@ const Compras = (() => {
   function confirmDelete(id) { return Guard.run('compra-excluir', () => _confirmDelete(id)); }
   async function _confirmDelete(id) {
     Modal.confirm(
-      'Excluir esta compra? As parcelas serão removidas. O estoque NÃO será revertido automaticamente.',
+      'Excluir esta compra? O estoque será revertido (baixa dos itens que entraram) e as parcelas removidas.',
       async () => {
         Loading.show();
-        const [itensRes, parRes] = await Promise.all([
-          API.db.read('compras_itens', null, { compra_id: id }),
-          API.db.read('parcelas', null, { origem_id: id }),
-        ]);
-        const itens    = itensRes?.data || [];
-        const parcelas = parRes?.data   || [];
-
-        await Promise.all([
-          ...itens.map(i    => API.db.delete('compras_itens', i.id)),
-          ...parcelas.map(p => API.db.delete('parcelas', p.id)),
-        ]);
-        await API.db.delete('compras', id);
+        const res = await API.db.excluirCompra(id);
         Loading.hide();
-        Toast.success('Compra excluída.');
-        await loadData(); renderList();
+        if (res?.success) {
+          Toast.success('Compra excluída e estoque revertido.');
+          await loadData(); renderList();
+        } else Toast.error('Erro: ' + (res?.error || ''));
       }
     );
   }
 
-  async function openForm() {
+  async function openForm(id = null) {
     itensForm = [];
+    editId = id || '';
     idemId = genUUID();   // um id por compra; um reenvio depois de timeout reaproveita e não duplica
-    qs('#compra-forn').innerHTML  = App.clienteOptions('fornecedor');
-    qs('#compra-data').value      = DateUtil.today();
+    const compra = id ? allCompras.find(c => c.id === id) : null;
+
+    qs('#compra-forn').innerHTML  = App.clienteOptions('fornecedor', compra?.fornecedor_id);
+    qs('#compra-data').value      = compra?.data || DateUtil.today();
     qs('#compra-venc').value      = DateUtil.today();
-    qs('#compra-comp').value      = DateUtil.today().substring(0, 7);
+    qs('#compra-comp').value      = (compra?.data || DateUtil.today()).substring(0, 7);
     qs('#compra-parc').value      = '1';
     qs('#item-cat').innerHTML     = '<option value="">— Categoria —</option>' + App.categoriaOptions('saida');
-    qs('#compra-obs').value       = '';
-    if (qs('#compra-desconto')) qs('#compra-desconto').value = '0';
+    qs('#compra-obs').value       = compra?.observacoes || '';
+    if (qs('#compra-desconto')) qs('#compra-desconto').value = compra?.desconto || '0';
     const qp = qs('#compra-quempagou');
     if (qp) qp.value = '';
     qs('#compra-quempagou-hint')?.classList.add('hidden');
+    const titulo = qs('#modal-compra .modal-header h3');
+    if (titulo) titulo.textContent = id ? 'Editar Compra' : 'Nova Compra';
+
     await loadEstoque();
+
+    // Editando: recarrega itens + parcelas (nº, 1º vencimento, competência).
+    if (id) {
+      const [itRes, parRes] = await Promise.all([
+        API.db.read('compras_itens', null, { compra_id: id }),
+        API.db.read('parcelas', null, { origem_id: id }),
+      ]);
+      itensForm = (itRes?.data || []).map(i => ({
+        estoque_id:  i.estoque_id || '',
+        descricao:   i.descricao,
+        quantidade:  Number(i.quantidade || 0),
+        valor_unit:  Number(i.valor_unit || 0),
+        valor_total: Number(i.valor_total || 0),
+        unidade:     i.unidade || 'un',
+        categoria_id:i.categoria_id || '',
+      }));
+      const parc = (parRes?.data || []).filter(p => p.origem === 'compra')
+                     .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1);
+      if (parc.length) {
+        qs('#compra-parc').value = String(parc.length);
+        if (parc[0].data_vencimento)  qs('#compra-venc').value = parc[0].data_vencimento;
+        if (parc[0].data_competencia) qs('#compra-comp').value = String(parc[0].data_competencia).substring(0, 7);
+      }
+    }
+
     renderItensForm();
     Modal.open('modal-compra');
   }
@@ -254,25 +280,32 @@ const Compras = (() => {
 
     if (itensForm.length === 0) { Toast.warning('Adicione ao menos um item'); return; }
 
-    Loading.show();
-    const res = await API.db.registrarCompra({
+    const payload = {
       idempotency_id: idemId,
       fornecedor_id: fornId, data, valor_total: total,
       parcelas_count: parc, primeira_data_vencimento: venc,
       data_competencia: comp, desconto: desconto,
       quem_pagou: quemPagou || undefined,
       itens: itensForm, observacoes: obs,
-    });
+    };
+
+    Loading.show();
+    const res = editId
+      ? await API.db.editarCompra({ ...payload, compra_id: editId })
+      : await API.db.registrarCompra(payload);
     Loading.hide();
 
     if (res?.success) {
-      const msg = res.jaRegistrada
-        ? 'Compra já estava registrada — nada foi duplicado.'
-        : (quemPagou
-            ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
-            : 'Compra registrada! Estoque e financeiro atualizados.');
+      const msg = editId
+        ? 'Compra atualizada! Estoque e financeiro recalculados.'
+        : (res.jaRegistrada
+            ? 'Compra já estava registrada — nada foi duplicado.'
+            : (quemPagou
+                ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
+                : 'Compra registrada! Estoque e financeiro atualizados.'));
       Toast.success(msg);
       Modal.close('modal-compra');
+      editId = '';
       idemId = genUUID();   // próxima compra ganha um id novo
       await loadData(); renderList();
     } else Toast.error('Erro: ' + res?.error);

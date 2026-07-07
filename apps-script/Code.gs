@@ -116,6 +116,8 @@ function doPost(e) {
       case 'fecharOS':        result = fecharOS(data); break;
       case 'fecharOSLote':    result = fecharOSLote(data); break;
       case 'registrarCompra': result = registrarCompra(data); break;
+      case 'editarCompra':    result = editarCompra(data); break;
+      case 'excluirCompra':   result = excluirCompra(data.id); break;
       case 'registrarMovEstoque': result = registrarMovEstoque(data); break;
       case 'registrarFiado':  result = registrarFiado(data); break;
       case 'registrarEmprestimoSocio': result = registrarEmprestimoSocio(data); break;
@@ -691,6 +693,54 @@ function registrarCompra(data) {
   }
 
   return { success: true, compra_id: compraId };
+}
+
+// Exclui a compra REVERTENDO o estoque (baixa das quantidades que entraram) e
+// removendo itens, parcelas e a ficha do sócio (se pago do bolso). Espelha o
+// excluirOS. Roda sob LockService (via doPost).
+function excluirCompra(compraId) {
+  const itens = read('compras_itens', null, { compra_id: compraId }).data || [];
+  itens.forEach(item => {
+    if (item.estoque_id) {
+      const estRec = read('estoque', item.estoque_id).data[0];
+      if (estRec) {
+        const qtd  = Number(item.quantidade || 0);
+        const qNew = Math.max(0, Number(estRec.quantidade || 0) - qtd);
+        update('estoque', item.estoque_id, { quantidade: qNew });
+        create('estoque_movimentacoes', {
+          estoque_id:  item.estoque_id,
+          tipo:        'saida',
+          motivo:      'estorno_compra',
+          quantidade:  qtd,
+          valor_unit:  Number(estRec.valor_unit || 0),
+          valor_total: qtd * Number(estRec.valor_unit || 0),
+          origem:      'compra',
+          origem_id:   compraId,
+          data:        Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+          observacoes: 'Baixa por exclusão de compra',
+        });
+      }
+    }
+    remove('compras_itens', item.id);
+  });
+  // Parcelas da compra + ficha do sócio (quem pagou do bolso, vínculo por grupo_id)
+  const parcelas = read('parcelas', null, { origem_id: compraId }).data || [];
+  const grupos = {};
+  parcelas.filter(p => p.origem === 'compra').forEach(p => {
+    if (p.grupo_id) grupos[p.grupo_id] = true;
+    remove('parcelas', p.id);
+  });
+  Object.keys(grupos).forEach(g => {
+    (read('fiado_mov', null, { grupo_id: g }).data || []).forEach(fm => remove('fiado_mov', fm.id));
+  });
+  remove('compras', compraId);
+  return { success: true };
+}
+
+// Edita = reverte a compra antiga (estoque/parcelas/ficha) e registra a nova.
+function editarCompra(data) {
+  if (data.compra_id) excluirCompra(data.compra_id);
+  return registrarCompra(data);
 }
 
 function registrarFiado(data) {

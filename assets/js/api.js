@@ -23,6 +23,8 @@ const API = (() => {
     fecharOS:        ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias'],
     fecharOSLote:    ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias', 'fechamento_os'],
     registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado', 'fiado_mov'],
+    editarCompra:    ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado', 'fiado_mov'],
+    excluirCompra:   ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado', 'fiado_mov'],
     registrarMovEstoque: () => ['estoque', 'estoque_movimentacoes'],
     registrarFiado:  ()     => ['fiado', 'parcelas'],
     registrarEmprestimoSocio: () => ['fiado_mov', 'parcelas', 'contas'],
@@ -379,6 +381,8 @@ const API = (() => {
   // que, mesmo se ainda estourar, um reenvio não duplica.
   const POST_TIMEOUT = {
     registrarCompra: 60000,
+    editarCompra:    60000,
+    excluirCompra:   60000,
     fecharOS:        60000,
   };
 
@@ -481,6 +485,8 @@ const API = (() => {
     fecharOS(data) { return post('fecharOS', data); },
     fecharOSLote(data) { return post('fecharOSLote', data); },
     registrarCompra(data) { return post('registrarCompra', data); },
+    editarCompra(data) { return post('editarCompra', data); },
+    excluirCompra(id) { return post('excluirCompra', { id }); },
     registrarMovEstoque(data) { return post('registrarMovEstoque', data); },
     registrarFiado(data) { return post('registrarFiado', data); },
     registrarEmprestimoSocio(data) { return post('registrarEmprestimoSocio', data); },
