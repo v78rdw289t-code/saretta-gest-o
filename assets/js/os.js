@@ -310,6 +310,10 @@ const OS = (() => {
       .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1);
     const section = qs('#page-os');
     const cliente = App.clienteNome(currentOS.cliente_id);
+    // Somas para o card de resumo (serviço = mão de obra; materiais = itens)
+    const _somaMO    = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    const _somaMat   = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const _somaTotal = _somaMO + _somaMat;
 
     section.innerHTML = `
       <!-- Header compacto -->
@@ -347,6 +351,11 @@ const OS = (() => {
           <div style="grid-column:1/-1">
             <div class="info-label">Status</div>
             ${statusBadge(currentOS.status)}
+          </div>
+          <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px">
+            <div class="info-row"><span>Serviço (mão de obra)</span><strong>${Fmt.currency(_somaMO)}</strong></div>
+            <div class="info-row"><span>Materiais</span><strong>${Fmt.currency(_somaMat)}</strong></div>
+            <div class="info-row" style="font-weight:800;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)"><span>Total</span><strong class="text-navy" style="font-size:1.1rem">${Fmt.currency(_somaTotal)}</strong></div>
           </div>
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
@@ -1392,10 +1401,10 @@ const OS = (() => {
       <tbody>
         ${itens.map(i => `
           <tr>
-            <td><span class="badge ${i.tipo === 'material' ? 'badge-info' : 'badge-secondary'}">${i.tipo || 'serviço'}</span></td>
+            <td><span class="badge ${i.tipo === 'material' ? 'badge-info' : 'badge-secondary'}">${i.tipo === 'material' ? 'material' : 'serviço'}</span></td>
             <td>${i.descricao}</td>
-            <td>${i.quantidade}</td>
-            <td>${Fmt.currency(i.valor_unit)}</td>
+            <td>${i.quantidade === '' || i.quantidade == null ? '—' : i.quantidade}</td>
+            <td>${i.valor_unit === '' || i.valor_unit == null || Number(i.valor_unit) === 0 ? '—' : Fmt.currency(i.valor_unit)}</td>
             <td>${Fmt.currency(i.valor_total)}</td>
             <td style="white-space:nowrap">
               <button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm('${i.id}')">Editar</button>
@@ -1407,16 +1416,26 @@ const OS = (() => {
   }
 
   // Item do orçamento: grava em os_itens (os_id = orçamento), SEM mexer no estoque.
+  // Serviço: esconde quantidade/unitário (basta descrição + um valor opcional).
+  function onOrcItemTipoChange() {
+    const serv = qs('#orc-item-tipo')?.value === 'servico';
+    const row = qs('#orc-item-qtdrow');
+    if (row) row.style.display = serv ? 'none' : '';
+    const lbl = qs('#orc-item-total-label');
+    if (lbl) lbl.textContent = serv ? 'Valor do serviço (opcional)' : 'Valor Total';
+  }
+
   function openOrcItemForm(itemId = null) {
     if (!currentOS) return;
     const item = itemId ? allItens.find(i => i.id === itemId) : null;
     qs('#orc-item-id').value    = itemId || '';
     qs('#orc-item-tipo').value  = item?.tipo || 'material';
     qs('#orc-item-desc').value  = item?.descricao || '';
-    qs('#orc-item-qtd').value   = item?.quantidade || '1';
-    qs('#orc-item-unit').value  = item?.valor_unit || '';
+    qs('#orc-item-qtd').value   = (item && item.quantidade !== '' && item.quantidade != null) ? item.quantidade : '1';
+    qs('#orc-item-unit').value  = (item && item.valor_unit !== '' && item.valor_unit != null) ? item.valor_unit : '';
     qs('#orc-item-total').value = item?.valor_total || '';
     qs('#modal-orc-item-title').textContent = item ? 'Editar item' : 'Adicionar item';
+    onOrcItemTipoChange();
     Modal.open('modal-orc-item');
   }
 
@@ -1424,13 +1443,22 @@ const OS = (() => {
   async function _saveOrcItem() {
     const itemId = qs('#orc-item-id').value;
     const osId   = currentOS.id;
+    const tipo   = qs('#orc-item-tipo').value;
     const desc   = qs('#orc-item-desc').value.trim();
-    const qtd    = Number(qs('#orc-item-qtd').value) || 1;
-    const unit   = Number(qs('#orc-item-unit').value) || 0;
-    const total  = Number(qs('#orc-item-total').value) || (qtd * unit);
     if (!desc) { Toast.warning('Informe a descrição'); return; }
+
+    // Serviço: só descrição + um valor total (opcional) — sem quantidade/unitário.
+    // Material: quantidade × unitário (ou valor total digitado).
+    let quantidade = '', valor_unit = '', valor_total = 0;
+    if (tipo === 'servico') {
+      valor_total = Number(qs('#orc-item-total').value) || 0;
+    } else {
+      quantidade = Number(qs('#orc-item-qtd').value) || 1;
+      valor_unit = Number(qs('#orc-item-unit').value) || 0;
+      valor_total = Number(qs('#orc-item-total').value) || (quantidade * valor_unit);
+    }
     // Orçamento NÃO mexe em estoque: estoque_id sempre vazio.
-    const itemData = { os_id: osId, tipo: qs('#orc-item-tipo').value, descricao: desc, estoque_id: '', quantidade: qtd, valor_unit: unit, valor_total: total };
+    const itemData = { os_id: osId, tipo, descricao: desc, estoque_id: '', quantidade, valor_unit, valor_total };
 
     Loading.show();
     const res = itemId
@@ -2286,7 +2314,7 @@ const OS = (() => {
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem,
-    openOrcItemForm, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
+    openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,

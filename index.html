@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.5.11">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.5.12">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.5.11">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.5.12">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.5.11">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.5.12">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.5.11" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.5.12" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.5.11" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.5.12" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.5.11" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.5.12" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -445,16 +445,16 @@
       <input type="hidden" id="orc-item-id">
       <div class="form-group">
         <label>Tipo</label>
-        <select id="orc-item-tipo" class="input">
+        <select id="orc-item-tipo" class="input" onchange="OS.onOrcItemTipoChange()">
           <option value="material">📦 Material / Item</option>
           <option value="servico">🔧 Serviço / Mão de obra</option>
         </select>
       </div>
       <div class="form-group">
         <label>Descrição *</label>
-        <input type="text" id="orc-item-desc" class="input" placeholder="Ex: Cabo 2,5mm  /  Instalação (8h)">
+        <input type="text" id="orc-item-desc" class="input" placeholder="Ex: Cabo 2,5mm  /  Instalação elétrica">
       </div>
-      <div class="form-row">
+      <div class="form-row" id="orc-item-qtdrow">
         <div class="form-group">
           <label>Quantidade</label>
           <input type="number" id="orc-item-qtd" class="input" step="0.01" value="1"
@@ -467,8 +467,8 @@
         </div>
       </div>
       <div class="form-group">
-        <label>Valor Total</label>
-        <input type="number" id="orc-item-total" class="input" step="0.01">
+        <label id="orc-item-total-label">Valor Total</label>
+        <input type="number" id="orc-item-total" class="input" step="0.01" placeholder="Opcional">
       </div>
     </div>
     <div class="modal-footer">
@@ -1109,23 +1109,23 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.5.11"></script>
-<script src="assets/js/utils.js?v=3.5.11"></script>
-<script src="assets/js/notif.js?v=3.5.11"></script>
-<script src="assets/js/outbox.js?v=3.5.11"></script>
-<script src="assets/js/home.js?v=3.5.11"></script>
-<script src="assets/js/agenda.js?v=3.5.11"></script>
-<script src="assets/js/os.js?v=3.5.11"></script>
-<script src="assets/js/financeiro.js?v=3.5.11"></script>
-<script src="assets/js/clientes.js?v=3.5.11"></script>
-<script src="assets/js/estoque.js?v=3.5.11"></script>
-<script src="assets/js/compras.js?v=3.5.11"></script>
-<script src="assets/js/fiado.js?v=3.5.11"></script>
-<script src="assets/js/insights.js?v=3.5.11"></script>
-<script src="assets/js/config.js?v=3.5.11"></script>
+<script src="assets/js/api.js?v=3.5.12"></script>
+<script src="assets/js/utils.js?v=3.5.12"></script>
+<script src="assets/js/notif.js?v=3.5.12"></script>
+<script src="assets/js/outbox.js?v=3.5.12"></script>
+<script src="assets/js/home.js?v=3.5.12"></script>
+<script src="assets/js/agenda.js?v=3.5.12"></script>
+<script src="assets/js/os.js?v=3.5.12"></script>
+<script src="assets/js/financeiro.js?v=3.5.12"></script>
+<script src="assets/js/clientes.js?v=3.5.12"></script>
+<script src="assets/js/estoque.js?v=3.5.12"></script>
+<script src="assets/js/compras.js?v=3.5.12"></script>
+<script src="assets/js/fiado.js?v=3.5.12"></script>
+<script src="assets/js/insights.js?v=3.5.12"></script>
+<script src="assets/js/config.js?v=3.5.12"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.5.11"></script>
-<script src="assets/js/app.js?v=3.5.11"></script>
+<script src="assets/js/pdf.js?v=3.5.12"></script>
+<script src="assets/js/app.js?v=3.5.12"></script>
 
 <script>
   if ('serviceWorker' in navigator) {
