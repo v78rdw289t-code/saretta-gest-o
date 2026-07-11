@@ -16,7 +16,8 @@
 //    jaExiste (no-op) — reenvio nunca duplica. O backend antigo ignora
 //    o id (inofensivo).
 //  - Timeout ambíguo (AbortError: o POST PODE ter chegado) entra como
-//    'incerto' e NÃO é reenviado automaticamente — só manual, pelo modal.
+//    'incerto' e é VERIFICADO no próximo flush: leitura por id decide se
+//    chegou (sai da fila) ou não (volta pra pendente). Sem adivinhação.
 // ============================================================
 
 const Outbox = (() => {
@@ -97,18 +98,67 @@ const Outbox = (() => {
     return r;
   }
 
+  // ─── Verificação de item 'incerto' ─────────────────────────
+  // Timeout ambíguo = o POST PODE ter chegado. Como todo create da fila leva
+  // id gerado AQUI, dá pra CONFERIR por leitura em vez de adivinhar:
+  //   chegou → sai da fila (e invalida o cache pra linha aparecer na tela);
+  //   não chegou (ou lote pela metade) → volta pra 'pendente' e reenvia — o
+  //   backend faz no-op (jaExiste) nos creates que já estão lá.
+  // Update não tem o que conferir, mas reaplicar é inofensivo → volta direto.
+  // Antes isso era decisão manual do dono ("Reenviar"?) e o item parado em
+  // "a confirmar" induzia a relançar na mão — a duplicação real da caderneta.
+  async function _verificarIncerto(item) {
+    const ops = item.action === 'batch'
+      ? (item.body.operations || [])
+      : [{ action: item.action, sheet: item.body.sheet, data: item.body.data }];
+    const creates = ops.filter(o => o.action === 'create' && o.data && o.data.id);
+    if (!creates.length) { _patch(item.qid, { estado: 'pendente', erro: '' }); return; }
+    try {
+      let chegaram = 0;
+      for (const op of creates) {
+        const r = await API.get('read', { sheet: op.sheet, id: op.data.id }, false);
+        if (!r || !r.success) return; // sem rede/erro na leitura: segue 'incerto', tenta no próximo gatilho
+        if ((r.data || []).length > 0) chegaram++;
+      }
+      if (chegaram === creates.length) {
+        _remove(item.qid);
+        try { API._invalidateFor(item.action, item.body); } catch {}
+      } else {
+        _patch(item.qid, { estado: 'pendente', erro: '' });
+      }
+    } catch {}
+  }
+
   // ─── Reenvio (flush) ───────────────────────────────────────
-  // FIFO estrito, um por vez: um create novo não pode passar na frente de um
-  // antigo. Erro de REDE para o flush (tenta de novo no próximo gatilho);
-  // erro de APLICAÇÃO marca 'erro' e segue; timeout ambíguo vira 'incerto'.
+  // 1º resolve os 'incerto' por verificação; depois FIFO estrito dos pendentes,
+  // um por vez (um create novo não passa na frente de um antigo). Erro de REDE
+  // ou timeout PARAM o flush (martelar servidor ocupado só empilha incerteza);
+  // erro de APLICAÇÃO marca 'erro' e segue pro próximo.
   let _flushing = false;
+  // Trava entre ABAS (localStorage): duas abas com a mesma fila não devem
+  // enviar juntas. Trava velha (>90s) é ignorada — aba pode ter sido fechada.
+  const LOCK_KEY = 'saretta_outbox_flush_lock';
+  function _lockFlush() {
+    try {
+      const cur = Number(localStorage.getItem(LOCK_KEY) || 0);
+      if (cur && Date.now() - cur < 90000) return false;
+      localStorage.setItem(LOCK_KEY, String(Date.now()));
+      return true;
+    } catch { return true; }
+  }
+  function _unlockFlush() { try { localStorage.removeItem(LOCK_KEY); } catch {} }
+
   async function flush() {
     if (_flushing) return;
     if (navigator.onLine === false) return;
-    if (!_load().some(i => i.estado === 'pendente')) return;
+    if (!_load().some(i => i.estado === 'pendente' || i.estado === 'incerto')) return;
+    if (!_lockFlush()) return;
     _flushing = true;
     let enviados = 0;
     try {
+      for (const item of _load().filter(i => i.estado === 'incerto')) {
+        await _verificarIncerto(item);
+      }
       for (;;) {
         const item = _load().find(i => i.estado === 'pendente');
         if (!item) break;
@@ -116,12 +166,14 @@ const Outbox = (() => {
         if (r && r.success) { _remove(item.qid); enviados++; continue; }
         if (r && r.offline) {
           if (r.errName === 'AbortError') {
+            // Timeout mesmo com folga: servidor ocupado/instável. Marca e PARA —
+            // o próximo gatilho verifica por leitura e segue de onde parou.
             _patch(item.qid, { estado: 'incerto', tentativas: (item.tentativas || 0) + 1,
-                               erro: 'Envio não confirmado (tempo esgotado)' });
-            continue; // o próximo pendente ainda pode passar (o servidor respondeu, só devagar)
+                               erro: 'Envio não confirmado — confere sozinho na próxima sincronização' });
+          } else {
+            _patch(item.qid, { tentativas: (item.tentativas || 0) + 1 });
           }
-          _patch(item.qid, { tentativas: (item.tentativas || 0) + 1 });
-          break; // rede caiu de vez: preserva a ordem e espera o próximo gatilho
+          break; // preserva a ordem e espera o próximo gatilho
         }
         _patch(item.qid, { estado: 'erro', erro: (r && r.error) || 'Erro desconhecido' });
         if (typeof Notif !== 'undefined') {
@@ -131,6 +183,7 @@ const Outbox = (() => {
       }
     } finally {
       _flushing = false;
+      _unlockFlush();
       updateBadge();
       if (enviados > 0) Toast.success(`📮 ${enviados} item(ns) da caderneta enviado(s)`);
       _rerenderModal();
@@ -246,9 +299,9 @@ const Outbox = (() => {
     Modal.open('modal-outbox');
   }
 
-  // 'incerto'/'erro' voltam pra 'pendente' e o flush tenta na hora.
-  // Reenviar um 'incerto' com o backend ANTIGO pode duplicar (o id do cliente
-  // é ignorado lá) — por isso o reenvio é decisão manual do dono.
+  // 'incerto'/'erro' voltam pra 'pendente' e o flush tenta na hora. Com o
+  // backend atual o reenvio de create repetido é no-op (id do cliente) — o
+  // botão existe pro dono destravar um 'erro' depois de corrigir a causa.
   function reenviar(qid) {
     _patch(qid, { estado: 'pendente', erro: '' });
     _renderList();

@@ -106,7 +106,7 @@ const Clientes = (() => {
 
     const hoje = DateUtil.today();
     const d12  = new Date(); d12.setMonth(d12.getMonth() - 12);
-    const ini12 = d12.toISOString().split('T')[0];
+    const ini12 = DateUtil.ymd(d12);
 
     const parcelas = (parRes?.data || []).filter(p =>
       p.status !== 'cancelado' && !origemForaResultado(p.origem) &&
@@ -419,7 +419,7 @@ const Clientes = (() => {
               <div class="entity-info">
                 <div class="entity-name">${o.numero}</div>
                 <div class="entity-sub">${Fmt.date(o.data_inicio)}${o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}</div>
-                <div class="entity-badges">${tipoBadge(o.tipo)} ${statusBadge(o.status)}</div>
+                <div class="entity-badges">${o.categoria_id ? `<span class="badge badge-secondary">${App.categoriaNome(o.categoria_id)}</span> ` : ''}${statusBadge(o.status)}</div>
               </div>
               <div class="entity-right">
                 ${o.valor_fechamento ? `<span class="entity-value">${Fmt.currency(o.valor_fechamento)}</span>` : ''}

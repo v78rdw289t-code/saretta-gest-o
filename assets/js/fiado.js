@@ -85,6 +85,7 @@ const Fiado = (() => {
       </div>
       <div class="page-header">
         <h1>Ficha dos Sócios</h1>
+        <button class="btn btn-outline btn-sm" onclick="Fiado.exportarPDF()">📄 PDF</button>
       </div>
 
       <div class="tab-bar mb-3">
@@ -151,6 +152,23 @@ const Fiado = (() => {
   }
 
   function switchPessoa(p) { _pessoa = p; renderView(); }
+
+  // Extrato da ficha do sócio selecionado em PDF (pra acertar contas no papel)
+  async function exportarPDF() {
+    await Doc.extratoFicha({
+      pessoa: _pessoa,
+      saldo: saldo(_pessoa),
+      saldoInicialAntigo: saldoInicial(_pessoa),
+      movs: movsDaPessoa(_pessoa).map(m => ({
+        data: m.data,
+        label: (MOTIVO[m.motivo] || { label: m.motivo || '' }).label,
+        descricao: m.descricao || '',
+        valor: Number(m.valor || 0),
+        empresaDeve: m.direcao === 'empresa_deve',
+        acertado: m.status === 'acertado',
+      })),
+    });
+  }
 
   // ─── Emprestar (empresa → sócio) ─────────────────────────────
   function openEmprestimo() {
@@ -283,7 +301,7 @@ const Fiado = (() => {
   }
 
   return {
-    render, renderView, switchPessoa,
+    render, renderView, switchPessoa, exportarPDF,
     openEmprestimo, confirmEmprestimo,
     openAjuste, confirmAjuste,
     openAcerto, confirmAcerto,

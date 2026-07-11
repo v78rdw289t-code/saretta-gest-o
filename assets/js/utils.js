@@ -99,8 +99,18 @@ const Fmt = {
 };
 
 // ─── Datas ───────────────────────────────────────────────────
+// TUDO em data LOCAL do aparelho. Nunca usar toISOString() pra derivar
+// "hoje"/"mês atual": ele devolve UTC e, no Brasil (UTC−3), das ~21h à
+// meia-noite o app acharia que já é amanhã (sessão/pagamento/competência
+// caindo no dia — ou mês — seguinte).
 const DateUtil = {
-  today() { return new Date().toISOString().split('T')[0]; },
+  // 'YYYY-MM-DD' de um Date, no fuso local.
+  ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  },
+  today() { return this.ymd(new Date()); },
+  // 'YYYY-MM' do mês corrente (local).
+  mesAtual() { return this.today().substring(0, 7); },
   monthStart() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-01'; },
   monthKey(date) {
     if (!date) return '';
@@ -112,10 +122,16 @@ const DateUtil = {
     const [eh, em] = end.split(':').map(Number);
     return ((eh * 60 + em) - (sh * 60 + sm)) / 60;
   },
+  // Soma meses SEGURANDO o dia no fim do mês: 31/01 + 1 mês = 28/02 (não 03/03).
+  // Usar em parcelas mensais — setMonth cru estoura pro mês seguinte em dia 29-31.
   addMonths(dateStr, n) {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setMonth(d.getMonth() + n);
-    return d.toISOString().split('T')[0];
+    const base = String(dateStr).substring(0, 10);
+    const y = Number(base.substring(0, 4)), m = Number(base.substring(5, 7)), dia = Number(base.substring(8, 10));
+    const total = (m - 1) + Number(n || 0);
+    const ny = y + Math.floor(total / 12);
+    const nm = ((total % 12) + 12) % 12; // 0-11
+    const ultimo = new Date(ny, nm + 1, 0).getDate();
+    return ny + '-' + String(nm + 1).padStart(2, '0') + '-' + String(Math.min(dia, ultimo)).padStart(2, '0');
   },
   // Dias úteis (seg–sex) entre duas datas YYYY-MM-DD, inclusive. Não desconta
   // feriados (simplificação) — serve de "capacidade normal" para diluir custo fixo.
@@ -478,12 +494,6 @@ function statusBadge(status) {
   };
   const [cls, label] = map[status] || ['badge-secondary', status];
   return `<span class="badge ${cls}">${label}</span>`;
-}
-
-function tipoBadge(tipo) {
-  return tipo === 'diaria'
-    ? '<span class="badge badge-info">Diária</span>'
-    : '<span class="badge badge-secondary">Normal</span>';
 }
 
 // Resolve a categoria_id EFETIVA de uma parcela. Para parcelas de OS

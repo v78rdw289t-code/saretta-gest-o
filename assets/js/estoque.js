@@ -10,6 +10,7 @@ const Estoque = (() => {
   let _q         = '';
   let _catFiltro = null;   // null = ainda não inicializado (default = Material/Estoque)
   let _relCat    = null;   // filtro de categoria da aba Relatório (mesmo default)
+  let _perdasPer = 'tudo'; // período das perdas no Relatório: tudo | mes | 3m
   // Lista de compras (por cliente) — portada do módulo OS
   let _listaCache = { lista: [], estoque: [] };
   let _novaLista  = { cliente_id: '', itens: [], _aberto: false };
@@ -94,9 +95,12 @@ const Estoque = (() => {
   }
 
   // ─── ABA ITENS ───────────────────────────────────────────────
+  // Alerta: abaixo do mínimo configurado OU saldo negativo (negativo = saiu
+  // mais do que entrou no razão → tem entrada não registrada pra acertar).
   function isBaixo(e) {
+    const q   = Number(e.quantidade || 0);
     const min = Number(e.estoque_minimo || 0);
-    return min > 0 && Number(e.quantidade || 0) <= min;
+    return q < 0 || (min > 0 && q <= min);
   }
 
   function renderItens() {
@@ -128,13 +132,14 @@ const Estoque = (() => {
           ? '<div class="entity-empty">Nenhum item no estoque</div>'
           : items.map(e => {
             const baixo = isBaixo(e);
+            const qtd   = Number(e.quantidade || 0);
             const cat   = catNome(e.categoria_id);
             return `
               <div class="entity-item" onclick="Estoque.openDetail('${e.id}')">
                 <div class="avatar ${avatarColor(e.descricao)} avatar-icon">📦</div>
                 <div class="entity-info">
                   <div class="entity-name">${e.descricao}${baixo ? ' ⚠️' : ''}</div>
-                  <div class="entity-sub">${Number(e.quantidade || 0)} ${e.unidade || 'un'} · ${Fmt.currency(e.valor_unit)}/un${cat ? ' · ' + cat : ''}</div>
+                  <div class="entity-sub"><span style="${qtd < 0 ? 'color:var(--danger);font-weight:700' : ''}">${qtd} ${e.unidade || 'un'}</span> · ${Fmt.currency(e.valor_unit)}/un${cat ? ' · ' + cat : ''}</div>
                 </div>
                 <div class="entity-right">
                   <span class="entity-value">${Fmt.currency(Number(e.valor_unit || 0) * Number(e.quantidade || 0))}</span>
@@ -156,6 +161,7 @@ const Estoque = (() => {
   }
   function onCatFiltro(v) { _catFiltro = v; renderItens(); }
   function onRelCat(v)    { _relCat = v; renderRel(); }
+  function onPerdasPer(v) { _perdasPer = v; renderRel(); }
 
   // ─── DETALHE DO ITEM (com histórico) ─────────────────────────
   function openDetail(id) { _detailId = id; renderDetail(); }
@@ -186,7 +192,8 @@ const Estoque = (() => {
       </div>
 
       <div class="card mb-3"><div class="card-body">
-        <div class="info-row"><span class="text-muted">Quantidade</span><strong>${Number(e.quantidade || 0)} ${e.unidade || 'un'}${baixo ? ' ⚠️' : ''}</strong></div>
+        <div class="info-row"><span class="text-muted">Quantidade</span><strong style="${Number(e.quantidade || 0) < 0 ? 'color:var(--danger)' : ''}">${Number(e.quantidade || 0)} ${e.unidade || 'un'}${baixo ? ' ⚠️' : ''}</strong></div>
+        ${Number(e.quantidade || 0) < 0 ? '<div class="info-row"><span class="text-muted" style="font-size:.75rem">Saldo negativo = saiu mais do que entrou. Registre a entrada que faltou ou corrija em ✏️ Editar/Ajustar.</span></div>' : ''}
         <div class="info-row"><span class="text-muted">Custo médio</span><strong>${Fmt.currency(e.valor_unit)}/un</strong></div>
         <div class="info-row"><span class="text-muted">Valor total</span><strong>${Fmt.currency(total)}</strong></div>
         <div class="info-row"><span class="text-muted">Categoria</span><strong>${catNome(e.categoria_id) || '—'}</strong></div>
@@ -276,15 +283,20 @@ const Estoque = (() => {
         });
       }
     } else {
-      // Novo item: cria e, se já nasce com saldo, registra a entrada inicial.
-      res = await API.db.create('estoque', { ...dadosBase, quantidade: novaQtd, valor_unit: novoUnit, ativo: true });
+      // Novo item: nasce com quantidade 0 e é a movimentação de entrada que põe
+      // o saldo inicial. (Criar já com a quantidade + entrada DOBRAVA o saldo:
+      // o create gravava 10 e a entrada somava 10 de novo → 20. Bug da v2.8→3.5.)
+      res = await API.db.create('estoque', { ...dadosBase, quantidade: 0, valor_unit: novoUnit, ativo: true });
       const novoId = res?.data?.id;
       if (res?.success && novoId && novaQtd > 0) {
-        await API.db.registrarMovEstoque({
+        const mov = await API.db.registrarMovEstoque({
           estoque_id: novoId, tipo: 'entrada', motivo: 'ajuste',
           quantidade: novaQtd, valor_unit: novoUnit,
           origem: 'manual', observacoes: 'Saldo inicial',
         });
+        if (!mov?.success) {
+          Toast.warning('Item criado, mas o saldo inicial não foi registrado — ajuste a quantidade em Estoque.');
+        }
       }
     }
     Loading.hide();
@@ -475,36 +487,135 @@ const Estoque = (() => {
   }
 
   // ─── ABA RELATÓRIO (resumo) ──────────────────────────────────
-  function renderRel() {
+  const PERDAS_PER = { tudo: 'Perdas: tudo', mes: 'Perdas: este mês', '3m': 'Perdas: 3 meses' };
+
+  function _perdasNoPeriodo(perdas) {
+    if (_perdasPer === 'mes') {
+      const mes = DateUtil.mesAtual();
+      return perdas.filter(m => String(m.data || '').substring(0, 7) === mes);
+    }
+    if (_perdasPer === '3m') {
+      const corte = DateUtil.addMonths(DateUtil.today(), -3);
+      return perdas.filter(m => String(m.data || '').substring(0, 10) >= corte);
+    }
+    return perdas;
+  }
+
+  // Conferência: reconstrói o saldo de cada item pelo razão (entradas − saídas).
+  // Linhas ANTIGAS de ajuste (tipo='ajuste', quantidade absoluta, sem direção —
+  // gravadas antes da v3.6) tornam o item não-conferível automaticamente.
+  function _razaoItem(movs) {
+    let soma = 0, temAjusteAntigo = false;
+    movs.forEach(m => {
+      const q = Number(m.quantidade || 0);
+      if (m.tipo === 'entrada') soma += q;
+      else if (m.tipo === 'saida') soma -= q;
+      else temAjusteAntigo = true;
+    });
+    return { soma, temAjusteAntigo };
+  }
+
+  function _conferencia(base) {
+    const ok = [], difs = [], manuais = [];
+    base.forEach(e => {
+      const movs = allMovs.filter(m => String(m.estoque_id) === String(e.id));
+      const qtd  = Number(e.quantidade || 0);
+      if (!movs.length) {
+        // Sem nenhuma movimentação: item legado (anterior ao módulo) — nada a conferir
+        if (qtd !== 0) manuais.push({ e, motivo: 'sem movimentações (item antigo)' });
+        else ok.push(e);
+        return;
+      }
+      const { soma, temAjusteAntigo } = _razaoItem(movs);
+      if (temAjusteAntigo) { manuais.push({ e, motivo: 'tem ajuste antigo (sem direção)' }); return; }
+      const dif = Math.round((qtd - soma) * 100) / 100;
+      if (dif === 0) { ok.push(e); return; }
+      // Assinatura do bug do saldo inicial dobrado (v2.8→3.5): a diferença é
+      // exatamente a quantidade da entrada "Saldo inicial" do item.
+      const movIni = movs.find(m => String(m.observacoes || '') === 'Saldo inicial');
+      const dobro  = movIni && dif === Number(movIni.quantidade || 0) && dif > 0;
+      difs.push({ e, dif, dobro, corrigirPara: Math.round((qtd - dif) * 100) / 100 });
+    });
+    return { ok, difs, manuais };
+  }
+
+  function corrigirConferencia(id, novaQtd) { return Guard.run('estq-conf', () => _corrigirConferencia(id, novaQtd)); }
+  async function _corrigirConferencia(id, novaQtd) {
+    const e = allEstoque.find(x => String(x.id) === String(id));
+    if (!e) return;
+    Modal.confirm(`Corrigir "${e.descricao}" de ${Number(e.quantidade || 0)} para ${novaQtd}?`, async () => {
+      Loading.show();
+      const res = await API.db.registrarMovEstoque({
+        estoque_id: id, tipo: 'ajuste', nova_quantidade: novaQtd,
+        origem: 'manual', observacoes: 'Correção de saldo inicial duplicado',
+      });
+      Loading.hide();
+      if (res?.success) { Toast.success('Saldo corrigido!'); await render(); }
+      else Toast.error('Erro: ' + res?.error);
+    });
+  }
+
+  // Dados do relatório (mesma conta do renderRel) — usados na tela e no PDF.
+  function _dadosRel() {
     if (_relCat === null) _relCat = catMaterialId();
     const base = _relCat
       ? allEstoque.filter(e => String(e.categoria_id || '') === String(_relCat))
       : allEstoque;
     const totalValor = base.reduce((s, e) => s + Number(e.valor_unit || 0) * Number(e.quantidade || 0), 0);
     const baixos     = base.filter(isBaixo);
-    // Valor por categoria
     const porCat = {};
     base.forEach(e => {
       const k = catNome(e.categoria_id) || 'Sem categoria';
       porCat[k] = (porCat[k] || 0) + Number(e.valor_unit || 0) * Number(e.quantidade || 0);
     });
-    // Perdas (saídas com motivo=perda) — restritas aos itens da categoria filtrada
     const baseIds = new Set(base.map(e => String(e.id)));
-    const perdas = allMovs.filter(m => m.motivo === 'perda' && (!_relCat || baseIds.has(String(m.estoque_id))));
+    const perdas = _perdasNoPeriodo(
+      allMovs.filter(m => m.motivo === 'perda' && (!_relCat || baseIds.has(String(m.estoque_id)))));
     const perdaValor = perdas.reduce((s, m) => s + Number(m.valor_total || 0), 0);
-    const catRows = Object.entries(porCat).sort((a, b) => b[1] - a[1]);
+    return {
+      base, totalValor, baixos,
+      catRows: Object.entries(porCat).sort((a, b) => b[1] - a[1]),
+      perdas, perdaValor,
+      catLabel: _relCat ? (catNome(_relCat) || '') : 'Todas as categorias',
+      perdasLabel: PERDAS_PER[_perdasPer] || 'Perdas',
+    };
+  }
+
+  async function exportarPDF() {
+    const d = _dadosRel();
+    await Doc.relatorioEstoque({
+      catLabel: d.catLabel,
+      totalValor: d.totalValor,
+      itens: d.base.slice().sort((a, b) => (a.descricao || '').localeCompare(b.descricao || '')),
+      catRows: d.catRows,
+      baixos: d.baixos,
+      perdasLabel: d.perdasLabel,
+      perdaValor: d.perdaValor,
+      itemNome: id => allEstoque.find(e => String(e.id) === String(id))?.descricao || '—',
+    });
+  }
+
+  function renderRel() {
+    const { base, totalValor, baixos, catRows, perdaValor } = _dadosRel();
+    const conf = _conferencia(base);
 
     qs('#page-estoque').innerHTML = `
       ${tabsHTML('rel')}
-      <div class="page-header"><h1>Relatório</h1></div>
-      <div class="filters-bar" style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <div class="page-header">
+        <h1>Relatório</h1>
+        <button class="btn btn-outline btn-sm" onclick="Estoque.exportarPDF()">📄 PDF</button>
+      </div>
+      <div class="filters-bar" style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:12px">
+        <select class="input" style="max-width:44%" onchange="Estoque.onPerdasPer(this.value)">
+          ${Object.entries(PERDAS_PER).map(([k, l]) => `<option value="${k}" ${k === _perdasPer ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
         ${catSelectHTML(_relCat, 'Estoque.onRelCat(this.value)')}
       </div>
       <div class="stats-grid-4 mb-3">
         <div class="stat-card"><div class="stat-label">Valor em estoque</div><div class="stat-value">${Fmt.currency(totalValor)}</div></div>
         <div class="stat-card"><div class="stat-label">Itens cadastrados</div><div class="stat-value">${base.length}</div></div>
-        <div class="stat-card ${baixos.length ? 'stat-red' : ''}"><div class="stat-label">Abaixo do mínimo</div><div class="stat-value">${baixos.length}</div></div>
-        <div class="stat-card ${perdaValor ? 'stat-red' : ''}"><div class="stat-label">Perdas (total)</div><div class="stat-value">${Fmt.currency(perdaValor)}</div></div>
+        <div class="stat-card ${baixos.length ? 'stat-red' : ''}"><div class="stat-label">Repor / negativo</div><div class="stat-value">${baixos.length}</div></div>
+        <div class="stat-card ${perdaValor ? 'stat-red' : ''}"><div class="stat-label">${PERDAS_PER[_perdasPer] || 'Perdas'}</div><div class="stat-value">${Fmt.currency(perdaValor)}</div></div>
       </div>
       <div class="card mb-3">
         <div class="card-header"><h3>Valor por categoria</h3></div>
@@ -515,11 +626,38 @@ const Estoque = (() => {
       </div>
       ${baixos.length ? `
         <div class="card mb-3">
-          <div class="card-header"><h3>⚠ Repor (abaixo do mínimo)</h3></div>
+          <div class="card-header"><h3>⚠ Repor (abaixo do mínimo / negativo)</h3></div>
           <div class="card-body">
-            ${baixos.map(e => `<div class="info-row"><span>${e.descricao}</span><strong>${Number(e.quantidade || 0)} / mín ${Number(e.estoque_minimo || 0)}</strong></div>`).join('')}
+            ${baixos.map(e => `<div class="info-row"><span>${e.descricao}</span><strong style="${Number(e.quantidade || 0) < 0 ? 'color:var(--danger)' : ''}">${Number(e.quantidade || 0)} / mín ${Number(e.estoque_minimo || 0)}</strong></div>`).join('')}
           </div>
         </div>` : ''}
+      <div class="card mb-3">
+        <div class="card-header"><h3>🔎 Conferência (saldo × movimentações)</h3></div>
+        <div class="card-body">
+          <p class="text-muted" style="font-size:.76rem;line-height:1.45;margin:0 0 10px">
+            Compara o saldo de cada item com a soma das movimentações.
+            ${conf.ok.length} item(ns) conferem.
+          </p>
+          ${conf.difs.length === 0 && conf.manuais.length === 0
+            ? '<p class="text-muted" style="font-size:.82rem;margin:0">✓ Tudo batendo.</p>' : ''}
+          ${conf.difs.map(({ e, dif, dobro, corrigirPara }) => `
+            <div class="info-row" style="align-items:center">
+              <div style="min-width:0;flex:1">
+                <div style="font-size:.85rem;font-weight:600">${e.descricao}</div>
+                <div style="font-size:.72rem;color:var(--text-muted)">
+                  saldo ${Number(e.quantidade || 0)} · razão ${Number(e.quantidade || 0) - dif} · dif <strong style="color:var(--danger)">${dif > 0 ? '+' : ''}${dif}</strong>
+                  ${dobro ? ' · <strong style="color:#CC6600">provável saldo inicial duplicado</strong>' : ''}
+                </div>
+              </div>
+              ${dobro ? `<button class="btn btn-sm btn-warning" style="flex:0 0 auto" onclick="Estoque.corrigirConferencia('${e.id}', ${corrigirPara})">Corrigir p/ ${corrigirPara}</button>`
+                      : `<button class="btn btn-sm btn-outline" style="flex:0 0 auto" onclick="Estoque.openForm('${e.id}')">✏️ Ajustar</button>`}
+            </div>`).join('')}
+          ${conf.manuais.length ? `
+            <p class="text-muted" style="font-size:.72rem;margin:10px 0 0">
+              ${conf.manuais.length} item(ns) sem conferência automática (${[...new Set(conf.manuais.map(m => m.motivo))].join('; ')}) — na dúvida, use a aba Inventário.
+            </p>` : ''}
+        </div>
+      </div>
     `;
   }
 
@@ -694,7 +832,8 @@ const Estoque = (() => {
 
   return {
     render, goTab, switchTab, tabsHTML,
-    onSearch, onCatFiltro, onRelCat, openDetail, voltarLista,
+    onSearch, onCatFiltro, onRelCat, onPerdasPer, corrigirConferencia, exportarPDF,
+    openDetail, voltarLista,
     openForm, saveForm, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
     onMovSearch, onMovMotivo, onContagem, finalizarContagem,

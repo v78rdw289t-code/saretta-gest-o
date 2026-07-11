@@ -24,7 +24,6 @@ const API = (() => {
     fecharOSLote:    ()     => ['os', 'parcelas', 'fechamentos', 'fechamento_dias', 'fechamento_os'],
     registrarCompra: ()     => ['compras', 'compras_itens', 'estoque', 'estoque_movimentacoes', 'parcelas', 'fiado', 'fiado_mov'],
     registrarMovEstoque: () => ['estoque', 'estoque_movimentacoes'],
-    registrarFiado:  ()     => ['fiado', 'parcelas'],
     registrarEmprestimoSocio: () => ['fiado_mov', 'parcelas', 'contas'],
     registrarFiadoMovManual:  () => ['fiado_mov'],
     acertarFiado:    ()     => ['fiado_mov', 'fiado', 'parcelas', 'contas'],
@@ -376,12 +375,12 @@ const API = (() => {
   // Envio cru do POST — lança erro de rede pro chamador decidir.
   // SEM retry automático: se a 1ª tentativa chegou no servidor e a resposta
   // se perdeu, repetir duplicaria o lançamento.
-  async function rawSend(action, body) {
+  async function rawSend(action, body, timeout = NET_TIMEOUT) {
     const token = (typeof LocalConfig !== 'undefined') ? LocalConfig.getToken() : '';
     const res = await fetchWithTimeout(window.APPS_SCRIPT_URL, {
       method: 'POST',
       body: JSON.stringify({ action, token, ...body }),
-    });
+    }, timeout);
     const json = await res.json();
     if (json && json.error && /autoriz|token/i.test(json.error)) {
       Toast.error('Acesso negado — confira o token em Configurações');
@@ -430,9 +429,13 @@ const API = (() => {
   // Caminho interno usado pelo flush da caderneta: sem hooks de fila (evita
   // recursão) e devolvendo o TIPO do erro de rede — o flush decide se para
   // (rede caiu) ou marca 'incerto' (timeout ambíguo).
+  // Timeout FOLGADO (40s > trava de 30s do doPost): o servidor pode segurar a
+  // escrita na fila do LockService; desistir aos 15s criava falso "a confirmar"
+  // com a escrita chegando logo depois — a raiz das duplicações da caderneta.
+  const NET_TIMEOUT_FILA = 40000;
   async function _postDireto(action, body = {}) {
     try {
-      const json = await rawSend(action, body);
+      const json = await rawSend(action, body, NET_TIMEOUT_FILA);
       if (json && json.success) invalidateForAction(action, body);
       return json;
     } catch (e) {
@@ -473,7 +476,6 @@ const API = (() => {
     fecharOSLote(data) { return post('fecharOSLote', data); },
     registrarCompra(data) { return post('registrarCompra', data); },
     registrarMovEstoque(data) { return post('registrarMovEstoque', data); },
-    registrarFiado(data) { return post('registrarFiado', data); },
     registrarEmprestimoSocio(data) { return post('registrarEmprestimoSocio', data); },
     registrarFiadoMovManual(data) { return post('registrarFiadoMovManual', data); },
     acertarFiado(data) { return post('acertarFiado', data); },
@@ -503,7 +505,9 @@ const API = (() => {
   // Hidrata cache do localStorage assim que o módulo carrega
   hydrateCache();
 
-  return { get, post, db, clearCache, hasCache, _postDireto };
+  // _invalidateFor: usado pela caderneta quando confirma (por leitura) que um
+  // item "a confirmar" JÁ chegou — invalida o cache pra linha aparecer na tela.
+  return { get, post, db, clearCache, hasCache, _postDireto, _invalidateFor: invalidateForAction };
 })();
 
 // ─── CONFIG LOCAL ────────────────────────────────────────────

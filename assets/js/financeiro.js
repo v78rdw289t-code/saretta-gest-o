@@ -51,7 +51,7 @@ const Financeiro = (() => {
       _filterOpen = true;
     } else {
       _filtros.status = '';
-      _filtros.mes = new Date().toISOString().substring(0, 7);
+      _filtros.mes = DateUtil.mesAtual();
       _filterOpen = false;
     }
     // loadGlobals garante que App.getContas() esteja populado (usado no resumo de saldos)
@@ -355,7 +355,7 @@ const Financeiro = (() => {
     _filtros.busca = ''; _filtros.status = ''; _filtros.categoria = '';
     _filtros.cliente = ''; _filtros.conta = '';
     _filtros.periodoTipo = 'mes';
-    _filtros.mes = new Date().toISOString().substring(0, 7);
+    _filtros.mes = DateUtil.mesAtual();
     _filtros.dataIni = ''; _filtros.dataFim = '';
     _filtros.regime = 'competencia';
     _filtroAbertos = null;
@@ -591,13 +591,27 @@ const Financeiro = (() => {
     if (p.status === 'pendente') {
       actions.push({ icon: '💰', label: 'Registrar Pagamento', fn: () => openPagamento(id) });
     }
+    if (p.status === 'pago' && !origemForaResultado(p.origem)) {
+      actions.push({ icon: '🧾', label: 'Recibo (PDF)', fn: () => gerarRecibo(id) });
+    }
     actions.push({ icon: '✏️', label: 'Editar', fn: () => editarParcela(id) });
     actions.push({ icon: '🗑', label: 'Excluir lançamento', fn: () => excluirParcela(id), danger: true });
     ActionSheet.open(p.descricao, actions);
   }
 
+  // Recibo em PDF de uma parcela paga (recebimento → entrega ao cliente)
+  async function gerarRecibo(id) {
+    const p = allParcelas.find(x => x.id === id);
+    if (!p) return;
+    await Doc.recibo({
+      parcela: p,
+      clienteNome: p.cliente_id ? App.clienteNome(p.cliente_id) : '',
+      contaNome: p.conta_id ? App.contaNome(p.conta_id) : '',
+    });
+  }
+
   function renderResumo() {
-    const mes = new Date().toISOString().substring(0, 7);
+    const mes = DateUtil.mesAtual();
     qs('#fin-content').innerHTML = `
       <div class="filters-bar" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
         <label style="flex:1;min-width:200px">Mês:
@@ -611,12 +625,12 @@ const Financeiro = (() => {
   }
 
   function renderResumoMes() {
-    const mes = MonthPicker.value('resumo-mes') || new Date().toISOString().substring(0, 7);
+    const mes = MonthPicker.value('resumo-mes') || DateUtil.mesAtual();
 
     // Mês anterior para comparativo
     const [ano, m] = mes.split('-').map(Number);
     const antDate  = new Date(ano, m - 2, 1);
-    const mesAnt   = antDate.toISOString().substring(0, 7);
+    const mesAnt   = DateUtil.ymd(antDate).substring(0, 7);
 
     const reais = p => !origemForaResultado(p.origem);
 
@@ -829,8 +843,7 @@ const Financeiro = (() => {
     if (reativar) {
       // Reativar NÃO gera retroativo dos meses pausados: marca a geração como
       // "em dia" até o mês passado e lança só o mês corrente daqui pra frente.
-      const d = new Date(); d.setMonth(d.getMonth() - 1);
-      campos.ultima_geracao = d.toISOString().substring(0, 7);
+      campos.ultima_geracao = DateUtil.addMonths(DateUtil.mesAtual() + '-01', -1).substring(0, 7);
     }
     Loading.show();
     await API.db.update('recorrentes', id, campos);
@@ -1106,12 +1119,10 @@ const Financeiro = (() => {
         // ultima_geracao = mês ANTERIOR ao 1º vencimento: se o 1º vencimento é
         // neste mês, a parcela nasce já; se é um mês futuro, nasce quando chegar
         // (e a geração NÃO retroage pra antes do cadastro).
-        const dAnt = new Date(vencStr.substring(0, 7) + '-01T00:00:00');
-        dAnt.setMonth(dAnt.getMonth() - 1);
         res = await API.db.create('recorrentes', {
           descricao: desc, tipo: 'pagar', valor, categoria_id: categoria,
           cliente_id: cliente, dia_vencimento: diaVenc, ativo: true,
-          ultima_geracao: dAnt.toISOString().substring(0, 7),
+          ultima_geracao: DateUtil.addMonths(vencStr.substring(0, 7) + '-01', -1).substring(0, 7),
           observacoes: obs, data_criacao: DateUtil.today(),
         });
       }
@@ -1136,8 +1147,8 @@ const Financeiro = (() => {
     // ── Caminho parcelado: cria N parcelas mensais com grupo_id compartilhado ──
     if (isParcelado) {
       const nParc   = Math.max(2, Math.min(60, parseInt(qs('#manual-nparcelas')?.value) || 2));
-      const vencBase = new Date((venc || DateUtil.today()) + 'T00:00:00');
-      if (isNaN(vencBase.getTime())) { Toast.warning('Informe o vencimento da 1ª parcela'); return; }
+      const vencBase = venc || DateUtil.today();
+      if (isNaN(new Date(vencBase + 'T00:00:00').getTime())) { Toast.warning('Informe o vencimento da 1ª parcela'); return; }
 
       const grupoId = genUUID();
 
@@ -1146,9 +1157,8 @@ const Financeiro = (() => {
       const resto     = Math.round((valor - valorUnit * nParc) * 100) / 100;
 
       const operations = Array.from({ length: nParc }, (_, i) => {
-        const d = new Date(vencBase);
-        d.setMonth(d.getMonth() + i);
-        const vencStr = d.toISOString().substring(0, 10);
+        // addMonths segura o dia no fim do mês: venc 31/01 → 28/02 (não 03/03)
+        const vencStr = DateUtil.addMonths(vencBase, i);
         const compStr = vencStr.substring(0, 7) + '-01';
         return {
           action: 'create', sheet: 'parcelas',
@@ -1486,11 +1496,29 @@ const Financeiro = (() => {
   let _extLinhas  = [];  // movimentos já com saldoApos, do mais novo p/ o mais antigo
   let _extShown   = 0;   // quantos já estão no DOM
   let _extInicial = 0;   // saldo inicial da conta (linha-âncora no fim)
+  let _extConta   = '';  // nome da conta aberta (p/ o PDF)
+
+  // Extrato aberto em PDF (linhas do mais antigo pro mais novo, como no papel)
+  async function exportarExtratoPDF() {
+    const antigasPrimeiro = _extLinhas.slice().reverse();
+    await Doc.extratoConta({
+      contaNome: _extConta,
+      saldoInicial: _extInicial,
+      saldoAtual: antigasPrimeiro.length ? antigasPrimeiro[antigasPrimeiro.length - 1].saldoApos : _extInicial,
+      linhas: antigasPrimeiro.map(m => ({
+        data: m.data,
+        descricao: m.p?.descricao || '',
+        valor: m.sign * m.valor,
+        saldoApos: m.saldoApos,
+      })),
+    });
+  }
   const EXT_PAGE  = 60;
 
   function openExtrato(contaId) {
     const conta = App.getContas().find(c => c.id === contaId);
     if (!conta) { Toast.error('Conta não encontrada'); return; }
+    _extConta   = conta.nome;
     _extInicial = Number(conta.saldo_inicial || 0);
 
     const movs = allParcelas
@@ -1578,7 +1606,7 @@ const Financeiro = (() => {
 
   // Exporta um relatório de receitas/despesas do mês do Resumo em PDF.
   async function exportarPDF() {
-    const mes = MonthPicker.value('resumo-mes') || new Date().toISOString().substring(0, 7);
+    const mes = MonthPicker.value('resumo-mes') || DateUtil.mesAtual();
     const [ano, m] = mes.split('-').map(Number);
     const nomeMs = new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
     const label  = nomeMs.charAt(0).toUpperCase() + nomeMs.slice(1);
@@ -1604,7 +1632,7 @@ const Financeiro = (() => {
   }
 
   return { render, switchTab, filtrar, limparFiltroVenc7d, verAbertos, verMais, calcNetValor, openExtrato, verMaisExtrato,
-           exportarPDF,
+           exportarPDF, exportarExtratoPDF, gerarRecibo,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
            toggleRecorrente, editarRecorrente, excluirRecorrente,

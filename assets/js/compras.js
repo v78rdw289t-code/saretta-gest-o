@@ -128,20 +128,28 @@ const Compras = (() => {
       'Excluir esta compra? As parcelas serão removidas. O estoque NÃO será revertido automaticamente.',
       async () => {
         Loading.show();
-        const [itensRes, parRes] = await Promise.all([
+        const [itensRes, parRes, fmRes] = await Promise.all([
           API.db.read('compras_itens', null, { compra_id: id }),
           API.db.read('parcelas', null, { origem_id: id }),
+          API.db.read('fiado_mov'),
         ]);
         const itens    = itensRes?.data || [];
         const parcelas = parRes?.data   || [];
+        // Compra paga por sócio criou movimento na Ficha (mesmo grupo_id das
+        // parcelas) — tem que sair junto, senão o saldo da ficha fica errado.
+        const grupos   = new Set(parcelas.map(p => p.grupo_id).filter(Boolean));
+        const parcIds  = new Set(parcelas.map(p => String(p.id)));
+        const movs     = (fmRes?.data || []).filter(m =>
+          (m.grupo_id && grupos.has(m.grupo_id)) || (m.parcela_id && parcIds.has(String(m.parcela_id))));
 
         await Promise.all([
           ...itens.map(i    => API.db.delete('compras_itens', i.id)),
           ...parcelas.map(p => API.db.delete('parcelas', p.id)),
+          ...movs.map(m     => API.db.delete('fiado_mov', m.id)),
         ]);
         await API.db.delete('compras', id);
         Loading.hide();
-        Toast.success('Compra excluída.');
+        Toast.success('Compra excluída.' + (movs.length ? ' Movimento da ficha removido.' : ''));
         await loadData(); renderList();
       }
     );

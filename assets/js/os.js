@@ -67,7 +67,7 @@ const OS = (() => {
     const statusAv = s => s === 'fechado' ? 'av-green' : s === 'andamento' ? 'av-blue' : s === 'acerto' ? 'av-orange' : 'av-navy';
 
     // Insights rápidos
-    const mes = new Date().toISOString().substring(0,7);
+    const mes = DateUtil.mesAtual();
     const totalAndamento = allOS.filter(o => o.status === 'andamento').length;
     const totalAcerto    = allOS.filter(o => o.status === 'acerto').length;
     const fechadasMes    = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes)).length;
@@ -1106,22 +1106,10 @@ const OS = (() => {
     qs('#modal-item-qtd').value   = item?.quantidade || '1';
     qs('#modal-item-unit').value  = item?.valor_unit || '';
     qs('#modal-item-total').value = item?.valor_total || '';
-    if (qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
     qs('#modal-item-estoque').innerHTML =
       '<option value="">— Selecione do estoque (opcional) —</option>' +
       estoque.map(e => `<option value="${e.id}" data-unit="${e.valor_unit}" ${e.id === item?.estoque_id ? 'selected' : ''}>${e.descricao} (Qtd: ${e.quantidade})</option>`).join('');
-    onItemTipoChange(); // sincroniza visibilidade do campo quem pagou
     Modal.open('modal-item');
-  }
-
-  // Mostra/oculta campo "quem pagou" conforme o tipo do item
-  function onItemTipoChange() {
-    const tipo = qs('#modal-item-tipo')?.value;
-    const wrap = qs('#item-quempagou-wrap');
-    if (wrap) wrap.style.display = tipo === 'material' ? '' : 'none';
-    if (tipo !== 'material' && qs('#modal-item-quempagou')) {
-      qs('#modal-item-quempagou').value = '';
-    }
   }
 
   // trava de duplo clique (Guard) — o corpo real está em _saveItem
@@ -1135,7 +1123,6 @@ const OS = (() => {
     const qtd       = Number(qs('#modal-item-qtd').value) || 1;
     const unit      = Number(qs('#modal-item-unit').value) || 0;
     const total     = Number(qs('#modal-item-total').value) || (qtd * unit);
-    const quemPagou = (tipo === 'material' ? qs('#modal-item-quempagou')?.value : '') || '';
 
     if (!desc && !estId) { Toast.warning('Informe a descrição'); return; }
 
@@ -1184,51 +1171,13 @@ const OS = (() => {
     const res = itemId
       ? await API.db.update('os_itens', itemId, itemData)
       : await API.db.create('os_itens', itemData);
-
-    // Se material pago por colaborador: gerar fiado de reembolso.
-    // Item veio da caderneta (queued) = estamos offline: a cadeia parcela→fiado
-    // referencia ids entre si e o backend antigo regenera ids de create — não é
-    // seguro enfileirar. Fica pro dono lançar depois, com aviso honesto.
-    if (res?.success && res.queued && !itemId && quemPagou && total > 0) {
-      Toast.warning('Sem internet — o reembolso de quem pagou NÃO foi lançado. Registre depois no Financeiro.');
-    }
-    if (res?.success && !res.queued && !itemId && quemPagou && total > 0) {
-      const pessoaFmt = quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1);
-      const catFiado  = App.getCategorias().find(c => c.nome === `Fiado ${pessoaFmt}`)?.id || '';
-      const osNum     = currentOS?.numero || '';
-      const parc = await API.db.create('parcelas', {
-        tipo: 'pagar', origem: 'fiado', origem_id: '',
-        cliente_id: '', valor: total,
-        descricao:        `Reembolso ${pessoaFmt}: ${finalDesc || desc} (OS #${osNum})`,
-        data_competencia: DateUtil.today().substring(0, 7) + '-01',
-        data_vencimento:  DateUtil.today(),
-        data_pagamento:   '',
-        status:           'pendente',
-        categoria_id:     catFiado,
-        observacoes:      `Material na OS #${osNum}`,
-      });
-      if (parc?.data?.id) {
-        const fiad = await API.db.create('fiado', {
-          pessoa:           quemPagou,
-          descricao:        `${finalDesc || desc} (OS #${osNum})`,
-          valor:            total,
-          data:             DateUtil.today(),
-          parcela_pagar_id: parc.data.id,
-          status:           'pendente',
-          observacoes:      `Material na OS #${osNum}`,
-        });
-        if (fiad?.data?.id) {
-          await API.db.update('parcelas', parc.data.id, { origem_id: fiad.data.id });
-        }
-      }
-    }
     Loading.hide();
 
+    // "Quem pagou" saiu daqui (v3.6): material pago do bolso pelo sócio agora
+    // é SEMPRE lançado como Compra (Estoque → Compras), que já joga na Ficha.
+
     if (res?.success) {
-      const msg = (!itemId && quemPagou)
-        ? `Item adicionado! Fiado de reembolso gerado para ${quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1)}.`
-        : (itemId ? 'Item atualizado!' : 'Item adicionado!');
-      Toast.success(msg);
+      Toast.success(itemId ? 'Item atualizado!' : 'Item adicionado!');
       Modal.close('modal-item');
       await loadData();
       openDetail(osId);
@@ -1537,7 +1486,7 @@ const OS = (() => {
     });
     Loading.hide();
 
-    const dataFim = new Date().toISOString().substring(0, 10);
+    const dataFim = DateUtil.today();
     const patch = {
       status: 'fechado',
       valor_fechamento: liquido,
@@ -1828,7 +1777,7 @@ const OS = (() => {
     Loading.hide();
 
     if (res?.success) {
-      const dataFim = new Date().toISOString().substring(0, 10);
+      const dataFim = DateUtil.today();
       itens.forEach(it => {
         const idx = allOS.findIndex(o => o.id === it.os_id);
         if (idx >= 0) {
@@ -1854,7 +1803,7 @@ const OS = (() => {
       data_atualizacao: new Date().toISOString(),
     };
     if (novoStatus === 'fechado' && !currentOS.data_fim) {
-      patch.data_fim = new Date().toISOString().substring(0, 10);
+      patch.data_fim = DateUtil.today();
     }
     const res = await API.db.update('os', currentOS.id, patch);
     Loading.hide();
@@ -2053,7 +2002,7 @@ const OS = (() => {
     openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
-    openItemForm, onItemTipoChange, saveItem, deleteItem,
+    openItemForm, saveItem, deleteItem,
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,

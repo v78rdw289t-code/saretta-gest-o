@@ -114,7 +114,6 @@ function doPost(e) {
       case 'fecharOSLote':    result = fecharOSLote(data); break;
       case 'registrarCompra': result = registrarCompra(data); break;
       case 'registrarMovEstoque': result = registrarMovEstoque(data); break;
-      case 'registrarFiado':  result = registrarFiado(data); break;
       case 'registrarEmprestimoSocio': result = registrarEmprestimoSocio(data); break;
       case 'registrarFiadoMovManual':  result = registrarFiadoMovManual(data); break;
       case 'acertarFiado':    result = acertarFiado(data); break;
@@ -311,6 +310,17 @@ function _vencNoMes(mes, dia) {
   return mes + '-' + ('0' + d).slice(-2);
 }
 
+// Soma n meses a 'YYYY-MM-DD' segurando o dia no fim do mês (31/01 + 1 = 28/02).
+// Tudo em string: setMonth estoura pro mês seguinte em dia 29-31, e
+// new Date('YYYY-MM-DD') + formatDate no fuso ainda recuava 1 dia.
+function _addMesesClamp(baseStr, n) {
+  const base = String(baseStr || '').substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return base;
+  const mes0 = Number(base.substring(0, 4)) * 12 + (Number(base.substring(5, 7)) - 1) + Number(n || 0);
+  const y = Math.floor(mes0 / 12), m = (mes0 % 12) + 1;
+  return _vencNoMes(y + '-' + ('0' + m).slice(-2), base.substring(8, 10));
+}
+
 // Gera as parcelas pendentes das contas fixas até data.mes (ou o mês do
 // servidor). Idempotente: ultima_geracao marca até onde já foi e o doPost
 // roda sob LockService — dois boots simultâneos não duplicam.
@@ -376,8 +386,8 @@ function fecharOS(data) {
     data.diaria_ids.forEach(did => create('fechamento_dias', { fechamento_id: fechId, diaria_id: did }));
   }
 
-  // Buscar info da OS para montar parcela
-  const osRec = read('os', data.os_id).data[0];
+  // Info da OS para montar a parcela (osCheck já foi lido acima)
+  const osRec = osCheck;
   const clienteRec = osRec ? read('clientes', osRec.cliente_id).data[0] : null;
   const clienteNome = clienteRec ? clienteRec.nome : '';
 
@@ -397,8 +407,9 @@ function fecharOS(data) {
   };
   const parcela = create('parcelas', parcelaData);
 
-  // Atualizar status da OS
-  update('os', data.os_id, { status: 'fechado', valor_fechamento: data.valor_liquido, data_fim: new Date().toISOString().substring(0,10), data_atualizacao: new Date().toISOString() });
+  // Atualizar status da OS (data_fim no fuso do script — toISOString é UTC e
+  // à noite já viraria o dia seguinte)
+  update('os', data.os_id, { status: 'fechado', valor_fechamento: data.valor_liquido, data_fim: _hojeStr(), data_atualizacao: new Date().toISOString() });
 
   return { success: true, fechamento_id: fechId, parcela_id: parcela.data.id };
 }
@@ -433,7 +444,7 @@ function fecharOSLote(data) {
   const fechId = fechamento.data.id;
 
   const numeros = [];
-  const hoje = new Date().toISOString().substring(0, 10);
+  const hoje = _hojeStr();
   itens.forEach(it => {
     create('fechamento_os', { fechamento_id: fechId, os_id: it.os_id, valor_liq: it.valor_liquido });
     (it.diaria_ids || []).forEach(did => create('fechamento_dias', { fechamento_id: fechId, diaria_id: did }));
@@ -577,10 +588,7 @@ function registrarCompra(data) {
     // Sócio pagou a compra do bolso. A despesa real CONTA no resultado
     // (conta_id='' = não saiu da conta da empresa); a dívida com o sócio
     // vira movimento na ficha. SEM receita fantasma de "Devolução de fiado".
-    let primeiraVenc = new Date(data.primeira_data_vencimento);
     for (let i = 0; i < parcCount; i++) {
-      const venc = new Date(primeiraVenc);
-      venc.setMonth(venc.getMonth() + i);
       create('parcelas', {
         tipo:            'pagar',
         origem:          'compra',
@@ -590,7 +598,7 @@ function registrarCompra(data) {
         descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
         valor:           valorParc,
         data_competencia:data.data_competencia,
-        data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        data_vencimento: _addMesesClamp(data.primeira_data_vencimento, i),
         data_pagamento:  dataPago,
         status:          'pago',
         conta_id:        '',  // saiu do bolso da pessoa, não da conta da empresa
@@ -611,10 +619,7 @@ function registrarCompra(data) {
     });
   } else {
     // Caminho normal: parcelas pendentes
-    let primeiraVenc = new Date(data.primeira_data_vencimento);
     for (let i = 0; i < parcCount; i++) {
-      const venc = new Date(primeiraVenc);
-      venc.setMonth(venc.getMonth() + i);
       create('parcelas', {
         tipo:            'pagar',
         origem:          'compra',
@@ -624,7 +629,7 @@ function registrarCompra(data) {
         descricao:       'Compra - ' + fornNome + (parcCount > 1 ? ' (' + (i+1) + '/' + parcCount + ')' : ''),
         valor:           valorParc,
         data_competencia:data.data_competencia,
-        data_vencimento: Utilities.formatDate(venc, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        data_vencimento: _addMesesClamp(data.primeira_data_vencimento, i),
         data_pagamento:  '',
         status:          'pendente',
         categoria_id:    parcelaCatId,
@@ -634,39 +639,6 @@ function registrarCompra(data) {
   }
 
   return { success: true, compra_id: compraId };
-}
-
-function registrarFiado(data) {
-  // data: { pessoa, descricao, valor, data, observacoes, categoria_id }
-  // Gera: 1 parcela a pagar (empresa deve para pessoa) + 1 registro fiado
-  const parcelaPagar = create('parcelas', {
-    tipo:            'pagar',
-    origem:          'fiado',
-    origem_id:       '',
-    cliente_id:      '',
-    descricao:       'Fiado - ' + data.pessoa + ' - ' + data.descricao,
-    valor:           data.valor,
-    data_competencia:data.data,
-    data_vencimento: data.data_vencimento || data.data,
-    data_pagamento:  '',
-    status:          'pendente',
-    categoria_id:    data.categoria_id || '',
-    observacoes:     data.observacoes || '',
-  });
-
-  const fiado = create('fiado', {
-    pessoa:         data.pessoa,
-    descricao:      data.descricao,
-    valor:          data.valor,
-    data:           data.data,
-    parcela_pagar_id: parcelaPagar.data.id,
-    status:         'pendente',
-    observacoes:    data.observacoes || '',
-  });
-
-  update('parcelas', parcelaPagar.data.id, { origem_id: fiado.data.id });
-
-  return { success: true, fiado_id: fiado.data.id, parcela_id: parcelaPagar.data.id };
 }
 
 // ============================================================
@@ -857,7 +829,10 @@ function registrarMovEstoque(data) {
     const aNew = (data.novo_valor_unit !== undefined && data.novo_valor_unit !== '') ? Number(data.novo_valor_unit) : aOld;
     qtdMov = qNew - qOld;
     custoMov = aNew;
-    tipo = 'ajuste'; motivo = 'ajuste';
+    // Direção explícita: ajuste que aumenta = entrada, que diminui = saída
+    // (motivo 'ajuste'). Antes gravava tipo 'ajuste' com quantidade absoluta,
+    // o que perdia a direção e impedia conferir o razão contra o saldo.
+    tipo = qtdMov < 0 ? 'saida' : 'entrada'; motivo = 'ajuste';
     update('estoque', data.estoque_id, { quantidade: qNew, valor_unit: aNew });
   } else if (data.tipo === 'entrada') {
     qtdMov = Number(data.quantidade || 0);
@@ -868,9 +843,13 @@ function registrarMovEstoque(data) {
     update('estoque', data.estoque_id, { quantidade: qNew, valor_unit: aNew });
   } else {
     // saída: baixa/perda/uso interno/uso em OS. Mantém o custo médio (não recalcula).
+    // O saldo PODE ficar negativo (decisão do dono): negativo = houve entrada não
+    // registrada. Assim o razão (movimentações) sempre bate com o saldo — antes o
+    // saldo travava em 0 mas a movimentação registrava a quantidade cheia, e o
+    // relatório de perdas inflava.
     qtdMov = Number(data.quantidade || 0);
     custoMov = aOld;
-    qNew = Math.max(0, qOld - qtdMov);
+    qNew = qOld - qtdMov;
     tipo = 'saida'; motivo = data.motivo || 'uso_interno';
     update('estoque', data.estoque_id, { quantidade: qNew });
   }
@@ -942,11 +921,6 @@ function excluirLancamento(parcelaId) {
     grupo = todasParcelas.filter(function(p) {
       return p.origem_id === parc.origem_id &&
              (p.origem === 'compra' || p.origem === 'fiado_pago');
-    });
-    // Inclui parcela de reembolso (fiado) vinculada a este grupo via fiado record
-    var fiadoReemb = todasParcelas.find(function(p) {
-      return p.origem === 'fiado' && p.origem_id &&
-             grupo.some(function(g) { return g.id === p.id; }) === false;
     });
     // Busca pelo fiado record cujo parcela_pagar_id aponte para a parcela de reembolso
     if (grupo.length > 0) {
@@ -1105,14 +1079,6 @@ function getDashboardStats() {
 }
 
 // ─── HELPERS INTERNOS ───────────────────────────────────────
-// Retorna o id de uma categoria pelo nome (busca na planilha)
-function _findCategoria(nome) {
-  try {
-    const cats = sheetToRecords(getSheet('categorias'));
-    return cats.find(c => c.nome === nome)?.id || '';
-  } catch { return ''; }
-}
-
 // Acha um item ATIVO no estoque pela descrição (+unidade), p/ mesclar recompras
 // em vez de criar duplicatas. Comparação normalizada (case/espaços).
 function _acharEstoquePorDescricao(descricao, unidade) {

@@ -180,17 +180,40 @@ function makeGsSandbox() {
       assert.equal(vm.runInContext('Outbox.total()', s), 1);
       assert.equal(vm.runInContext('Outbox.pendentes()', s), 0); // o que sobrou está em "erro"
     });
-    await testAsync('AbortError no POST direto vira item "incerto" (sem reenvio automático)', async () => {
+    await testAsync('AbortError no POST direto vira item "incerto"', async () => {
       s.fetch = async () => { const e = new Error('Aborted'); e.name = 'AbortError'; throw e; };
       const r = await vm.runInContext(
         `API.post('create', { sheet: 'diarias', data: { c: 3 } })`, s);
       assert.equal(r.queued, true);
       assert.equal(vm.runInContext('Outbox.pendentes()', s), 0); // incerto ≠ pendente
       assert.equal(vm.runInContext('Outbox.total()', s), 2);     // o "erro" anterior + o incerto
-      let chamadas = 0;
-      s.fetch = async () => { chamadas++; return { json: async () => ({ success: true, data: {} }) }; };
+    });
+    // v3.6: o flush VERIFICA o incerto por leitura (id do cliente) em vez de
+    // deixar parado esperando decisão manual.
+    await testAsync('flush verifica incerto: linha CHEGOU → sai da fila sem novo POST', async () => {
+      const chamadas = [];
+      s.fetch = async (url, opts) => {
+        chamadas.push(opts && opts.method === 'POST' ? 'POST' : 'GET');
+        // GET read?id=... responde que a linha existe
+        return { json: async () => ({ success: true, data: [{ id: 'achou' }] }) };
+      };
       await vm.runInContext('Outbox.flush()', s);
-      assert.equal(chamadas, 0); // flush não toca erro/incerto
+      assert.equal(vm.runInContext('Outbox.total()', s), 1); // sobrou só o "erro"
+      assert.ok(!chamadas.includes('POST'), 'não reenviou às cegas: ' + chamadas.join(','));
+    });
+    await testAsync('flush verifica incerto: linha NÃO chegou → volta pendente e reenvia', async () => {
+      // recria um incerto
+      s.fetch = async () => { const e = new Error('Aborted'); e.name = 'AbortError'; throw e; };
+      await vm.runInContext(`API.post('create', { sheet: 'diarias', data: { c: 4 } })`, s);
+      const chamadas = [];
+      s.fetch = async (url, opts) => {
+        const post = !!(opts && opts.method === 'POST');
+        chamadas.push(post ? 'POST' : 'GET');
+        return { json: async () => (post ? { success: true, data: {} } : { success: true, data: [] }) };
+      };
+      await vm.runInContext('Outbox.flush()', s);
+      assert.deepEqual(chamadas.filter(c => c === 'POST').length, 1, 'reenviou 1 POST');
+      assert.equal(vm.runInContext('Outbox.total()', s), 1); // só o "erro" de novo
     });
   }
 
@@ -317,6 +340,72 @@ function makeGsSandbox() {
       const vencs = vm.runInContext(`read('parcelas').data`, g).map(p => p.data_vencimento);
       assert.ok(vencs.includes('2026-08-05'));
       assert.ok(vencs.includes('2026-08-31'));
+    });
+  }
+
+  console.log('\n— v3.6: estoque (saldo inicial, negativo, ajuste direcionado) —');
+  {
+    const g = makeGsSandbox();
+    test('novo item (fluxo v3.6): create qtd 0 + entrada = saldo certo, SEM dobrar', () => {
+      const r = vm.runInContext(`create('estoque', { descricao: 'Fita isolante', quantidade: 0,
+        valor_unit: 5, unidade: 'un', ativo: true })`, g);
+      vm.runInContext(`registrarMovEstoque({ estoque_id: '${r.data.id}', tipo: 'entrada',
+        motivo: 'ajuste', quantidade: 10, valor_unit: 5, origem: 'manual', observacoes: 'Saldo inicial' })`, g);
+      const e = vm.runInContext(`read('estoque', '${r.data.id}').data[0]`, g);
+      assert.equal(Number(e.quantidade), 10); // era 20 com o bug (create 10 + entrada 10)
+      assert.equal(Number(e.valor_unit), 5);
+    });
+    test('saída maior que o disponível → saldo NEGATIVO e razão batendo', () => {
+      const r = vm.runInContext(`create('estoque', { descricao: 'Cabo 2mm', quantidade: 5,
+        valor_unit: 10, unidade: 'm', ativo: true })`, g);
+      const s = vm.runInContext(`registrarMovEstoque({ estoque_id: '${r.data.id}', tipo: 'saida',
+        motivo: 'perda', quantidade: 8, origem: 'manual' })`, g);
+      assert.equal(s.quantidade, -3); // antes clampava em 0 e a perda inflava
+      const mov = vm.runInContext(`read('estoque_movimentacoes').data`, g)
+        .filter(m => m.estoque_id === r.data.id)[0];
+      assert.equal(Number(mov.quantidade), 8);
+      assert.equal(Number(mov.valor_total), 80);
+    });
+    test('ajuste grava direção: diminuir = saída, aumentar = entrada (motivo ajuste)', () => {
+      const r = vm.runInContext(`create('estoque', { descricao: 'Parafuso', quantidade: 10,
+        valor_unit: 1, unidade: 'un', ativo: true })`, g);
+      vm.runInContext(`registrarMovEstoque({ estoque_id: '${r.data.id}', tipo: 'ajuste',
+        nova_quantidade: 7, origem: 'inventario' })`, g);
+      vm.runInContext(`registrarMovEstoque({ estoque_id: '${r.data.id}', tipo: 'ajuste',
+        nova_quantidade: 12, origem: 'inventario' })`, g);
+      const movs = vm.runInContext(`read('estoque_movimentacoes').data`, g)
+        .filter(m => m.estoque_id === r.data.id);
+      assert.deepEqual(movs.map(m => [m.tipo, Number(m.quantidade), m.motivo]),
+        [['saida', 3, 'ajuste'], ['entrada', 5, 'ajuste']]);
+      const e = vm.runInContext(`read('estoque', '${r.data.id}').data[0]`, g);
+      assert.equal(Number(e.quantidade), 12);
+    });
+  }
+
+  console.log('\n— v3.6: vencimento mensal com clamp de dia —');
+  {
+    const g = makeGsSandbox();
+    test('_addMesesClamp: 31/01 + 1 = 28/02 (29/02 em bissexto), + 2 = 31/03', () => {
+      assert.equal(vm.runInContext(`_addMesesClamp('2026-01-31', 1)`, g), '2026-02-28');
+      assert.equal(vm.runInContext(`_addMesesClamp('2024-01-31', 1)`, g), '2024-02-29');
+      assert.equal(vm.runInContext(`_addMesesClamp('2026-01-31', 2)`, g), '2026-03-31');
+      assert.equal(vm.runInContext(`_addMesesClamp('2026-01-15', 1)`, g), '2026-02-15');
+      assert.equal(vm.runInContext(`_addMesesClamp('2026-01-31', 0)`, g), '2026-01-31');
+    });
+    test('registrarCompra parcelada: vencimentos não pulam mês (31/01 → 28/02 → 31/03)', () => {
+      vm.runInContext(`registrarCompra({ fornecedor_id: '', data: '2026-01-31',
+        desconto: 0, parcelas_count: 3, primeira_data_vencimento: '2026-01-31',
+        data_competencia: '2026-01-01',
+        itens: [{ descricao: 'Areia', quantidade: 3, valor_unit: 100, valor_total: 300, unidade: 'sc' }] })`, g);
+      const vencs = vm.runInContext(`read('parcelas').data`, g)
+        .filter(p => p.origem === 'compra').map(p => p.data_vencimento);
+      assert.deepEqual(vencs, ['2026-01-31', '2026-02-28', '2026-03-31']);
+    });
+    test('DateUtil.addMonths (frontend) clampa igual', () => {
+      const s = makeFrontSandbox();
+      assert.equal(vm.runInContext(`DateUtil.addMonths('2026-01-31', 1)`, s), '2026-02-28');
+      assert.equal(vm.runInContext(`DateUtil.addMonths('2026-03-31', -1)`, s), '2026-02-28');
+      assert.equal(vm.runInContext(`DateUtil.addMonths('2025-11-15', 3)`, s), '2026-02-15');
     });
   }
 

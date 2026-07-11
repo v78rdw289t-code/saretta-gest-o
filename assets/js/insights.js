@@ -37,7 +37,7 @@ const Insights = (() => {
     const y = hoje.getFullYear();
     const m = hoje.getMonth();   // 0-11
 
-    function ymd(d) { return d.toISOString().substring(0, 10); }
+    function ymd(d) { return DateUtil.ymd(d); }
 
     if (key === 'mes_atual') {
       return {
@@ -95,7 +95,7 @@ const Insights = (() => {
   // Período imediatamente anterior, de mesma duração (para comparar)
   function calcPeriodoAnterior(key) {
     const hoje = new Date(); const y = hoje.getFullYear(); const m = hoje.getMonth();
-    const ymd = d => d.toISOString().substring(0, 10);
+    const ymd = d => DateUtil.ymd(d);
     if (key === 'mes_anterior') return { start: ymd(new Date(y, m-2, 1)), end: ymd(new Date(y, m-1, 0)) };
     if (key === 'ultimos_3m')   return { start: ymd(new Date(y, m-5, 1)), end: ymd(new Date(y, m-2, 0)) };
     if (key === 'ultimos_6m')   return { start: ymd(new Date(y, m-11, 1)), end: ymd(new Date(y, m-5, 0)) };
@@ -142,11 +142,11 @@ const Insights = (() => {
   // período FECHADO — durante o mês corrente faltam dias e a ociosidade conta dias
   // úteis futuros como se fossem parados, distorcendo tudo.
   function _periodoFechado(periodo) {
-    return periodo.end < new Date().toISOString().substring(0, 10);
+    return periodo.end < DateUtil.today();
   }
   // Dias úteis que ainda faltam até o período fechar
   function _diasUteisRestantes(periodo) {
-    const hoje = new Date().toISOString().substring(0, 10);
+    const hoje = DateUtil.today();
     if (periodo.end < hoje) return 0;
     return DateUtil.businessDays(hoje > periodo.start ? hoje : periodo.start, periodo.end);
   }
@@ -272,7 +272,7 @@ const Insights = (() => {
   // Evolução mês a mês (últimos N meses) — reaproveita o snapshot por mês
   function _calcEvolucao(nMeses) {
     const hoje = new Date(); const y = hoje.getFullYear(); const m = hoje.getMonth();
-    const ymd = d => d.toISOString().substring(0, 10);
+    const ymd = d => DateUtil.ymd(d);
     const out = [];
     for (let i = nMeses - 1; i >= 0; i--) {
       const ini = new Date(y, m - i, 1);
@@ -309,7 +309,7 @@ const Insights = (() => {
   // período selecionado): parcelas pendentes agrupadas em 4 janelas semanais.
   // Atrasadas (venc < hoje) ficam de fora — moram no card Recebimento.
   function _calcProximos30() {
-    const hojeStr = new Date().toISOString().substring(0, 10);
+    const hojeStr = DateUtil.today();
     const hoje = new Date(hojeStr + 'T00:00:00');
     const faixas = [[0, 6], [7, 13], [14, 20], [21, 29]];
     const lbl = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -456,7 +456,7 @@ const Insights = (() => {
       ? (clientesRanked[0][1] / faturamento) * 100 : 0;
 
     // Recebimento (pendentes + atrasados — todos, não só do período)
-    const hojeStr = new Date().toISOString().substring(0, 10);
+    const hojeStr = DateUtil.today();
     const aReceber = _cache.parcelas.filter(p =>
       p.tipo === 'receber' && p.status === 'pendente'
     );
