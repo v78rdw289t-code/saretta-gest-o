@@ -520,6 +520,12 @@ img { max-width: 100%; }
   font-size: .7rem; color: var(--text-muted);
 }
 .os-card-go { font-weight: 700; color: var(--gold-dk); white-space: nowrap; }
+.os-card-sess {
+  font-weight: 700; color: var(--navy); white-space: nowrap;
+  padding: 3px 9px; border-radius: 20px; background: #EAF0FB;
+  -webkit-tap-highlight-color: transparent;
+}
+.os-card-sess:active { background: #d9e4f6; }
 .os-card-empty {
   grid-column: 1/-1; text-align: center; padding: 22px; color: var(--text-muted);
   font-size: .88rem; background: var(--card); border: 1px solid var(--border);

@@ -74,13 +74,15 @@ const OS = (() => {
     const receitaMes     = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes))
                                 .reduce((s,o) => s + Number(o.valor_fechamento||0), 0);
 
-    // Subtotal do lote (valores já gravados nas sessões + itens — sem recalcular base)
+    // Subtotal do lote (valores já gravados nas sessões + itens — sem recalcular
+    // base; OS com valor combinado entra pelo combinado + materiais à parte)
     const loteSubtotal = Array.from(_loteSel).reduce((s, id) => {
+      const os = allOS.find(o => o.id === id);
       const mo = allDiarias.filter(d => d.os_id === id)
         .reduce((t, d) => t + Number(d.valor_manual || d.valor_calculado || 0), 0);
       const it = allItens.filter(i => i.os_id === id)
         .reduce((t, i) => t + Number(i.valor_total || 0), 0);
-      return s + mo + it;
+      return s + Calculator.baseFechamento(os, mo, it).base;
     }, 0);
 
     const section = qs('#page-os');
@@ -310,6 +312,14 @@ const OS = (() => {
             <div class="info-label">Status</div>
             ${statusBadge(currentOS.status)}
           </div>
+          ${(() => {
+            const bi = Calculator.combinadoInfo(currentOS);
+            return bi.combinado > 0 ? `<div style="grid-column:1/-1">
+              <div class="info-label">💰 Valor combinado</div>
+              <strong style="font-size:1.1rem">${Fmt.currency(bi.combinado)}</strong>
+              <span class="badge badge-info" style="margin-left:8px">${bi.inclusos ? 'materiais inclusos' : 'materiais à parte'}</span>
+            </div>` : '';
+          })()}
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
         </div>
@@ -769,6 +779,21 @@ const OS = (() => {
                 ${App.categoriaOptions('os', os?.categoria_id)}
               </select>
             </div>
+            <div class="form-group">
+              <label>💰 Valor combinado <small style="color:var(--text-muted);font-weight:400">(opcional)</small></label>
+              <input type="number" name="valor_combinado" class="input" step="0.01" min="0" inputmode="decimal"
+                value="${Number(os?.valor_combinado || 0) > 0 ? os.valor_combinado : ''}"
+                placeholder="Orçamento fechado com o cliente"
+                oninput="qs('#os-combi-mat').classList.toggle('hidden', !(Number(this.value) > 0))">
+              <small style="color:var(--text-muted)">Deixe vazio pra calcular pelas horas registradas.</small>
+            </div>
+            <div id="os-combi-mat" class="${Calculator.combinadoInfo(os).combinado > 0 ? '' : 'hidden'}" style="margin:-6px 0 14px">
+              <label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer">
+                <input type="checkbox" name="materiais_inclusos" ${Calculator.combinadoInfo(os).inclusos ? 'checked' : ''}>
+                Materiais já inclusos no combinado
+              </label>
+              <small style="color:var(--text-muted)">Desmarcado = materiais/itens da OS somam à parte (padrão).</small>
+            </div>
             <div class="form-row">
               <div class="form-group">
                 <label>Data Início</label>
@@ -810,6 +835,10 @@ const OS = (() => {
     const fd   = new FormData(form);
     const data = Object.fromEntries(fd.entries());
     data.data_atualizacao = new Date().toISOString();
+    // Checkbox desmarcado fica AUSENTE do FormData → normalizar sempre.
+    data.materiais_inclusos = !!data.materiais_inclusos;
+    // '' (e não 0) permite LIMPAR o combinado num update (update grava o presente).
+    data.valor_combinado = Number(data.valor_combinado || 0) > 0 ? Number(data.valor_combinado) : '';
 
     Loading.show();
     let res;
@@ -1276,9 +1305,15 @@ const OS = (() => {
   function recalcBaseFechamento() {
     const base = Number(qs('#fech-hora-base')?.value) || 0;
     const r = _calcFromBase(base);
-    _calc.liquido = r.calculado; _calc.bruto = r.calculado;
     _calc.maoObra = r.maoObra;   _calc.totalItens = r.totalItens;
     _calc.nSessoes = r.nSessoes; _calc.horaBase = base;
+    // OS com valor combinado: a hora base afeta SÓ a referência pelas horas —
+    // a base do fechamento (#fech-calculado-num) continua sendo o combinado.
+    if (Calculator.combinadoInfo(currentOS).combinado > 0) {
+      if (qs('#fech-ref-horas')) qs('#fech-ref-horas').textContent = Fmt.currency(r.maoObra);
+      return;
+    }
+    _calc.liquido = r.calculado; _calc.bruto = r.calculado;
     if (qs('#fech-maoobra'))           qs('#fech-maoobra').textContent = Fmt.currency(r.maoObra);
     if (qs('#fech-calculado-num'))     qs('#fech-calculado-num').value = r.calculado.toFixed(2);
     if (qs('#fech-calculado-display')) qs('#fech-calculado-display').textContent = Fmt.currency(r.calculado);
@@ -1293,11 +1328,14 @@ const OS = (() => {
     const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
 
     const r0 = _calcFromBase(baseRate);
-    _calc.liquido  = r0.calculado; _calc.bruto = r0.calculado;
+    // OS com valor combinado: a base do fechamento é o combinado (+ materiais
+    // à parte); o cálculo pelas horas vira só REFERÊNCIA de confronto.
+    const bi = Calculator.baseFechamento(currentOS, r0.maoObra, r0.totalItens);
+    _calc.liquido  = bi.base;      _calc.bruto = bi.base;
     _calc.maoObra  = r0.maoObra;   _calc.totalItens = r0.totalItens;
     _calc.nSessoes = r0.nSessoes;  _calc.horaBase = baseRate;
     _calc.horaBaseOrig = baseRate; // referência p/ detectar mudança no fechamento
-    const calc = r0.calculado;
+    const calc = bi.base;
 
     // Renderiza modal de fechamento
     const section = qs('#page-os');
@@ -1316,6 +1354,24 @@ const OS = (() => {
             <!-- hidden sempre presente — base para atualizarFechamento e saveFechamento -->
             <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
 
+            ${bi.combinado > 0 ? `
+            <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
+              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
+              <div class="info-row" style="margin-bottom:4px">
+                <span>💰 Valor combinado</span>
+                <strong>${Fmt.currency(bi.combinado)}</strong>
+              </div>
+              ${!bi.inclusos && r0.totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens (à parte)</span><strong>${Fmt.currency(r0.totalItens)}</strong></div>` : ''}
+              ${bi.inclusos && r0.totalItens > 0 ? `<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">materiais (${Fmt.currency(r0.totalItens)}) já inclusos no combinado</div>` : ''}
+              <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+                <span><strong>Base do fechamento</strong></span>
+                <strong id="fech-calculado-display" class="text-green">${Fmt.currency(calc)}</strong>
+              </div>
+              <div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">
+                🕐 mão de obra pelas horas: <span id="fech-ref-horas">${Fmt.currency(r0.maoObra)}</span> · ${r0.nSessoes} sessão(ões)
+              </div>
+            </div>
+            ` : `
             <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
               <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
               <div class="info-row" style="margin-bottom:4px">
@@ -1328,6 +1384,7 @@ const OS = (() => {
                 <strong id="fech-calculado-display" class="text-green">${Fmt.currency(calc)}</strong>
               </div>
             </div>
+            `}
 
             ${r0.nCalc > 0 ? `
             <div style="margin-bottom:16px">
@@ -1335,7 +1392,7 @@ const OS = (() => {
                 onclick="OS.toggleHoraBase()">⚙️ Alterar hora base (R$ ${baseRate}/h)</button>
               <div id="fech-hora-base-wrap" class="hidden" style="margin-top:10px">
                 <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:4px">Nova hora base
-                  <small style="color:var(--text-muted);font-weight:400">— recalcula todas as sessões (fatores por cima)</small>
+                  <small style="color:var(--text-muted);font-weight:400">— ${bi.combinado > 0 ? 'recalcula só a referência pelas horas (o combinado não muda)' : 'recalcula todas as sessões (fatores por cima)'}</small>
                 </label>
                 <div class="input-row">
                   <span style="align-self:center;color:var(--text-muted);font-weight:700">R$</span>
@@ -1424,17 +1481,12 @@ const OS = (() => {
 
   // Recalcula valor final a partir de: (manual || calculado) - desconto
   function atualizarFechamento() {
-    const calc   = Number(qs('#fech-calculado-num')?.value) || 0;
-    const manual = Number(qs('#fech-manual')?.value)        || 0;
-    const base   = manual > 0 ? manual : calc;
+    const { liquido } = Calculator.resolverFechamento(
+      qs('#fech-calculado-num')?.value, qs('#fech-manual')?.value,
+      qs('#fech-desconto')?.value, qs('#fech-desconto-tipo')?.value || 'valor');
 
-    const descVal  = Number(qs('#fech-desconto')?.value) || 0;
-    const descTipo = qs('#fech-desconto-tipo')?.value || 'valor';
-    const descontoAbs = descTipo === 'perc' ? (base * descVal / 100) : descVal;
-    const final = Math.max(0, base - descontoAbs);
-
-    if (qs('#fech-final'))         qs('#fech-final').value = final.toFixed(2);
-    if (qs('#fech-final-display')) qs('#fech-final-display').textContent = Fmt.currency(final);
+    if (qs('#fech-final'))         qs('#fech-final').value = liquido.toFixed(2);
+    if (qs('#fech-final-display')) qs('#fech-final-display').textContent = Fmt.currency(liquido);
   }
 
   // trava de duplo clique (Guard) — o corpo real está em _saveFechamento
@@ -1443,17 +1495,10 @@ const OS = (() => {
     e.preventDefault();
     const osId   = qs('#fech-os-id').value;
 
-    // base = manual se preenchido, senão calculado
-    const calc   = Number(qs('#fech-calculado-num').value) || 0;
-    const manual = Number(qs('#fech-manual').value)        || 0;
-    const base   = manual > 0 ? manual : calc;
-
-    // Resolve desconto absoluto (em R$) considerando o toggle valor/%
-    const descVal  = Number(qs('#fech-desconto').value) || 0;
-    const descTipo = qs('#fech-desconto-tipo').value || 'valor';
-    const descontoAbs = descTipo === 'perc' ? (base * descVal / 100) : descVal;
-
-    const liquido = Math.max(0, base - descontoAbs);
+    // base = manual se preenchido, senão calculado; desconto R$ ou %
+    const { base, descontoAbs, liquido } = Calculator.resolverFechamento(
+      qs('#fech-calculado-num').value, qs('#fech-manual').value,
+      qs('#fech-desconto').value, qs('#fech-desconto-tipo').value || 'valor');
     const compMes = MonthPicker.value('fech-competencia');
     if (!compMes) { Toast.warning('Selecione a competência'); return; }
     const comp    = compMes + '-01';
@@ -1536,8 +1581,11 @@ const OS = (() => {
 
     _loteCalc = {};
     lista.forEach(os => {
-      const r = _calcFromBaseFor(os, baseRate);
-      _loteCalc[os.id] = { base: baseRate, baseOrig: baseRate, ...r };
+      const r  = _calcFromBaseFor(os, baseRate);
+      // OS com valor combinado entra no lote pelo combinado (+ materiais à parte)
+      const bi = Calculator.baseFechamento(os, r.maoObra, r.totalItens);
+      _loteCalc[os.id] = { base: baseRate, baseOrig: baseRate, ...r,
+                           calculado: bi.base, combinado: bi.combinado, inclusos: bi.inclusos };
     });
     currentView = 'fechamento';
 
@@ -1563,16 +1611,24 @@ const OS = (() => {
               <strong style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${os.numero}${os.nome ? ' · ' + os.nome : ''}</strong>
               ${catNome ? `<span class="badge badge-info" style="flex:0 0 auto">${catNome}</span>` : ''}
             </div>
+            ${r.combinado > 0 ? `
+            <div class="info-row" style="margin-bottom:4px">
+              <span>💰 Valor combinado</span>
+              <strong>${Fmt.currency(r.combinado)}</strong>
+            </div>
+            ${!r.inclusos && r.totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens (à parte)</span><strong>${Fmt.currency(r.totalItens)}</strong></div>` : ''}
+            ` : `
             <div class="info-row" style="margin-bottom:4px">
               <span>Mão de obra (${r.nSessoes} sessão(ões))</span>
               <strong id="lote-mo-${os.id}">${Fmt.currency(r.maoObra)}</strong>
             </div>
             ${r.totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens</span><strong>${Fmt.currency(r.totalItens)}</strong></div>` : ''}
+            `}
             <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
               <span><strong>Subtotal</strong></span>
               <strong id="lote-sub-${os.id}" class="text-green">${Fmt.currency(r.calculado)}</strong>
             </div>
-            ${r.nCalc > 0 ? `
+            ${r.nCalc > 0 && !(r.combinado > 0) ? `
             <div style="margin-top:10px">
               <button type="button" id="lote-base-btn-${os.id}" class="btn btn-outline btn-sm" style="font-size:.78rem"
                 onclick="OS.toggleLoteHoraBase('${os.id}')">⚙️ Alterar hora base (R$ ${baseRate}/h)</button>
@@ -1657,9 +1713,10 @@ const OS = (() => {
   }
 
   // oninput da hora base de UMA OS do lote — recalcula só ela e refaz os totais.
+  // (OS com valor combinado não tem o botão de hora base — subtotal fixo.)
   function recalcLoteOS(osId) {
     const lc = _loteCalc[osId];
-    if (!lc) return;
+    if (!lc || lc.combinado > 0) return;
     const os   = allOS.find(o => o.id === osId);
     const base = Number(qs('#lote-base-' + osId)?.value) || 0;
     const r = _calcFromBaseFor(os, base);

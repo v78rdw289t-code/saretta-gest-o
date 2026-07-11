@@ -1,9 +1,13 @@
 // ============================================================
 // AGENDA DA SEMANA (v3.5.0)
-// Grade semanal na home + página completa. Integra compromissos
+// Página completa (grade semanal) + CRUD de compromissos
 // (visita/orçamento/compromisso/lembrete) + marcadores read-only
 // de contas a vencer (parcelas) e OS iniciando na semana.
-// Entidade nova: sheet `compromissos` (CRUD genérico do API.db).
+// Entidade: sheet `compromissos` (CRUD genérico do API.db).
+// v3.7: saiu da home (o card "📌 Hoje" de home.js resume o dia). A home
+// alcança a página pelo link "📅 Agenda ›"; renderHomeSection/fillHome
+// deixaram de ser chamados mas seguem aqui (sem custo) — o resto da tela
+// e do form dependem do estado interno (_diaSelIdx/diaSel).
 // ============================================================
 
 const Agenda = (() => {

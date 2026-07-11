@@ -409,5 +409,75 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— v3.7: valor combinado (orçamento fechado) —');
+  {
+    const s = makeFrontSandbox();
+    test('combinadoInfo: número, string, bool do Sheets e vazio', () => {
+      assert.deepEqual(vm.runInContext(
+        `Calculator.combinadoInfo({ valor_combinado: 5000, materiais_inclusos: true })`, s),
+        { combinado: 5000, inclusos: true });
+      assert.deepEqual(vm.runInContext(
+        `Calculator.combinadoInfo({ valor_combinado: '5000', materiais_inclusos: 'true' })`, s),
+        { combinado: 5000, inclusos: true });
+      assert.deepEqual(vm.runInContext(`Calculator.combinadoInfo({})`, s),
+        { combinado: 0, inclusos: false });
+    });
+    test('baseFechamento: à parte soma itens, inclusos não, sem combinado = horas', () => {
+      const aParte = vm.runInContext(
+        `Calculator.baseFechamento({ valor_combinado: 5000 }, 2000, 800)`, s);
+      assert.equal(aParte.base, 5800);
+      assert.equal(aParte.referencia, 2800);
+      const incluso = vm.runInContext(
+        `Calculator.baseFechamento({ valor_combinado: 5000, materiais_inclusos: 'true' }, 2000, 800)`, s);
+      assert.equal(incluso.base, 5000);
+      const normal = vm.runInContext(`Calculator.baseFechamento({}, 2000, 800)`, s);
+      assert.equal(normal.base, 2800);
+      assert.equal(normal.referencia, 2800);
+    });
+    test('resolverFechamento: desconto R$/%, sobrescrever vence a base', () => {
+      assert.deepEqual(vm.runInContext(`Calculator.resolverFechamento(5800, 0, 300, 'valor')`, s),
+        { base: 5800, descontoAbs: 300, liquido: 5500 });
+      assert.deepEqual(vm.runInContext(`Calculator.resolverFechamento(5800, 0, 10, 'perc')`, s),
+        { base: 5800, descontoAbs: 580, liquido: 5220 });
+      assert.deepEqual(vm.runInContext(`Calculator.resolverFechamento(5800, 6000, 10, 'perc')`, s),
+        { base: 6000, descontoAbs: 600, liquido: 5400 });
+      assert.equal(vm.runInContext(`Calculator.resolverFechamento(100, 0, 200, 'valor')`, s).liquido, 0);
+    });
+    test('valorPipelineOS: combinada sem sessão ≠ 0; combinada com sessões usa o combinado', () => {
+      assert.equal(vm.runInContext(`Calculator.valorPipelineOS({ valor_combinado: 5000 }, [])`, s), 5000);
+      assert.equal(vm.runInContext(
+        `Calculator.valorPipelineOS({ valor_combinado: 5000 }, [{ valor_calculado: 900 }])`, s), 5000);
+      assert.equal(vm.runInContext(
+        `Calculator.valorPipelineOS({}, [{ valor_calculado: 900 }, { valor_manual: 300 }])`, s), 1200);
+    });
+  }
+  {
+    const g = makeGsSandbox();
+    test('sheet os tem as colunas novas e create/read as preservam', () => {
+      const headers = vm.runInContext(`SHEET_HEADERS.os`, g);
+      assert.ok(headers.includes('valor_combinado') && headers.includes('materiais_inclusos'));
+      const r = vm.runInContext(`create('os', { numero: 'OS-900', cliente_id: 'c1', status: 'andamento',
+        valor_combinado: 5000, materiais_inclusos: false })`, g);
+      const rec = vm.runInContext(`read('os', '${r.data.id}').data[0]`, g);
+      assert.equal(Number(rec.valor_combinado), 5000);
+      assert.equal(String(rec.materiais_inclusos), 'false');
+    });
+    test('fecharOS segue agnóstico: recebe líquido pronto e gera parcela igual', () => {
+      vm.runInContext(`create('clientes', { id: 'c1', nome: 'Cliente Teste' })`, g);
+      const os = vm.runInContext(`create('os', { numero: 'OS-901', cliente_id: 'c1', status: 'andamento',
+        valor_combinado: 5000, materiais_inclusos: false })`, g);
+      const r = vm.runInContext(
+        `fecharOS({ os_id: '${os.data.id}', valor_bruto: 5800, desconto: 300, valor_liquido: 5500,
+          data_competencia: '2026-07-01', data_vencimento: '2026-07-20', categoria_id: '', diaria_ids: [] })`, g);
+      assert.equal(r.success, true);
+      const parc = vm.runInContext(`read('parcelas').data`, g)
+        .find(p => p.origem === 'os' && p.origem_id === os.data.id);
+      assert.equal(Number(parc.valor), 5500);
+      const osRec = vm.runInContext(`read('os', '${os.data.id}').data[0]`, g);
+      assert.equal(osRec.status, 'fechado');
+      assert.equal(Number(osRec.valor_fechamento), 5500);
+    });
+  }
+
   console.log(`\n${passed} teste(s) OK${process.exitCode ? ' — COM FALHAS' : ''}\n`);
 })();

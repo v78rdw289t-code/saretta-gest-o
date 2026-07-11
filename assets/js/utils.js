@@ -461,6 +461,47 @@ const Calculator = {
   calcularTotalDiarias(diarias) {
     return diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
   },
+
+  // ─── Valor combinado (orçamento fechado com o cliente) ─────
+  // OS com valor_combinado > 0: o preço foi acertado de antemão; as sessões
+  // de horas viram acompanhamento (referência), não determinam o valor.
+  // materiais_inclusos: o Sheets devolve boolean OU a string 'true'.
+  combinadoInfo(os) {
+    return {
+      combinado: Number(os?.valor_combinado || 0),
+      inclusos:  os?.materiais_inclusos === true || String(os?.materiais_inclusos) === 'true',
+    };
+  },
+
+  // Base do fechamento: combinado + materiais à parte quando há valor
+  // combinado; senão o cálculo tradicional (mão de obra das sessões + itens).
+  // referencia = o que as horas dariam (confronto combinado × calculado).
+  baseFechamento(os, maoObra, totalItens) {
+    const { combinado, inclusos } = this.combinadoInfo(os);
+    const referencia = Math.round((Number(maoObra || 0) + Number(totalItens || 0)) * 100) / 100;
+    const base = combinado > 0
+      ? Math.round((combinado + (inclusos ? 0 : Number(totalItens || 0))) * 100) / 100
+      : referencia;
+    return { base, combinado, inclusos, referencia };
+  },
+
+  // Matemática final do fechamento (compartilhada por atualizarFechamento e
+  // _saveFechamento): sobrescrever manual vence a base; desconto em R$ ou %.
+  resolverFechamento(calc, manual, descVal, descTipo) {
+    const base = Number(manual || 0) > 0 ? Number(manual) : Number(calc || 0);
+    const desc = Number(descVal || 0);
+    const descontoAbs = descTipo === 'perc' ? (base * desc / 100) : desc;
+    const liquido = Math.max(0, Math.round((base - descontoAbs) * 100) / 100);
+    return { base, descontoAbs: Math.round(descontoAbs * 100) / 100, liquido };
+  },
+
+  // Valor de uma OS aberta no pipeline (Insights): combinado quando existe,
+  // senão a soma das sessões registradas.
+  valorPipelineOS(os, sessoes) {
+    const { combinado } = this.combinadoInfo(os);
+    if (combinado > 0) return combinado;
+    return (sessoes || []).reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+  },
 };
 
 // ─── Gerador de número de OS ─────────────────────────────────

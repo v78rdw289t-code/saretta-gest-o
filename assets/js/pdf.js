@@ -85,11 +85,15 @@ const Doc = (() => {
     const totalHoras = diarias.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
     // OS fechada: o total do documento é o VALOR FECHADO (com desconto) — o que
     // o cliente paga de fato. Antes mostrava o calculado, sem o desconto.
-    const bruto     = maoObra + totalItens;
-    const fechado   = os.status === 'fechado' && Number(os.valor_fechamento || 0) > 0;
-    const desconto  = fechado ? Math.max(0, Math.round((bruto - Number(os.valor_fechamento)) * 100) / 100) : 0;
-    const total     = fechado ? Number(os.valor_fechamento)
-                              : (Number(os.valor_calculado || 0) || bruto);
+    // OS com valor combinado (orçamento fechado): o bruto do documento é o
+    // combinado + materiais à parte — as horas são só execução.
+    const bruto      = maoObra + totalItens;
+    const { combinado, inclusos } = Calculator.combinadoInfo(os);
+    const brutoDoc   = combinado > 0 ? Math.round((combinado + (inclusos ? 0 : totalItens)) * 100) / 100 : bruto;
+    const fechado    = os.status === 'fechado' && Number(os.valor_fechamento || 0) > 0;
+    const desconto   = fechado ? Math.max(0, Math.round((brutoDoc - Number(os.valor_fechamento)) * 100) / 100) : 0;
+    const total      = fechado ? Number(os.valor_fechamento)
+                               : (combinado > 0 ? brutoDoc : (Number(os.valor_calculado || 0) || bruto));
 
     const linhas    = _linhasExecucao(diarias);
     const isOrc     = modo === 'orcamento';
@@ -158,8 +162,11 @@ const Doc = (() => {
 
         <!-- Resumo de valores -->
         <section class="doc-resumo">
-          ${maoObra > 0 ? `<div class="doc-row"><span>Mão de obra (${Fmt.hours(totalHoras)})</span><span>${Fmt.currency(maoObra)}</span></div>` : ''}
-          ${totalItens > 0 ? `<div class="doc-row"><span>Materiais e itens</span><span>${Fmt.currency(totalItens)}</span></div>` : ''}
+          ${combinado > 0
+            ? `<div class="doc-row"><span>Valor combinado${inclusos ? ' (materiais inclusos)' : ''}</span><span>${Fmt.currency(combinado)}</span></div>` +
+              (!inclusos && totalItens > 0 ? `<div class="doc-row"><span>Materiais e itens</span><span>${Fmt.currency(totalItens)}</span></div>` : '')
+            : (maoObra > 0 ? `<div class="doc-row"><span>Mão de obra (${Fmt.hours(totalHoras)})</span><span>${Fmt.currency(maoObra)}</span></div>` : '') +
+              (totalItens > 0 ? `<div class="doc-row"><span>Materiais e itens</span><span>${Fmt.currency(totalItens)}</span></div>` : '')}
           ${desconto >= 0.01 ? `<div class="doc-row"><span>Desconto</span><span>−${Fmt.currency(desconto)}</span></div>` : ''}
           <div class="doc-row doc-total"><span>${isOrc ? 'Total estimado' : 'Total'}</span><span>${Fmt.currency(total)}</span></div>
         </section>

@@ -474,16 +474,18 @@ const Insights = (() => {
     const prazoMedio = prazos.length > 0
       ? prazos.reduce((s, n) => s + n, 0) / prazos.length : null;
 
-    // Pipeline: OS abertas (sessões registradas) + fechadas ainda não recebidas
-    const osAbertasIds = new Set(
-      _cache.osList.filter(o => o.status === 'andamento' || o.status === 'acerto').map(o => o.id)
-    );
+    // Pipeline: OS abertas + fechadas ainda não recebidas. OS com valor
+    // combinado entra pelo combinado (senão apareceria R$0 até registrar horas).
+    const osAbertas = _cache.osList.filter(o => o.status === 'andamento' || o.status === 'acerto');
+    const osAbertasIds = new Set(osAbertas.map(o => o.id));
     const sessoesAbertas = _cache.diarias.filter(d => osAbertasIds.has(d.os_id));
-    const receitaPrevista = sessoesAbertas
-      .reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
+    const receitaPrevista = osAbertas.reduce((s, o) =>
+      s + Calculator.valorPipelineOS(o, sessoesAbertas.filter(d => d.os_id === o.id)), 0);
     // Trabalho DESTE período ainda não faturado: sessões de OS abertas com data
     // dentro do período. É receita quase certa que ainda não virou parcela — sem
     // ela o mês parece pior do que é quando a OS demora uns dias pra fechar.
+    // Limitação: OS combinada contribui aqui pelas horas de referência (não há
+    // como ratear o combinado por período).
     const previstaPeriodo = sessoesAbertas
       .filter(d => { const dt = String(d.data || '').substring(0, 10); return dt >= periodo.start && dt <= periodo.end; })
       .reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);

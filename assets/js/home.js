@@ -32,7 +32,7 @@ const Home = (() => {
             <div class="home-greeting">${saudIcon} ${saud}</div>
             <div class="home-date">${hoje}</div>
           </div>
-          <img src="assets/img/logo-app.png?v=2.9.0" alt="Saretta" class="home-hero-logo"
+          <img src="assets/img/logo-app.png" alt="Saretta" class="home-hero-logo"
             onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
         </div>
 
@@ -47,17 +47,8 @@ const Home = (() => {
 
       <div id="home-search-results" class="hidden"></div>
 
-      <!-- Agenda da semana — organização do dia (visitas/compromissos + contas/OS) -->
-      <div class="home-section-head">
-        <h2 class="home-section-title">📅 Agenda da semana</h2>
-        <div class="home-section-actions">
-          <button class="home-section-add" onclick="Agenda.openForm()">＋ Novo</button>
-          <button class="home-section-link" onclick="App.navigate('agenda')">Ver tudo ›</button>
-        </div>
-      </div>
-      <div id="home-agenda">
-        <div class="loading-pulse" style="height:58px;border-radius:12px"></div>
-      </div>
+      <!-- 📌 Hoje — radar do dia (contas, compromissos, OS parada). Só o que existe. -->
+      <div id="home-hoje"></div>
 
       <!-- OS em andamento — primeira seção (o que está rodando agora) -->
       <div class="home-section-head">
@@ -108,17 +99,75 @@ const Home = (() => {
       const cfgMsg = '<p class="text-muted p-3" style="margin:0">Configure a conexão em Configurações</p>';
       qs('#home-os-andamento').innerHTML = cfgMsg;
       qs('#home-lancamentos').innerHTML = cfgMsg;
-      const ag = qs('#home-agenda'); if (ag) ag.innerHTML = cfgMsg;
       const est = qs('#home-estoque-info'); if (est) est.textContent = 'Configure a conexão';
       return;
     }
 
     // Dispara em paralelo, SEM await — cada bloco se preenche sozinho.
-    Agenda.renderHomeSection();
+    loadHoje();
     loadOSAndamento();
     loadEstoqueCard();
     loadUltimosLancamentos();
     loadLembrete();
+  }
+
+  // ─── 📌 Hoje — radar compacto do dia ─────────────────────────
+  // Só renderiza linhas com conteúdo real; sem nada pendente, some o corpo e
+  // deixa só o cabeçalho com o acesso à Agenda (que não tem item no menu).
+  async function loadHoje() {
+    const el = qs('#home-hoje');
+    if (!el) return;
+    const [osRes, parRes, comprRes] = await Promise.all([
+      API.db.read('os'),
+      API.db.read('parcelas'),
+      API.db.read('compromissos').catch(() => null),
+    ]);
+    const osList  = osRes?.data || [];
+    const stats   = computeLembreteStats(osList, parRes?.data || []);
+    const hoje    = DateUtil.today();
+    const compr   = (comprRes?.data || [])
+      .filter(c => Fmt.dateInput(c.data) === hoje && c.status !== 'cancelado')
+      .sort((a, b) => (Fmt.timeInput(a.hora_inicio) || '99:99').localeCompare(Fmt.timeInput(b.hora_inicio) || '99:99'))
+      .slice(0, 4);
+
+    const linhas = [];
+    if (stats.vencidas_qtd > 0) linhas.push(`
+      <div class="ag-item is-conta" onclick="App.navigate('financeiro', { tab:'pagar', status:'pendente' })">
+        <span class="ag-ico">🔴</span>
+        <div class="ag-body"><div class="ag-title">${stats.vencidas_qtd} conta${stats.vencidas_qtd > 1 ? 's' : ''} vencida${stats.vencidas_qtd > 1 ? 's' : ''}</div>
+          <div class="ag-sub">Toque para ver no Financeiro</div></div>
+      </div>`);
+    if (stats.vencendo_hoje_qtd > 0) linhas.push(`
+      <div class="ag-item is-conta is-rec" onclick="App.navigate('financeiro', { filtro:'vencendo7d' })">
+        <span class="ag-ico">🟠</span>
+        <div class="ag-body"><div class="ag-title">${stats.vencendo_hoje_qtd} conta${stats.vencendo_hoje_qtd > 1 ? 's' : ''} vence${stats.vencendo_hoje_qtd > 1 ? 'm' : ''} hoje</div>
+          <div class="ag-sub">Vencimento no dia de hoje</div></div>
+      </div>`);
+    compr.forEach(c => {
+      const hora = Fmt.timeInput(c.hora_inicio);
+      const feito = c.status === 'feito';
+      linhas.push(`
+      <div class="ag-item ${feito ? 'is-feito' : ''}" onclick="App.navigate('agenda')">
+        <span class="ag-ico">🕐</span>
+        <div class="ag-body"><div class="ag-title">${feito ? '✓ ' : ''}${c.titulo || 'Compromisso'}</div>
+          <div class="ag-sub">${[hora, c.cliente_id ? App.clienteNome(c.cliente_id) : ''].filter(Boolean).join(' · ') || 'hoje'}</div></div>
+      </div>`);
+    });
+    if (stats.os_parada && stats.os_parada.dias >= 10) linhas.push(`
+      <div class="ag-item is-os" onclick="App.navigate('os').then(() => OS.openDetail('${stats.os_parada.id}'))">
+        <span class="ag-ico">🐌</span>
+        <div class="ag-body"><div class="ag-title">${stats.os_parada.numero} parada há ${stats.os_parada.dias} dias</div>
+          <div class="ag-sub">Sem registro de sessão — toque para abrir</div></div>
+      </div>`);
+
+    el.innerHTML = `
+      <div class="home-section-head">
+        <h2 class="home-section-title">📌 Hoje</h2>
+        <button class="home-section-link" onclick="App.navigate('agenda')">📅 Agenda ›</button>
+      </div>
+      <div class="card" style="padding:12px 14px">
+        ${linhas.length ? linhas.join('') : '<div class="ag-empty" style="padding:6px 0">✓ nada pendente pra hoje</div>'}
+      </div>`;
   }
 
   // Preenche o resumo do card de Estoque na home (nº de itens + quantos a repor).
@@ -154,18 +203,15 @@ const Home = (() => {
       qs('#home-os-andamento').innerHTML = '<div class="os-card-empty">✅ Nenhuma OS em andamento</div>';
       return;
     }
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     qs('#home-os-andamento').innerHTML = `
       <div class="os-cards">
         ${items.slice(0, 8).map(o => {
           const num = (o.numero || '').replace('OS-', '');
           const titulo = o.nome || App.clienteNome(o.cliente_id);
           const cliente = App.clienteNome(o.cliente_id);
-          const ini = new Date((o.data_inicio || '') + 'T00:00:00');
-          const dias = !isNaN(ini.getTime()) ? Math.max(0, Math.floor((hoje - ini) / 86400000)) : null;
           const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
           return `
-            <button class="os-card" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
+            <div class="os-card" role="button" tabindex="0" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
               <div class="os-card-top">
                 <span class="os-card-num">#${num}</span>
                 ${catNome ? `<span class="os-card-tipo is-normal">${catNome}</span>` : ''}
@@ -173,10 +219,10 @@ const Home = (() => {
               <div class="os-card-title">${titulo}</div>
               ${titulo !== cliente ? `<div class="os-card-cli">👤 ${cliente}</div>` : ''}
               <div class="os-card-foot">
-                <span>${dias === null ? '' : dias === 0 ? 'Começou hoje' : `há ${dias} dia${dias > 1 ? 's' : ''}`}</span>
+                <span class="os-card-sess" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}')">⏱ Sessão</span>
                 <span class="os-card-go">Abrir ›</span>
               </div>
-            </button>
+            </div>
           `;
         }).join('')}
       </div>
@@ -247,17 +293,26 @@ const Home = (() => {
       const d = new Date(p.data_vencimento + 'T00:00:00');
       return !isNaN(d.getTime()) && d < today;
     });
+    const hojeStr = DateUtil.today();
+    const vencendoHoje = reais.filter(p =>
+      p.status === 'pendente' && String(p.data_vencimento || '').substring(0, 10) === hojeStr);
 
-    let osParadaDias = 0;
+    let osParada = null;
     osList.filter(o => o.status === 'andamento').forEach(o => {
       const d = new Date((o.data_inicio || '') + 'T00:00:00');
       if (!isNaN(d.getTime())) {
         const dias = Math.floor((today - d) / 86400000);
-        if (dias > osParadaDias) osParadaDias = dias;
+        if (!osParada || dias > osParada.dias) {
+          osParada = { id: o.id, numero: o.numero || '', dias };
+        }
       }
     });
 
-    return { vencidas_qtd: vencidas.length, vencendo_7d: venc7.length, os_parada_dias: osParadaDias };
+    return {
+      vencidas_qtd: vencidas.length, vencendo_7d: venc7.length,
+      vencendo_hoje_qtd: vencendoHoje.length,
+      os_parada_dias: osParada ? osParada.dias : 0, os_parada: osParada,
+    };
   }
 
   async function loadLembrete() {
