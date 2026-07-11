@@ -82,6 +82,10 @@ const App = (() => {
       API.db.read('clientes'),
       API.db.read('categorias'),
       API.db.read('contas'),
+      // Aquece o cache do estoque no boot (não vira global — os.js/estoque.js
+      // leem via API.db.read). Sem isso, a 1ª OS/orçamento em campo offline
+      // poderia vir sem itens do estoque pra escolher.
+      API.db.read('estoque').catch(() => null),
     ]);
     allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
                                           .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));

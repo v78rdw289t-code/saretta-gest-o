@@ -17,6 +17,14 @@ const Estoque = (() => {
   let _movMotivo  = '';   // filtro de motivo na aba Movimentações
   let _movQ       = '';   // busca por item na aba Movimentações
   let _contagem   = {};   // estoque_id -> qtd contada (aba Inventário)
+  let _gruposFechados = new Set(); // grupos recolhidos na aba Itens
+
+  const SEM_GRUPO = '— Sem grupo —';
+  // Grupos já usados (distintos, ordenados) — alimenta o datalist do form.
+  function gruposExistentes() {
+    return [...new Set(allEstoque.map(e => String(e.grupo || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+  }
 
   const ativo   = e => e.ativo !== false && e.ativo !== 'false';
   const MOTIVOS = {
@@ -126,28 +134,67 @@ const Estoque = (() => {
       <div class="entity-list">
         ${items.length === 0
           ? '<div class="entity-empty">Nenhum item no estoque</div>'
-          : items.map(e => {
-            const baixo = isBaixo(e);
-            const cat   = catNome(e.categoria_id);
-            return `
-              <div class="entity-item" onclick="Estoque.openDetail('${e.id}')">
-                <div class="avatar ${avatarColor(e.descricao)} avatar-icon">📦</div>
-                <div class="entity-info">
-                  <div class="entity-name">${e.descricao}${baixo ? ' ⚠️' : ''}</div>
-                  <div class="entity-sub">${Number(e.quantidade || 0)} ${e.unidade || 'un'} · ${Fmt.currency(e.valor_unit)}/un${cat ? ' · ' + cat : ''}</div>
-                </div>
-                <div class="entity-right">
-                  <span class="entity-value">${Fmt.currency(Number(e.valor_unit || 0) * Number(e.quantidade || 0))}</span>
-                  <span class="entity-chevron">›</span>
-                </div>
-              </div>`;
-          }).join('')}
+          : renderItensAgrupados(items)}
         <div class="entity-item" style="background:var(--bg);cursor:default">
           <div class="entity-info"><strong>Total em estoque</strong></div>
           <div class="entity-right"><span class="entity-value">${Fmt.currency(totalValor)}</span></div>
         </div>
       </div>
     `;
+  }
+
+  // Uma linha de item na lista.
+  function itemLinhaHTML(e) {
+    const baixo = isBaixo(e);
+    const cat   = catNome(e.categoria_id);
+    return `
+      <div class="entity-item" onclick="Estoque.openDetail('${e.id}')">
+        <div class="avatar ${avatarColor(e.descricao)} avatar-icon">📦</div>
+        <div class="entity-info">
+          <div class="entity-name">${e.descricao}${baixo ? ' ⚠️' : ''}</div>
+          <div class="entity-sub">${Number(e.quantidade || 0)} ${e.unidade || 'un'} · ${Fmt.currency(e.valor_unit)}/un${cat ? ' · ' + cat : ''}</div>
+        </div>
+        <div class="entity-right">
+          <span class="entity-value">${Fmt.currency(Number(e.valor_unit || 0) * Number(e.quantidade || 0))}</span>
+          <span class="entity-chevron">›</span>
+        </div>
+      </div>`;
+  }
+
+  // Itens com GRUPO viram pastas colapsáveis (ex.: "Parafuso · 12 tipos"); os
+  // sem grupo aparecem soltos no fim. Se nenhum item tem grupo, lista simples.
+  function renderItensAgrupados(items) {
+    const semGrupo = items.filter(e => !String(e.grupo || '').trim());
+    const comGrupo = items.filter(e => String(e.grupo || '').trim());
+    if (comGrupo.length === 0) return items.map(itemLinhaHTML).join('');
+
+    const porGrupo = {};
+    comGrupo.forEach(e => { const g = String(e.grupo).trim(); (porGrupo[g] ||= []).push(e); });
+    const nomes = Object.keys(porGrupo).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+
+    const blocoGrupo = (nome, lista) => {
+      const fechado = _gruposFechados.has(nome);
+      const val = lista.reduce((s, e) => s + Number(e.valor_unit || 0) * Number(e.quantidade || 0), 0);
+      const baixos = lista.filter(isBaixo).length;
+      return `
+        <div class="estq-grupo-head" onclick="Estoque.toggleGrupo('${nome.replace(/'/g, "\\'")}')">
+          <span class="estq-grupo-chev">${fechado ? '▸' : '▾'}</span>
+          <div style="flex:1;min-width:0">
+            <div class="estq-grupo-nome">📁 ${nome}${baixos ? ' <span style="color:var(--danger)">⚠️</span>' : ''}</div>
+            <div class="estq-grupo-sub">${lista.length} ${lista.length === 1 ? 'tipo' : 'tipos'} · ${Fmt.currency(val)}</div>
+          </div>
+        </div>
+        ${fechado ? '' : lista.map(itemLinhaHTML).join('')}`;
+    };
+
+    return nomes.map(n => blocoGrupo(n, porGrupo[n])).join('') +
+      (semGrupo.length ? blocoGrupo(SEM_GRUPO, semGrupo) : '');
+  }
+
+  function toggleGrupo(nome) {
+    if (_gruposFechados.has(nome)) _gruposFechados.delete(nome);
+    else _gruposFechados.add(nome);
+    renderItens();
   }
 
   function onSearch(v) {
@@ -189,6 +236,7 @@ const Estoque = (() => {
         <div class="info-row"><span class="text-muted">Quantidade</span><strong>${Number(e.quantidade || 0)} ${e.unidade || 'un'}${baixo ? ' ⚠️' : ''}</strong></div>
         <div class="info-row"><span class="text-muted">Custo médio</span><strong>${Fmt.currency(e.valor_unit)}/un</strong></div>
         <div class="info-row"><span class="text-muted">Valor total</span><strong>${Fmt.currency(total)}</strong></div>
+        ${e.grupo ? `<div class="info-row"><span class="text-muted">Grupo</span><strong>📁 ${e.grupo}</strong></div>` : ''}
         <div class="info-row"><span class="text-muted">Categoria</span><strong>${catNome(e.categoria_id) || '—'}</strong></div>
         <div class="info-row"><span class="text-muted">Estoque mínimo</span><strong>${Number(e.estoque_minimo || 0)}</strong></div>
         <div class="info-row"><span class="text-muted">Fornecedor${fornNomes.length > 1 ? 'es' : ''}</span><strong style="text-align:right">${fornNomes.join(', ') || '—'}</strong></div>
@@ -230,6 +278,10 @@ const Estoque = (() => {
     const e = id ? allEstoque.find(x => x.id === id) : null;
     qs('#est-form-id').value   = id || '';
     qs('#est-form-desc').value = e?.descricao || '';
+    qs('#est-form-grupo').value = e?.grupo || '';
+    // Sugestões de grupo = os grupos já usados (autocomplete no datalist)
+    const dl = qs('#est-grupos-list');
+    if (dl) dl.innerHTML = gruposExistentes().map(g => `<option value="${g}">`).join('');
     qs('#est-form-qtd').value  = e?.quantidade ?? '0';
     qs('#est-form-unit').value = e?.valor_unit ?? '0';
     qs('#est-form-und').value  = e?.unidade || 'un';
@@ -252,6 +304,7 @@ const Estoque = (() => {
     const novoUnit = Number(qs('#est-form-unit').value) || 0;
     const dadosBase = {
       descricao:      desc,
+      grupo:          qs('#est-form-grupo').value.trim(),
       unidade:        qs('#est-form-und').value.trim() || 'un',
       estoque_minimo: Number(qs('#est-form-min').value) || 0,
       categoria_id:   qs('#est-form-cat').value,
@@ -694,7 +747,7 @@ const Estoque = (() => {
 
   return {
     render, goTab, switchTab, tabsHTML,
-    onSearch, onCatFiltro, onRelCat, openDetail, voltarLista,
+    onSearch, onCatFiltro, onRelCat, toggleGrupo, openDetail, voltarLista,
     openForm, saveForm, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
     onMovSearch, onMovMotivo, onContagem, finalizarContagem,

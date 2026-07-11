@@ -180,17 +180,28 @@ function makeGsSandbox() {
       assert.equal(vm.runInContext('Outbox.total()', s), 1);
       assert.equal(vm.runInContext('Outbox.pendentes()', s), 0); // o que sobrou está em "erro"
     });
-    await testAsync('AbortError no POST direto vira item "incerto" (sem reenvio automático)', async () => {
+    await testAsync('AbortError vira "incerto"; flush verifica por leitura e remove se já chegou', async () => {
+      // fila limpa (isola do teste anterior)
+      vm.runInContext(`localStorage.setItem('saretta_outbox_v1','[]')`, s);
+      s.navigator.onLine = true;
       s.fetch = async () => { const e = new Error('Aborted'); e.name = 'AbortError'; throw e; };
       const r = await vm.runInContext(
         `API.post('create', { sheet: 'diarias', data: { c: 3 } })`, s);
       assert.equal(r.queued, true);
       assert.equal(vm.runInContext('Outbox.pendentes()', s), 0); // incerto ≠ pendente
-      assert.equal(vm.runInContext('Outbox.total()', s), 2);     // o "erro" anterior + o incerto
-      let chamadas = 0;
-      s.fetch = async () => { chamadas++; return { json: async () => ({ success: true, data: {} }) }; };
+      assert.equal(vm.runInContext('Outbox.total()', s), 1);
+      // No flush, a verificação por id LÊ o servidor: achou o registro (chegou)
+      // → sai da fila SEM reenviar o POST (a raiz da duplicação some).
+      let posts = 0, reads = 0;
+      s.fetch = async (url, opts) => {
+        const isRead = String(url).includes('action=read');
+        if (isRead) { reads++; return { json: async () => ({ success: true, data: [{ id: 'x' }] }) }; }
+        posts++; return { json: async () => ({ success: true, data: {} }) };
+      };
       await vm.runInContext('Outbox.flush()', s);
-      assert.equal(chamadas, 0); // flush não toca erro/incerto
+      assert.ok(reads >= 1);          // conferiu por leitura
+      assert.equal(posts, 0);         // não reenviou (já tinha chegado)
+      assert.equal(vm.runInContext('Outbox.total()', s), 0); // saiu da fila sozinho
     });
   }
 
@@ -317,6 +328,17 @@ function makeGsSandbox() {
       const vencs = vm.runInContext(`read('parcelas').data`, g).map(p => p.data_vencimento);
       assert.ok(vencs.includes('2026-08-05'));
       assert.ok(vencs.includes('2026-08-31'));
+    });
+  }
+
+  console.log('\n— Grupos no estoque —');
+  {
+    const g = makeGsSandbox();
+    test('sheet estoque tem coluna grupo e create/read a preservam', () => {
+      assert.ok(vm.runInContext(`SHEET_HEADERS.estoque`, g).includes('grupo'));
+      const r = vm.runInContext(`create('estoque', { descricao: 'Parafuso M6', grupo: 'Parafuso',
+        quantidade: 10, valor_unit: 0.5, unidade: 'un', ativo: true })`, g);
+      assert.equal(vm.runInContext(`read('estoque', '${r.data.id}').data[0]`, g).grupo, 'Parafuso');
     });
   }
 

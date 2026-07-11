@@ -1173,11 +1173,13 @@ const OS = (() => {
   }
 
   // ─── ITENS ──────────────────────────────────────────────
+  let _itemEstoque = []; // itens do estoque em cache p/ a busca do modal-item
+
   async function openItemForm(itemId = null) {
     if (!currentOS) return;
     const item   = itemId ? allItens.find(i => i.id === itemId) : null;
     const estRes = await API.db.read('estoque');
-    const estoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+    _itemEstoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
 
     qs('#modal-item-id').value    = itemId || '';
     qs('#modal-item-os-id').value = currentOS.id;
@@ -1187,11 +1189,55 @@ const OS = (() => {
     qs('#modal-item-unit').value  = item?.valor_unit || '';
     qs('#modal-item-total').value = item?.valor_total || '';
     if (qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
-    qs('#modal-item-estoque').innerHTML =
-      '<option value="">— Selecione do estoque (opcional) —</option>' +
-      estoque.map(e => `<option value="${e.id}" data-unit="${e.valor_unit}" ${e.id === item?.estoque_id ? 'selected' : ''}>${e.descricao} (Qtd: ${e.quantidade})</option>`).join('');
+    qs('#modal-item-estoque').value = item?.estoque_id || '';
+    qs('#modal-item-busca').value   = '';
+    // Item já vinculado (edição): mostra qual é; senão convida a buscar.
+    const vinc = item?.estoque_id ? _itemEstoque.find(e => e.id === item.estoque_id) : null;
+    renderItemResultados(vinc ? [vinc] : [], vinc ? vinc.id : '');
     onItemTipoChange(); // sincroniza visibilidade do campo quem pagou
     Modal.open('modal-item');
+  }
+
+  // Busca do item no estoque (offline-friendly: filtra o cache local).
+  function filtrarItemEstoque(q) {
+    const termo = String(q || '').trim();
+    if (!termo) { renderItemResultados([], qs('#modal-item-estoque').value); return; }
+    const achados = filterRecords(_itemEstoque, termo, ['descricao', 'grupo', 'unidade']).slice(0, 30);
+    renderItemResultados(achados, qs('#modal-item-estoque').value);
+  }
+
+  function renderItemResultados(lista, selId) {
+    const box = qs('#modal-item-resultados');
+    if (!box) return;
+    if (!lista.length) {
+      box.innerHTML = _itemEstoque.length
+        ? '<div class="item-busca-hint">Digite pra buscar no estoque (ou preencha à mão abaixo)</div>'
+        : '<div class="item-busca-hint">Estoque vazio — preencha à mão abaixo</div>';
+      return;
+    }
+    box.innerHTML = lista.map(e => `
+      <div class="item-busca-row ${e.id === selId ? 'is-sel' : ''}" onclick="OS.escolherItemEstoque('${e.id}')">
+        <div style="flex:1;min-width:0">
+          <div class="item-busca-nome">${e.descricao}${e.grupo ? ` <span class="item-busca-grp">📁 ${e.grupo}</span>` : ''}</div>
+          <div class="item-busca-sub">${Number(e.quantidade || 0)} ${e.unidade || 'un'} · ${Fmt.currency(e.valor_unit)}/un</div>
+        </div>
+        ${e.id === selId ? '<span style="color:var(--success);font-weight:800">✓</span>' : ''}
+      </div>`).join('');
+  }
+
+  function escolherItemEstoque(id) {
+    const e = _itemEstoque.find(x => x.id === id);
+    if (!e) return;
+    // Toggle: reclicar no já selecionado desvincula
+    const jaSel = qs('#modal-item-estoque').value === id;
+    qs('#modal-item-estoque').value = jaSel ? '' : id;
+    if (!jaSel) {
+      qs('#modal-item-desc').value = e.descricao || '';
+      qs('#modal-item-unit').value = e.valor_unit || '';
+      const qtd = Number(qs('#modal-item-qtd').value) || 1;
+      qs('#modal-item-total').value = (qtd * (Number(e.valor_unit) || 0)).toFixed(2);
+    }
+    renderItemResultados([e], jaSel ? '' : id);
   }
 
   // Mostra/oculta campo "quem pagou" conforme o tipo do item
@@ -2313,7 +2359,7 @@ const OS = (() => {
     openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
-    openItemForm, onItemTipoChange, saveItem, deleteItem,
+    openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado

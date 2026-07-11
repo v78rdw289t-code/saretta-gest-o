@@ -539,6 +539,29 @@ img { max-width: 100%; }
 .estq-title { font-size: 1.05rem; font-weight: 800; color: var(--text); }
 .estq-sub { font-size: .8rem; color: var(--text-muted); margin-top: 2px; }
 .estq-sub .repor { color: var(--danger); font-weight: 700; }
+/* Cabeçalho de grupo (pasta) na lista de itens do estoque */
+.estq-grupo-head {
+  display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer;
+  background: var(--bg); border-radius: 12px; margin: 8px 0 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.estq-grupo-head:active { background: var(--border); }
+.estq-grupo-chev { font-size: .9rem; color: var(--text-muted); width: 14px; flex: 0 0 auto; }
+.estq-grupo-nome { font-size: .92rem; font-weight: 800; color: var(--text); }
+.estq-grupo-sub { font-size: .74rem; color: var(--text-muted); margin-top: 1px; }
+/* Busca de item do estoque no modal de item da OS */
+.item-busca-results { margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.item-busca-row {
+  display: flex; align-items: center; gap: 8px; padding: 9px 11px; cursor: pointer;
+  border: 1.5px solid var(--border); border-radius: 10px; margin-bottom: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+.item-busca-row:active { background: var(--bg); }
+.item-busca-row.is-sel { border-color: var(--success); background: var(--success-lt); }
+.item-busca-nome { font-size: .86rem; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-busca-grp { font-size: .68rem; font-weight: 600; color: var(--gold-dk); }
+.item-busca-sub { font-size: .72rem; color: var(--text-muted); margin-top: 1px; }
+.item-busca-hint { font-size: .74rem; color: var(--text-muted); padding: 4px 2px; }
 .estq-actions { display: flex; border-top: 1px solid var(--border); }
 .estq-actions button {
   flex: 1; padding: 13px 8px; border: none; background: transparent;

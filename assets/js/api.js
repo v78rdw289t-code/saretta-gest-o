@@ -15,6 +15,17 @@ const API = (() => {
   const REFRESH_AFTER = 1  * 60 * 1000;  // 1min — depois disso, refetch em background
   const STORAGE_KEY   = 'saretta_api_cache_v1';
 
+  // Sheets de REFERÊNCIA (cadastros que mudam pouco): clientes, categorias,
+  // contas e itens do estoque. Sem elas não dá pra lançar OS/orçamento em campo.
+  // Ficam no cache por muito mais tempo (30 dias) e são servidas na HORA, mesmo
+  // stale, sem esperar a rede — pra que funcionem offline mesmo depois de 1h.
+  const REFERENCE_SHEETS = ['clientes', 'categorias', 'contas', 'estoque'];
+  const REFERENCE_TTL    = 30 * 24 * 60 * 60 * 1000;  // 30 dias
+  function isReferenceKey(key) {
+    return REFERENCE_SHEETS.some(s => new RegExp('[?&]sheet=' + s + '(&|$)').test(key));
+  }
+  function ttlFor(key) { return isReferenceKey(key) ? REFERENCE_TTL : STORAGE_TTL; }
+
   const POST_INVALIDATES = {
     create:          (body) => [body.sheet],
     update:          (body) => [body.sheet],
@@ -60,7 +71,7 @@ const API = (() => {
       const now = Date.now();
       let restored = 0;
       for (const [key, entry] of Object.entries(obj)) {
-        if (entry && entry.ts && now - entry.ts < STORAGE_TTL) {
+        if (entry && entry.ts && now - entry.ts < ttlFor(key)) {
           cache.set(key, { data: entry.data, ts: entry.ts });
           restored++;
         }
@@ -316,10 +327,11 @@ const API = (() => {
     if (useCache && cache.has(key)) {
       const { data, ts } = cache.get(key);
       const age = Date.now() - ts;
-      // Stale-while-revalidate: QUALQUER cache de até 1h renderiza na hora;
-      // passou de 1min, atualiza em background. Reabrir o app depois de um
-      // tempo parado não bloqueia mais a tela esperando a rede.
-      if (age < STORAGE_TTL) {
+      // Stale-while-revalidate: cache dentro do TTL renderiza na hora; passou de
+      // 1min, atualiza em background. Reabrir o app depois de um tempo parado não
+      // bloqueia mais a tela esperando a rede. Sheets de referência (clientes,
+      // estoque…) têm TTL de 30 dias → seguem servindo offline em campo.
+      if (age < ttlFor(key)) {
         if (age > REFRESH_AFTER) {
           if (soSheet) enqueueRead(params.sheet, key, true);
           else backgroundRefetch(urlStr, key);
@@ -389,12 +401,16 @@ const API = (() => {
   // Envio cru do POST — lança erro de rede pro chamador decidir.
   // SEM retry automático: se a 1ª tentativa chegou no servidor e a resposta
   // se perdeu, repetir duplicaria o lançamento.
-  async function rawSend(action, body) {
+  // Timeout FOLGADO p/ o reenvio da caderneta (> trava de 30s do doPost): o
+  // servidor pode segurar a escrita na fila do LockService; desistir cedo criava
+  // falso "a confirmar" com a escrita chegando logo depois — raiz das duplicações.
+  const NET_TIMEOUT_FILA = 40000;
+  async function rawSend(action, body, timeout) {
     const token = (typeof LocalConfig !== 'undefined') ? LocalConfig.getToken() : '';
     const res = await fetchWithTimeout(window.APPS_SCRIPT_URL, {
       method: 'POST',
       body: JSON.stringify({ action, token, ...body }),
-    }, POST_TIMEOUT[action] || NET_TIMEOUT);
+    }, timeout || POST_TIMEOUT[action] || NET_TIMEOUT);
     const json = await res.json();
     if (json && json.error && /autoriz|token/i.test(json.error)) {
       Toast.error('Acesso negado — confira o token em Configurações');
@@ -445,7 +461,7 @@ const API = (() => {
   // (rede caiu) ou marca 'incerto' (timeout ambíguo).
   async function _postDireto(action, body = {}) {
     try {
-      const json = await rawSend(action, body);
+      const json = await rawSend(action, body, NET_TIMEOUT_FILA);
       if (json && json.success) invalidateForAction(action, body);
       return json;
     } catch (e) {
@@ -509,8 +525,8 @@ const API = (() => {
   function hasCache() {
     if (cache.size === 0) return false;
     const now = Date.now();
-    for (const entry of cache.values()) {
-      if (now - entry.ts < STORAGE_TTL) return true;
+    for (const [key, entry] of cache.entries()) {
+      if (now - entry.ts < ttlFor(key)) return true;
     }
     return false;
   }
@@ -518,7 +534,7 @@ const API = (() => {
   // Hidrata cache do localStorage assim que o módulo carrega
   hydrateCache();
 
-  return { get, post, db, clearCache, hasCache, _postDireto };
+  return { get, post, db, clearCache, hasCache, _postDireto, _invalidateFor: invalidateForAction };
 })();
 
 // ─── CONFIG LOCAL ────────────────────────────────────────────
