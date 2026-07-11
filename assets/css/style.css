@@ -520,6 +520,29 @@ img { max-width: 100%; }
   font-size: .7rem; color: var(--text-muted);
 }
 .os-card-go { font-weight: 700; color: var(--gold-dk); white-space: nowrap; }
+.os-card-sess {
+  font-weight: 700; color: var(--navy); white-space: nowrap;
+  padding: 3px 9px; border-radius: 20px; background: #EAF0FB;
+  -webkit-tap-highlight-color: transparent;
+}
+.os-card-sess:active { background: #d9e4f6; }
+/* Insights do dia na home (status/contagens, sem R$) */
+.home-ins-item {
+  display: flex; align-items: center; gap: 11px; padding: 11px 13px;
+  background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--navy);
+  border-radius: 12px; margin-bottom: 8px; cursor: pointer; box-shadow: var(--shadow);
+  -webkit-tap-highlight-color: transparent;
+}
+.home-ins-item:active { background: var(--bg); }
+.home-ins-item.tone-red   { border-left-color: var(--danger); }
+.home-ins-item.tone-gold  { border-left-color: var(--gold); }
+.home-ins-item.tone-orange{ border-left-color: #E8833A; }
+.home-ins-ico { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 10px; background: #EAF0FB;
+  display: flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+.home-ins-body { flex: 1; min-width: 0; }
+.home-ins-title { font-size: .88rem; font-weight: 700; color: var(--text); }
+.home-ins-sub { font-size: .74rem; color: var(--text-muted); margin-top: 1px; }
+.home-ins-empty { text-align: center; color: var(--text-muted); font-size: .82rem; padding: 16px 0; }
 .os-card-empty {
   grid-column: 1/-1; text-align: center; padding: 22px; color: var(--text-muted);
   font-size: .88rem; background: var(--card); border: 1px solid var(--border);

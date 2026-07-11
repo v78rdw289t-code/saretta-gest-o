@@ -1650,11 +1650,16 @@ const OS = (() => {
     const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
 
     const r0 = _calcFromBase(baseRate);
-    _calc.liquido  = r0.calculado; _calc.bruto = r0.calculado;
+    // OS que veio de ORÇAMENTO aprovado: o valor orçado é o preço fechado com o
+    // cliente. A base do fechamento passa a ser ele; as horas viram REFERÊNCIA
+    // (pra saber se o serviço saiu no lucro), não recalculam o valor.
+    const orcado   = Number(currentOS.orcado_valor || 0);
+    const temOrcado = orcado > 0;
+    const calc     = temOrcado ? orcado : r0.calculado;
+    _calc.liquido  = calc; _calc.bruto = calc;
     _calc.maoObra  = r0.maoObra;   _calc.totalItens = r0.totalItens;
     _calc.nSessoes = r0.nSessoes;  _calc.horaBase = baseRate;
     _calc.horaBaseOrig = baseRate; // referência p/ detectar mudança no fechamento
-    const calc = r0.calculado;
 
     // Renderiza modal de fechamento
     const section = qs('#page-os');
@@ -1673,6 +1678,19 @@ const OS = (() => {
             <!-- hidden sempre presente — base para atualizarFechamento e saveFechamento -->
             <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
 
+            ${temOrcado ? `
+            <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
+              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Valor combinado (orçamento)</div>
+              <div class="info-row" style="margin-bottom:4px">
+                <span>💰 Valor orçado</span>
+                <strong id="fech-calculado-display" class="text-green">${Fmt.currency(orcado)}</strong>
+              </div>
+              <div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">
+                🕐 pelas horas daria: <span id="fech-ref-horas">${Fmt.currency(r0.calculado)}</span> · ${r0.nSessoes} sessão(ões)
+                ${r0.totalItens > 0 ? ` (inclui ${Fmt.currency(r0.totalItens)} de materiais)` : ''}
+              </div>
+            </div>
+            ` : `
             <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
               <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
               <div class="info-row" style="margin-bottom:4px">
@@ -1685,8 +1703,9 @@ const OS = (() => {
                 <strong id="fech-calculado-display" class="text-green">${Fmt.currency(calc)}</strong>
               </div>
             </div>
+            `}
 
-            ${r0.nCalc > 0 ? `
+            ${r0.nCalc > 0 && !temOrcado ? `
             <div style="margin-bottom:16px">
               <button type="button" id="fech-hora-base-btn" class="btn btn-outline btn-sm" style="font-size:.82rem"
                 onclick="OS.toggleHoraBase()">⚙️ Alterar hora base (R$ ${baseRate}/h)</button>
@@ -2162,13 +2181,18 @@ const OS = (() => {
     if (novoStatus === 'fechado' && !currentOS.data_fim) {
       patch.data_fim = new Date().toISOString().substring(0, 10);
     }
+    // Marca quando a OS ENTROU em acerto — base pra contar "há N dias pra cobrar".
+    if (novoStatus === 'acerto' && currentOS.status !== 'acerto') {
+      patch.data_acerto = DateUtil.today();
+    }
     const res = await API.db.update('os', currentOS.id, patch);
     Loading.hide();
     if (res?.success) {
       currentOS.status = novoStatus;
-      if (patch.data_fim) currentOS.data_fim = patch.data_fim;
+      if (patch.data_fim)    currentOS.data_fim = patch.data_fim;
+      if (patch.data_acerto) currentOS.data_acerto = patch.data_acerto;
       const idx = allOS.findIndex(o => o.id === currentOS.id);
-      if (idx >= 0) { allOS[idx].status = novoStatus; if (patch.data_fim) allOS[idx].data_fim = patch.data_fim; }
+      if (idx >= 0) { allOS[idx].status = novoStatus; if (patch.data_fim) allOS[idx].data_fim = patch.data_fim; if (patch.data_acerto) allOS[idx].data_acerto = patch.data_acerto; }
       Toast.success('Status atualizado.');
       openDetail(currentOS.id);
     } else {

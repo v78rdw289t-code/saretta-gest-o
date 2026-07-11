@@ -32,7 +32,7 @@ const Home = (() => {
             <div class="home-greeting">${saudIcon} ${saud}</div>
             <div class="home-date">${hoje}</div>
           </div>
-          <img src="assets/img/logo-app.png?v=2.9.0" alt="Saretta" class="home-hero-logo"
+          <img src="assets/img/logo-app.png" alt="Saretta" class="home-hero-logo"
             onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
         </div>
 
@@ -46,18 +46,6 @@ const Home = (() => {
       </div>
 
       <div id="home-search-results" class="hidden"></div>
-
-      <!-- Agenda da semana — organização do dia (visitas/compromissos + contas/OS) -->
-      <div class="home-section-head">
-        <h2 class="home-section-title">📅 Agenda da semana</h2>
-        <div class="home-section-actions">
-          <button class="home-section-add" onclick="Agenda.openForm()">＋ Novo</button>
-          <button class="home-section-link" onclick="App.navigate('agenda')">Ver tudo ›</button>
-        </div>
-      </div>
-      <div id="home-agenda">
-        <div class="loading-pulse" style="height:58px;border-radius:12px"></div>
-      </div>
 
       <!-- OS em andamento — primeira seção (o que está rodando agora) -->
       <div class="home-section-head">
@@ -90,16 +78,12 @@ const Home = (() => {
         </div>
       </div>
 
-      <!-- Últimos lançamentos — sem valores (privacidade) -->
+      <!-- Insights do dia — status/contagens, sem valores de faturamento -->
       <div class="home-section-head">
-        <h2 class="home-section-title">💰 Últimos lançamentos</h2>
-        <div class="home-section-actions">
-          <button class="home-section-add" onclick="App.navigate('financeiro').then(() => Financeiro.openManual())">＋ Lançar</button>
-          <button class="home-section-link" onclick="App.navigate('financeiro')">Ver todos ›</button>
-        </div>
+        <h2 class="home-section-title">📊 Insights do dia</h2>
       </div>
-      <div id="home-lancamentos" class="card lanc-card">
-        <div class="loading-pulse" style="height:58px;border-radius:12px;margin:6px"></div>
+      <div id="home-insights">
+        <div class="loading-pulse" style="height:58px;border-radius:12px"></div>
       </div>
     `;
 
@@ -107,17 +91,15 @@ const Home = (() => {
     if (!LocalConfig.getUrl()) {
       const cfgMsg = '<p class="text-muted p-3" style="margin:0">Configure a conexão em Configurações</p>';
       qs('#home-os-andamento').innerHTML = cfgMsg;
-      qs('#home-lancamentos').innerHTML = cfgMsg;
-      const ag = qs('#home-agenda'); if (ag) ag.innerHTML = cfgMsg;
+      const ins = qs('#home-insights'); if (ins) ins.innerHTML = cfgMsg;
       const est = qs('#home-estoque-info'); if (est) est.textContent = 'Configure a conexão';
       return;
     }
 
     // Dispara em paralelo, SEM await — cada bloco se preenche sozinho.
-    Agenda.renderHomeSection();
     loadOSAndamento();
     loadEstoqueCard();
-    loadUltimosLancamentos();
+    loadInsightsHome();
     loadLembrete();
   }
 
@@ -154,18 +136,15 @@ const Home = (() => {
       qs('#home-os-andamento').innerHTML = '<div class="os-card-empty">✅ Nenhuma OS em andamento</div>';
       return;
     }
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     qs('#home-os-andamento').innerHTML = `
       <div class="os-cards">
         ${items.slice(0, 8).map(o => {
           const num = (o.numero || '').replace('OS-', '');
           const titulo = o.nome || App.clienteNome(o.cliente_id);
           const cliente = App.clienteNome(o.cliente_id);
-          const ini = new Date((o.data_inicio || '') + 'T00:00:00');
-          const dias = !isNaN(ini.getTime()) ? Math.max(0, Math.floor((hoje - ini) / 86400000)) : null;
           const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
           return `
-            <button class="os-card" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
+            <div class="os-card" role="button" tabindex="0" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
               <div class="os-card-top">
                 <span class="os-card-num">#${num}</span>
                 ${catNome ? `<span class="os-card-tipo is-normal">${catNome}</span>` : ''}
@@ -173,10 +152,10 @@ const Home = (() => {
               <div class="os-card-title">${titulo}</div>
               ${titulo !== cliente ? `<div class="os-card-cli">👤 ${cliente}</div>` : ''}
               <div class="os-card-foot">
-                <span>${dias === null ? '' : dias === 0 ? 'Começou hoje' : `há ${dias} dia${dias > 1 ? 's' : ''}`}</span>
+                <span class="os-card-sess" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}')">⏱ Sessão</span>
                 <span class="os-card-go">Abrir ›</span>
               </div>
-            </button>
+            </div>
           `;
         }).join('')}
       </div>
@@ -184,41 +163,105 @@ const Home = (() => {
   }
 
   // ─── Últimos lançamentos (sem cifras) ────────────────────────
-  async function loadUltimosLancamentos() {
-    const el = qs('#home-lancamentos');
+  // ─── Insights do dia (contagens/status, SEM valores de faturamento) ──
+  // Destaque: OS em acerto pra cobrar (com escalonamento de aviso 3/5/diário).
+  async function loadInsightsHome() {
+    const el = qs('#home-insights');
     if (!el) return;
-    const res = await API.db.read('parcelas');
-    const todas = (res?.data || []).filter(p => !origemForaResultado(p.origem));
-    // Ordem de INSERÇÃO: as parcelas voltam na ordem das linhas da planilha
-    // (o backend faz appendRow no fim). As últimas inseridas estão no fim do
-    // array → pega as últimas e inverte p/ mostrar a mais nova primeiro.
-    // (Não ordena por data de venc./pagto — senão parcelas futuras a pagar
-    //  subiriam pro topo mesmo tendo sido lançadas há muito tempo.)
-    const ordenadas = todas.slice(-6).reverse();
+    const [osRes, parRes, estRes] = await Promise.all([
+      API.db.read('os'),
+      API.db.read('parcelas'),
+      API.db.read('estoque').catch(() => null),
+    ]);
+    const osList = osRes?.data || [];
+    const today  = new Date(); today.setHours(0, 0, 0, 0);
+    const diasDesde = (s) => {
+      const d = new Date(String(s || '').substring(0, 10) + 'T00:00:00');
+      return isNaN(d.getTime()) ? null : Math.floor((today - d) / 86400000);
+    };
 
-    if (ordenadas.length === 0) {
-      el.innerHTML = '<p class="lanc-empty">Nenhum lançamento ainda</p>';
-      return;
+    // OS em acerto (serviço feito, falta receber) — dias desde que entrou em acerto
+    // (data_acerto quando existe; senão a última atualização/fim como aproximação).
+    const acerto = osList.filter(o => o.status === 'acerto').map(o => ({
+      id: o.id,
+      numero:  (o.numero || '').replace('OS-', ''),
+      cliente: App.clienteNome(o.cliente_id),
+      dias:    diasDesde(o.data_acerto || o.data_atualizacao || o.data_fim || o.data_inicio) ?? 0,
+    })).sort((a, b) => b.dias - a.dias);
+
+    // OS em andamento parada há mais tempo (sem atualização recente)
+    let osParada = null;
+    osList.filter(o => o.status === 'andamento').forEach(o => {
+      const dias = diasDesde(o.data_atualizacao || o.data_inicio);
+      if (dias != null && (!osParada || dias > osParada.dias)) {
+        osParada = { id: o.id, numero: (o.numero || '').replace('OS-', ''), dias };
+      }
+    });
+
+    // Estoque a repor (no/abaixo do mínimo)
+    const repor = (estRes?.data || []).filter(e => {
+      const m = Number(e.estoque_minimo || 0);
+      return m > 0 && Number(e.quantidade || 0) <= m && e.ativo !== false && e.ativo !== 'false';
+    }).length;
+
+    // Contas vencendo essa semana — SÓ a contagem (sem R$)
+    const em7 = new Date(today); em7.setDate(em7.getDate() + 7);
+    const vencendo = (parRes?.data || []).filter(p => {
+      if (origemForaResultado(p.origem) || p.status !== 'pendente') return false;
+      const d = new Date(String(p.data_vencimento || '') + 'T00:00:00');
+      return !isNaN(d.getTime()) && d >= today && d <= em7;
+    }).length;
+
+    const linhas = [];
+    // Cobrança: cada OS em acerto (worklist do que falta receber), mais antiga primeiro
+    acerto.slice(0, 4).forEach(a => linhas.push(`
+      <div class="home-ins-item tone-gold" onclick="App.navigate('os').then(() => OS.openDetail('${a.id}'))">
+        <span class="home-ins-ico">💸</span>
+        <div class="home-ins-body">
+          <div class="home-ins-title">Cobrar #${a.numero} — ${a.cliente}</div>
+          <div class="home-ins-sub">Em acerto ${a.dias <= 0 ? 'desde hoje' : `há ${a.dias} dia${a.dias > 1 ? 's' : ''}`} · toque pra abrir</div>
+        </div>
+      </div>`));
+    if (osParada && osParada.dias >= 10) linhas.push(`
+      <div class="home-ins-item tone-orange" onclick="App.navigate('os').then(() => OS.openDetail('${osParada.id}'))">
+        <span class="home-ins-ico">🐌</span>
+        <div class="home-ins-body">
+          <div class="home-ins-title">OS #${osParada.numero} parada há ${osParada.dias} dias</div>
+          <div class="home-ins-sub">Sem registro de sessão — retomou ou fechou?</div>
+        </div>
+      </div>`);
+    if (repor > 0) linhas.push(`
+      <div class="home-ins-item tone-red" onclick="App.navigate('estoque')">
+        <span class="home-ins-ico">📦</span>
+        <div class="home-ins-body">
+          <div class="home-ins-title">${repor} item${repor > 1 ? 's' : ''} pra repor</div>
+          <div class="home-ins-sub">No ou abaixo do estoque mínimo</div>
+        </div>
+      </div>`);
+    if (vencendo > 0) linhas.push(`
+      <div class="home-ins-item" onclick="App.navigate('financeiro', { filtro: 'vencendo7d' })">
+        <span class="home-ins-ico">🔔</span>
+        <div class="home-ins-body">
+          <div class="home-ins-title">${vencendo} conta${vencendo > 1 ? 's' : ''} vencendo essa semana</div>
+          <div class="home-ins-sub">Próximos 7 dias</div>
+        </div>
+      </div>`);
+
+    el.innerHTML = linhas.length ? linhas.join('') : '<div class="home-ins-empty">✓ Tudo em dia por aqui</div>';
+
+    // Notificações de cobrança escalonadas: aviso aos 3 dias, aos 5, depois diário.
+    // (dedupeKey por OS dedupe no MESMO dia → no máx 1 aviso/dia por OS.)
+    if (typeof Notif !== 'undefined') {
+      acerto.forEach(a => {
+        if (a.dias === 3 || a.dias >= 5) Notif.add({
+          tipo: 'money',
+          titulo: `Cobrar OS #${a.numero} — ${a.cliente}`,
+          texto: `Serviço em acerto há ${a.dias} dias. Quer cobrar o cliente?`,
+          action: { page: 'os' },
+          dedupeKey: 'cobrar-' + a.id,
+        });
+      });
     }
-
-    // Data exibida (não é critério de ordem): pago → pagamento; senão venc./comp.
-    const dataRef = p => String(p.data_pagamento || p.data_vencimento || p.data_competencia || '').substring(0, 10);
-    el.innerHTML = ordenadas.map(p => {
-      const receita = p.tipo === 'receber';
-      const pago    = p.status === 'pago';
-      const cat     = p.categoria_id ? App.categoriaNome(p.categoria_id) : '';
-      const sub     = [(cat && cat !== '—') ? cat : '', dataCurta(dataRef(p))].filter(Boolean).join(' · ');
-      const desc    = p.descricao || (receita ? 'Recebimento' : 'Pagamento');
-      return `
-        <div class="lanc-row" onclick="Home.abrirLancamento('${p.id}')">
-          <span class="lanc-ico ${receita ? 'is-rec' : 'is-pag'}">${receita ? '↑' : '↓'}</span>
-          <div class="lanc-body">
-            <div class="lanc-desc">${desc}</div>
-            <div class="lanc-sub">${sub}</div>
-          </div>
-          <span class="lanc-status ${pago ? 'is-pago' : 'is-pend'}">${pago ? '✓ Pago' : '○ Pendente'}</span>
-        </div>`;
-    }).join('');
   }
 
   // Abre o lançamento no Financeiro (modal de edição). Usa o padrão seguro

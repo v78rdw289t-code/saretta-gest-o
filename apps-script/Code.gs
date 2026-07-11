@@ -39,7 +39,7 @@ const SHEET_HEADERS = {
   // registro: 'os' | 'orcamento' (default 'os'). Orçamento reusa a MESMA planilha.
   // prazo_dias: estimativa de dias. Na OS gerada de um orçamento: orcamento_id
   // (origem) + snapshots orcado_valor / orcado_data para exibir "Orçado em ...".
-  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao','registro','prazo_dias','orcamento_id','orcado_valor','orcado_data'],
+  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao','registro','prazo_dias','orcamento_id','orcado_valor','orcado_data','data_acerto'],
   os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total'],
   diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes','reajuste_json','blocos_json'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
