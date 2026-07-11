@@ -526,6 +526,7 @@ function origemForaResultado(origem) {
 function statusBadge(status) {
   const map = {
     rascunho:  ['badge-secondary', 'Rascunho'],
+    orcamento: ['badge-gold',      '📄 Orçamento'],
     andamento: ['badge-info',      'Em Andamento'],
     acerto:    ['badge-warning',   'Em Acerto'],
     fechado:   ['badge-success',   'Fechado'],

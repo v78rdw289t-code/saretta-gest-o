@@ -70,6 +70,7 @@ const OS = (() => {
     const mes = DateUtil.mesAtual();
     const totalAndamento = allOS.filter(o => o.status === 'andamento').length;
     const totalAcerto    = allOS.filter(o => o.status === 'acerto').length;
+    const totalOrcamento = allOS.filter(o => o.status === 'orcamento').length;
     const fechadasMes    = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes)).length;
     const receitaMes     = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes))
                                 .reduce((s,o) => s + Number(o.valor_fechamento||0), 0);
@@ -94,6 +95,10 @@ const OS = (() => {
           ${_loteMode ? '' : '<button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>'}
         </div>
       </div>
+      ${_loteMode ? '' : `
+      <div style="display:flex;gap:8px;margin:-4px 0 12px">
+        <button class="btn btn-gold btn-sm" style="flex:1" onclick="OS.novoOrcamento()">📄 Novo orçamento</button>
+      </div>`}
 
       ${_loteMode ? `
       <div class="lote-hint mb-3">
@@ -124,10 +129,11 @@ const OS = (() => {
           oninput="OS.applyFilters()">
       </div>
       <div class="tab-bar mb-3">
-        <button class="tab-btn ${filtroStatus===''       ?'active':''}" onclick="OS.setStatus('')">Todas</button>
+        <button class="tab-btn ${filtroStatus==='orcamento'?'active':''}" onclick="OS.setStatus('orcamento')">📄 Orçamentos${totalOrcamento ? ` (${totalOrcamento})` : ''}</button>
         <button class="tab-btn ${filtroStatus==='andamento'?'active':''}" onclick="OS.setStatus('andamento')">Andamento</button>
         <button class="tab-btn ${filtroStatus==='acerto' ?'active':''}" onclick="OS.setStatus('acerto')">Acerto</button>
         <button class="tab-btn ${filtroStatus==='fechado'?'active':''}" onclick="OS.setStatus('fechado')">Fechadas</button>
+        <button class="tab-btn ${filtroStatus===''       ?'active':''}" onclick="OS.setStatus('')">Todas</button>
       </div>
       <div class="entity-list">
         ${items.length === 0
@@ -227,6 +233,7 @@ const OS = (() => {
   function _menuStatus() {
     if (!currentOS) return;
     const opts = [
+      { v: 'orcamento', icon: '📄', label: 'Orçamento (proposta)' },
       { v: 'andamento', icon: '🔧', label: 'Em Andamento' },
       { v: 'acerto',    icon: '🤝', label: 'Em Acerto' },
       { v: 'fechado',   icon: '✓',  label: 'Fechado (sem gerar conta)' },
@@ -289,7 +296,16 @@ const OS = (() => {
       </div>
 
       <!-- Barra de ações principais -->
-      ${currentOS.status !== 'fechado' ? `
+      ${currentOS.status === 'orcamento' ? `
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          <button class="btn btn-outline" style="flex:1;font-size:.95rem;padding:13px 8px;border-radius:12px" onclick="Doc.gerar('${id}','orcamento')">
+            📄 Gerar PDF
+          </button>
+          <button class="btn btn-primary" style="flex:1;font-size:.95rem;padding:13px 8px" onclick="OS.aprovarOrcamento('${id}')">
+            ✓ Aprovar → vira OS
+          </button>
+        </div>
+      ` : currentOS.status !== 'fechado' ? `
         <div style="display:flex;gap:10px;margin-bottom:16px">
           <button class="btn btn-primary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openDiaria()">
             ⏱ Registrar Sessão
@@ -740,17 +756,23 @@ const OS = (() => {
   }
 
   // ─── FORM OS ────────────────────────────────────────────
-  async function openForm(id = null) {
+  // Atalho: abre o form já como orçamento (proposta).
+  function novoOrcamento() { return openForm(null, 'orcamento'); }
+
+  async function openForm(id = null, novoStatus = null) {
     let os = null;
     if (id) {
       os = allOS.find(o => o.id === id) || (await API.db.read('os', id))?.data?.[0];
     }
     const numero = os ? os.numero : await nextOSNumber();
+    const statusIni = os ? os.status : (novoStatus || 'andamento');
+    const ehOrc = statusIni === 'orcamento';
+    const titulo = os ? (ehOrc ? 'Editar Orçamento' : 'Editar OS') : (ehOrc ? 'Novo Orçamento' : 'Nova OS');
     const section = qs('#page-os');
     section.innerHTML = `
       <div class="page-header">
         <button class="btn btn-outline" onclick="${id ? `OS.openDetail('${id}')` : 'OS.render()'}">← Voltar</button>
-        <h1>${os ? 'Editar OS' : 'Nova OS'}</h1>
+        <h1>${titulo}</h1>
       </div>
       <div class="card">
         <div class="card-body">
@@ -807,10 +829,11 @@ const OS = (() => {
             <div class="form-group">
               <label>Status</label>
               <select name="status" class="input">
-                <option value="andamento" ${(!os||os.status==='andamento')?'selected':''}>Em Andamento</option>
-                <option value="rascunho"  ${os?.status==='rascunho' ?'selected':''}>Rascunho</option>
-                <option value="acerto"    ${os?.status==='acerto'   ?'selected':''}>Em Acerto</option>
-                <option value="fechado"   ${os?.status==='fechado'  ?'selected':''}>Fechado</option>
+                <option value="orcamento" ${statusIni==='orcamento'?'selected':''}>📄 Orçamento (proposta)</option>
+                <option value="andamento" ${statusIni==='andamento'?'selected':''}>Em Andamento</option>
+                <option value="rascunho"  ${statusIni==='rascunho' ?'selected':''}>Rascunho</option>
+                <option value="acerto"    ${statusIni==='acerto'   ?'selected':''}>Em Acerto</option>
+                <option value="fechado"   ${statusIni==='fechado'  ?'selected':''}>Fechado</option>
               </select>
             </div>
             <div class="form-group">
@@ -1122,11 +1145,13 @@ const OS = (() => {
   }
 
   // ─── ITENS ──────────────────────────────────────────────
+  let _itemEstoque = []; // itens do estoque em cache p/ a busca do modal-item
+
   async function openItemForm(itemId = null) {
     if (!currentOS) return;
     const item   = itemId ? allItens.find(i => i.id === itemId) : null;
     const estRes = await API.db.read('estoque');
-    const estoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+    _itemEstoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
 
     qs('#modal-item-id').value    = itemId || '';
     qs('#modal-item-os-id').value = currentOS.id;
@@ -1135,10 +1160,54 @@ const OS = (() => {
     qs('#modal-item-qtd').value   = item?.quantidade || '1';
     qs('#modal-item-unit').value  = item?.valor_unit || '';
     qs('#modal-item-total').value = item?.valor_total || '';
-    qs('#modal-item-estoque').innerHTML =
-      '<option value="">— Selecione do estoque (opcional) —</option>' +
-      estoque.map(e => `<option value="${e.id}" data-unit="${e.valor_unit}" ${e.id === item?.estoque_id ? 'selected' : ''}>${e.descricao} (Qtd: ${e.quantidade})</option>`).join('');
+    qs('#modal-item-estoque').value = item?.estoque_id || '';
+    qs('#modal-item-busca').value   = '';
+    // Item já vinculado (edição): mostra qual é; senão convida a buscar.
+    const vinc = item?.estoque_id ? _itemEstoque.find(e => e.id === item.estoque_id) : null;
+    renderItemResultados(vinc ? [vinc] : [], vinc ? vinc.id : '');
     Modal.open('modal-item');
+  }
+
+  // Busca do item no estoque (offline-friendly: filtra o cache local).
+  function filtrarItemEstoque(q) {
+    const termo = String(q || '').trim();
+    if (!termo) { renderItemResultados([], qs('#modal-item-estoque').value); return; }
+    const achados = filterRecords(_itemEstoque, termo, ['descricao', 'grupo', 'unidade']).slice(0, 30);
+    renderItemResultados(achados, qs('#modal-item-estoque').value);
+  }
+
+  function renderItemResultados(lista, selId) {
+    const box = qs('#modal-item-resultados');
+    if (!box) return;
+    if (!lista.length) {
+      box.innerHTML = _itemEstoque.length
+        ? '<div class="item-busca-hint">Digite pra buscar no estoque (ou preencha à mão abaixo)</div>'
+        : '<div class="item-busca-hint">Estoque vazio — preencha à mão abaixo</div>';
+      return;
+    }
+    box.innerHTML = lista.map(e => `
+      <div class="item-busca-row ${e.id === selId ? 'is-sel' : ''}" onclick="OS.escolherItemEstoque('${e.id}')">
+        <div style="flex:1;min-width:0">
+          <div class="item-busca-nome">${e.descricao}${e.grupo ? ` <span class="item-busca-grp">📁 ${e.grupo}</span>` : ''}</div>
+          <div class="item-busca-sub">${Number(e.quantidade || 0)} ${e.unidade || 'un'} · ${Fmt.currency(e.valor_unit)}/un</div>
+        </div>
+        ${e.id === selId ? '<span style="color:var(--success);font-weight:800">✓</span>' : ''}
+      </div>`).join('');
+  }
+
+  function escolherItemEstoque(id) {
+    const e = _itemEstoque.find(x => x.id === id);
+    if (!e) return;
+    // Toggle: reclicar no já selecionado desvincula
+    const jaSel = qs('#modal-item-estoque').value === id;
+    qs('#modal-item-estoque').value = jaSel ? '' : id;
+    if (!jaSel) {
+      qs('#modal-item-desc').value = e.descricao || '';
+      qs('#modal-item-unit').value = e.valor_unit || '';
+      const qtd = Number(qs('#modal-item-qtd').value) || 1;
+      qs('#modal-item-total').value = (qtd * (Number(e.valor_unit) || 0)).toFixed(2);
+    }
+    renderItemResultados([e], jaSel ? '' : id);
   }
 
   // trava de duplo clique (Guard) — o corpo real está em _saveItem
@@ -1852,6 +1921,30 @@ const OS = (() => {
     }
   }
 
+  // Aprovar orçamento → vira OS em andamento (cliente aceitou a proposta).
+  // Guarda a data de início como hoje, se ainda não tiver.
+  function aprovarOrcamento(id) {
+    const o = allOS.find(x => x.id === id) || currentOS;
+    if (!o) return;
+    Modal.confirm(`Aprovar o orçamento ${o.numero}? Ele vira uma OS em andamento.`, async () => {
+      if (currentOS?.id !== id) { currentOS = o; }
+      Loading.show();
+      const patch = { status: 'andamento', data_atualizacao: new Date().toISOString() };
+      if (!o.data_inicio) patch.data_inicio = DateUtil.today();
+      const res = await API.db.update('os', id, patch);
+      Loading.hide();
+      if (res?.success) {
+        Object.assign(o, patch);
+        if (currentOS) Object.assign(currentOS, patch);
+        Toast.success('Orçamento aprovado — agora é uma OS!');
+        await loadData();
+        openDetail(id);
+      } else {
+        Toast.error('Erro ao aprovar: ' + (res?.error || ''));
+      }
+    });
+  }
+
   async function mudarStatus(novoStatus) {
     if (!currentOS || !novoStatus) return;
     Loading.show();
@@ -2056,10 +2149,11 @@ const OS = (() => {
 
   return {
     render, renderList, applyFilters, setStatus, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, saveForm,
+    novoOrcamento, aprovarOrcamento,
     openInsightsOS,
     openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
-    openItemForm, saveItem, deleteItem,
+    openItemForm, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,

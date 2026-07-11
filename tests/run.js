@@ -479,5 +479,22 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— v3.8: grupos no estoque + status orçamento —');
+  {
+    const g = makeGsSandbox();
+    test('sheet estoque tem coluna grupo e create/read preservam', () => {
+      assert.ok(vm.runInContext(`SHEET_HEADERS.estoque`, g).includes('grupo'));
+      const r = vm.runInContext(`create('estoque', { descricao: 'Parafuso M6', grupo: 'Parafuso',
+        quantidade: 10, valor_unit: 0.5, unidade: 'un', ativo: true })`, g);
+      assert.equal(vm.runInContext(`read('estoque', '${r.data.id}').data[0]`, g).grupo, 'Parafuso');
+    });
+    const s = makeFrontSandbox();
+    test('statusBadge inclui orçamento (aba/detalhe da OS)', () => {
+      const b = vm.runInContext(`statusBadge('orcamento')`, s);
+      assert.ok(/badge-gold/.test(b) && /Or.amento/.test(b));
+      assert.ok(/badge-info/.test(vm.runInContext(`statusBadge('andamento')`, s)));
+    });
+  }
+
   console.log(`\n${passed} teste(s) OK${process.exitCode ? ' — COM FALHAS' : ''}\n`);
 })();

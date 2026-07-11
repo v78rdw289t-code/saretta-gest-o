@@ -48,7 +48,7 @@ const SHEET_HEADERS = {
   parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
   contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
-  estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo','categoria_id','estoque_minimo'],
+  estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo','categoria_id','estoque_minimo','grupo'],
   compras:        ['id','fornecedor_id','data','valor_total','valor_bruto','desconto','parcela_id','observacoes'],
   compras_itens:  ['id','compra_id','descricao','estoque_id','categoria_id','quantidade','valor_unit','valor_liq','valor_total'],
   lista_compras:  ['id','cliente_id','descricao','quantidade','unidade','estoque_id','status','data_criacao'],
