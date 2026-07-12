@@ -350,14 +350,21 @@ const OS = (() => {
       <!-- Barra de ações principais -->
       ${currentOS.status !== 'fechado' ? `
         ${sessAberta ? `
-        <div class="card mb-3" style="cursor:pointer;border-left:4px solid var(--gold, #c8a24a)" onclick="OS.openDiaria('${sessAberta.diariaId}')">
-          <div class="card-body" style="display:flex;align-items:center;gap:10px">
-            <span style="font-size:1.3rem">▶</span>
-            <div style="flex:1;min-width:0">
-              <div class="info-label">Sessão em andamento</div>
-              <strong>Desde ${sessAberta.inicio}${sessAberta.data && sessAberta.data !== DateUtil.today() ? ` · ${Fmt.date(sessAberta.data)}` : ''}</strong>
+        <div class="card mb-3" style="border-left:4px solid var(--gold, #c8a24a)">
+          <div class="card-body">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:1.3rem">${sessAberta.pausada ? '⏸' : '▶'}</span>
+              <div style="flex:1;min-width:0">
+                <div class="info-label">${sessAberta.pausada ? 'Sessão pausada' : 'Sessão em andamento'}</div>
+                <strong>${sessAberta.pausada ? 'Pausada — dá pra retomar' : `Desde ${sessAberta.inicio}`}${sessAberta.data && sessAberta.data !== DateUtil.today() ? ` · ${Fmt.date(sessAberta.data)}` : ''}</strong>
+              </div>
             </div>
-            <span class="btn btn-gold btn-sm">Encerrar</span>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              ${sessAberta.pausada
+                ? `<button class="btn btn-gold btn-sm" style="flex:1" onclick="OS.retomarSessao('${sessAberta.diariaId}')">▶ Retomar</button>`
+                : `<button class="btn btn-outline btn-sm" style="flex:1" onclick="OS.pausarSessao('${sessAberta.diariaId}')">⏸ Pausar</button>`}
+              <button class="btn btn-gold btn-sm" style="flex:1" onclick="OS.openDiaria('${sessAberta.diariaId}')">⏹ Encerrar</button>
+            </div>
           </div>
         </div>` : ''}
         <div style="display:flex;gap:10px;margin-bottom:${sessAberta ? '10px' : '16px'}">
@@ -1007,35 +1014,97 @@ const OS = (() => {
     await openDiaria(diariaId || null); // abre o modal (sessão nova ou a informada)
   }
 
-  // ─── SESSÃO EM ABERTO (só início, encerra depois) ────────────
-  // Um bloco "aberto" = tem início e não tem fim. Detectado direto pelos blocos
-  // (robusto: independe do flag 'aberta' que gravamos por clareza).
+  // ─── SESSÃO EM ANDAMENTO (iniciar / pausar / retomar / encerrar) ──
+  // Uma sessão fica "ativa" enquanto tiver um bloco com flag `aberta`:
+  //  • em execução: bloco `{inicio, fim:'', aberta:true}` (o relógio corre);
+  //  • pausada:     marcador `{aberta:true, pausada:true}` (relógio parado, dá pra retomar).
+  // Períodos já concluídos são blocos normais `{inicio, fim}` (sem `aberta`).
+  // Encerrar = abrir a diária e salvar (o fluxo normal remove os marcadores).
+  function _horaAgora() {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
   function blocoAberto(d) {
     try {
-      return (Calculator.blocosFromDiaria(d) || []).find(b => !b.avulso && b.inicio && !b.fim) || null;
+      const bl = Calculator.blocosFromDiaria(d) || [];
+      // Marca `aberta` (execução ou pausa) OU legado (início sem fim, sem flag).
+      return bl.find(b => b.aberta === true) || bl.find(b => !b.avulso && b.inicio && !b.fim) || null;
     } catch { return null; }
   }
-  // Acha a 1ª sessão em aberto de uma OS num array de diárias (usado pela home,
-  // que tem suas próprias leituras). Retorna { diariaId, inicio, data } ou null.
+  // Acha a 1ª sessão ativa de uma OS num array de diárias (a home tem leituras
+  // próprias). Retorna { diariaId, inicio, data, pausada } ou null.
   function acharSessaoAberta(diariasArr, osId) {
     for (const d of (diariasArr || [])) {
       if (d.os_id !== osId) continue;
       const b = blocoAberto(d);
-      if (b) return { diariaId: d.id, inicio: b.inicio, data: d.data };
+      if (b) return { diariaId: d.id, inicio: b.inicio || '', data: d.data, pausada: !!b.pausada };
     }
     return null;
   }
 
-  // Inicia uma sessão AGORA em 1 toque: cria uma diária com um bloco aberto
-  // (início = hora atual, sem fim). Some no valor até ser encerrada.
+  // Menu de sessão (usado no botão "Sessão" da home e no detalhe): as opções
+  // dependem do estado — sem sessão / em execução / pausada.
+  async function sessaoMenu(osId) {
+    await loadData(); // garante o estado atual das sessões (home lê à parte)
+    const os = allOS.find(o => o.id === osId) || (currentOS && currentOS.id === osId ? currentOS : null);
+    const ativa = acharSessaoAberta(allDiarias, osId);
+    const acoes = [];
+    if (!ativa) {
+      acoes.push({ icon: '▶', label: 'Iniciar sessão agora', fn: () => iniciarSessaoAgora(osId) });
+      acoes.push({ icon: '⏱', label: 'Registrar sessão', fn: () => registrarDiaEm(osId) });
+    } else if (ativa.pausada) {
+      acoes.push({ icon: '▶', label: 'Retomar sessão', fn: () => retomarSessao(ativa.diariaId) });
+      acoes.push({ icon: '⏹', label: 'Encerrar sessão', fn: () => registrarDiaEm(osId, ativa.diariaId) });
+    } else {
+      acoes.push({ icon: '⏸', label: 'Pausar sessão', fn: () => pausarSessao(ativa.diariaId) });
+      acoes.push({ icon: '⏹', label: 'Encerrar sessão', fn: () => registrarDiaEm(osId, ativa.diariaId) });
+    }
+    ActionSheet.open('Sessão' + (os?.numero ? ' — ' + os.numero : ''), acoes);
+  }
+
+  // Atualiza a tela certa após mexer numa sessão: se estiver NA OS vendo esta OS,
+  // re-renderiza o detalhe; senão (ex.: veio da home) re-renderiza a home. Usa a
+  // página REAL (App.getCurrentPage), não o currentView do módulo — assim mexer
+  // da home não "pula" pro detalhe da OS.
+  function _refreshSessao(osId) {
+    const naOS = typeof App !== 'undefined' && App.getCurrentPage && App.getCurrentPage() === 'os';
+    if (naOS && currentView === 'detail' && currentOS && currentOS.id === osId) openDetail(osId);
+    else if (typeof Home !== 'undefined' && Home.render) Home.render();
+  }
+
+  // Grava o estado da sessão (recalcula horas/valor dos períodos concluídos) e
+  // atualiza a tela (detalhe ou home). Preserva marcadores aberta/pausada.
+  async function _persistSessao(diariaId, osId, blocos) {
+    const cfg = await Calculator.getConfig();
+    const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
+    const clean = blocos.map(b => {
+      if (b.pausada) return { aberta: true, pausada: true };
+      const fatores = (b.fatores || []).map(f => ({ id: f.id, label: f.label, percentual: f.percentual }));
+      if (b.avulso) return { avulso: true, horas: Number(b.horas || 0), reajuste: !!b.reajuste, fatores };
+      const o = { inicio: b.inicio || '', fim: b.fim || '', reajuste: !!b.reajuste, fatores };
+      if (b.aberta) o.aberta = true;
+      return o;
+    });
+    const bk = Calculator.calcBlocos(clean, baseRate); // períodos concluídos; abertos contam 0
+    Loading.show();
+    const res = await API.db.update('diarias', diariaId, {
+      horas_totais: bk.horas, valor_calculado: bk.valor, blocos_json: JSON.stringify(clean),
+    });
+    Loading.hide();
+    if (res?.success) {
+      await loadData();
+      _refreshSessao(osId);
+    } else Toast.error('Erro: ' + (res?.error || ''));
+    return res;
+  }
+
+  // Inicia uma sessão AGORA em 1 toque: diária com um período em execução.
   function iniciarSessaoAgora(osId) { return Guard.run('os-iniciar-sessao', () => _iniciarSessaoAgora(osId)); }
   async function _iniciarSessaoAgora(osId) {
     const os = allOS.find(o => o.id === osId) || currentOS;
     if (!os) return;
-    const agora = new Date();
-    const hh = String(agora.getHours()).padStart(2, '0');
-    const mm = String(agora.getMinutes()).padStart(2, '0');
-    const blocos = [{ inicio: `${hh}:${mm}`, fim: '', aberta: true, reajuste: false, fatores: [] }];
+    const inicio = _horaAgora();
+    const blocos = [{ inicio, fim: '', aberta: true, reajuste: false, fatores: [] }];
     const data = {
       os_id: osId, categoria_id: os.categoria_id || '', data: DateUtil.today(),
       manha_inicio: '', manha_fim: '', tarde_inicio: '', tarde_fim: '',
@@ -1046,11 +1115,37 @@ const OS = (() => {
     const res = await API.db.create('diarias', data);
     Loading.hide();
     if (res?.success) {
-      Toast.success(`Sessão iniciada às ${hh}:${mm}`);
+      Toast.success(`Sessão iniciada às ${inicio}`);
       await loadData();
-      if (currentView === 'detail' && currentOS && currentOS.id === osId) openDetail(osId);
-      else if (typeof Home !== 'undefined' && Home.render) Home.render();
+      _refreshSessao(osId);
     } else Toast.error('Erro: ' + (res?.error || ''));
+  }
+
+  // Pausa a sessão: fecha o período em execução (fim = agora) e deixa um
+  // marcador de pausa (a sessão segue ativa, o relógio para).
+  function pausarSessao(diariaId) { return Guard.run('os-pausar', () => _pausarSessao(diariaId)); }
+  async function _pausarSessao(diariaId) {
+    const d = allDiarias.find(x => x.id === diariaId);
+    if (!d) return;
+    let blocos = Calculator.blocosFromDiaria(d).map(b => ({ ...b }));
+    const idx = blocos.findIndex(b => b.aberta && b.inicio && !b.fim);
+    if (idx >= 0) { blocos[idx].fim = _horaAgora(); delete blocos[idx].aberta; }
+    blocos = blocos.filter(b => !b.pausada);
+    blocos.push({ aberta: true, pausada: true });
+    const res = await _persistSessao(diariaId, d.os_id, blocos);
+    if (res?.success) Toast.success('Sessão pausada');
+  }
+
+  // Retoma a sessão pausada: abre um novo período em execução (início = agora).
+  function retomarSessao(diariaId) { return Guard.run('os-retomar', () => _retomarSessao(diariaId)); }
+  async function _retomarSessao(diariaId) {
+    const d = allDiarias.find(x => x.id === diariaId);
+    if (!d) return;
+    const inicio = _horaAgora();
+    let blocos = Calculator.blocosFromDiaria(d).map(b => ({ ...b })).filter(b => !b.pausada);
+    blocos.push({ inicio, fim: '', aberta: true, reajuste: false, fatores: [] });
+    const res = await _persistSessao(diariaId, d.os_id, blocos);
+    if (res?.success) Toast.success('Sessão retomada às ' + inicio);
   }
 
   async function openDiaria(diariaId = null) {
@@ -1074,9 +1169,10 @@ const OS = (() => {
     // Fatores disponíveis (config) — usados ao marcar reajuste num período
     _diariaFatores = Calculator.getFatores(cfg);
 
-    // Carrega os blocos do registro (novos: blocos_json; antigos: manhã/tarde + reajuste)
+    // Carrega os blocos do registro (novos: blocos_json; antigos: manhã/tarde + reajuste).
+    // Ignora o marcador de pausa (`pausada`) — é controle interno, não um período.
     if (d) {
-      _blocos = Calculator.blocosFromDiaria(d).map(b => ({
+      _blocos = Calculator.blocosFromDiaria(d).filter(b => !b.pausada).map(b => ({
         inicio: b.inicio || '', fim: b.fim || '',
         reajuste: !!b.reajuste, fatores: b.fatores || [],
         avulso: !!b.avulso, horas: b.horas || 0,
@@ -2581,7 +2677,7 @@ const OS = (() => {
   return {
     render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, onTipoOSChange, saveForm,
     openInsightsOS,
-    openDiaria, registrarDiaEm, iniciarSessaoAgora, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
+    openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,

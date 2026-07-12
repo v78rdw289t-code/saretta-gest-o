@@ -156,8 +156,8 @@ const Home = (() => {
               ${titulo !== cliente ? `<div class="os-card-cli">👤 ${cliente}</div>` : ''}
               <div class="os-card-foot">
                 ${aberta
-                  ? `<span class="os-card-sess" style="color:var(--gold-dk,#8a6d1a);font-weight:700" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}','${aberta.diariaId}')">▶ Desde ${aberta.inicio} · encerrar</span>`
-                  : `<span class="os-card-sess" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}')">⏱ Sessão</span>`}
+                  ? `<span class="os-card-sess" style="color:var(--gold-dk,#8a6d1a);font-weight:700" onclick="event.stopPropagation();OS.sessaoMenu('${o.id}')">${aberta.pausada ? '⏸ Pausada' : '▶ Desde ' + aberta.inicio}</span>`
+                  : `<span class="os-card-sess" onclick="event.stopPropagation();OS.sessaoMenu('${o.id}')">⏱ Sessão</span>`}
                 <span class="os-card-go">Abrir ›</span>
               </div>
             </div>

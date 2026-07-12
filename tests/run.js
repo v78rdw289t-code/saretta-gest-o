@@ -391,9 +391,18 @@ function makeGsSandbox() {
       assert.ok(aberta, 'deveria achar sessão aberta na osX');
       assert.equal(aberta.diariaId, 'd1');
       assert.equal(aberta.inicio, '13:00');
+      assert.equal(aberta.pausada, false);
       const semAberta = vm.runInContext(
         `OS.acharSessaoAberta([{ id:'d2', os_id:'osZ', blocos_json: JSON.stringify([{inicio:'08:00', fim:'11:00'}]) }], 'osZ')`, s);
       assert.equal(semAberta, null);
+    });
+    test('acharSessaoAberta detecta sessão PAUSADA (marcador aberta+pausada)', () => {
+      // Período concluído 08:00-10:00 + marcador de pausa → ativa e pausada.
+      const d = `[{ id:'dp', os_id:'osP', data:'2026-07-12', blocos_json: JSON.stringify([{inicio:'08:00',fim:'10:00'},{aberta:true,pausada:true}]) }]`;
+      const p = vm.runInContext(`OS.acharSessaoAberta(${d}, 'osP')`, s);
+      assert.ok(p, 'sessão pausada deve contar como ativa');
+      assert.equal(p.pausada, true);
+      assert.equal(p.diariaId, 'dp');
     });
   }
 
