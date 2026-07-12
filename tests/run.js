@@ -46,7 +46,9 @@ function makeDocument() {
 }
 
 // ─── Sandbox do FRONTEND (utils + api + outbox) ──────────────
-function makeFrontSandbox() {
+// seedLS (opcional): { chave: valorString } pré-carregado no localStorage ANTES
+// de rodar api.js — útil pra testar a hidratação/TTL do cache.
+function makeFrontSandbox(seedLS) {
   const fetchCalls = [];
   const sandbox = {
     console, URL, JSON, Math, Date, Promise, Array, Object, String, Number, RegExp, Map, Set,
@@ -73,6 +75,7 @@ function makeFrontSandbox() {
   sandbox.addEventListener = () => {}; // window.addEventListener (gatilhos de flush)
   sandbox.window = sandbox; // window === globalThis, como no browser
   sandbox.window.APPS_SCRIPT_URL = 'http://fake.test/exec';
+  if (seedLS) for (const [k, v] of Object.entries(seedLS)) sandbox.localStorage.setItem(k, v);
   vm.createContext(sandbox);
   // Ordem real do index.html: utils → (api) → (outbox). api usa Outbox via typeof.
   vm.runInContext(src('assets/js/utils.js'), sandbox, { filename: 'utils.js' });
@@ -339,6 +342,82 @@ function makeGsSandbox() {
       const r = vm.runInContext(`create('estoque', { descricao: 'Parafuso M6', grupo: 'Parafuso',
         quantidade: 10, valor_unit: 0.5, unidade: 'un', ativo: true })`, g);
       assert.equal(vm.runInContext(`read('estoque', '${r.data.id}').data[0]`, g).grupo, 'Parafuso');
+    });
+  }
+
+  console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
+  {
+    // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem
+    // sobreviver ao boot; parcelas (TTL 1h) não. Testa hydrateCache + isCached/ttlFor.
+    const now = Date.now();
+    const twoH = 2 * 60 * 60 * 1000;
+    const mk = sheet => `http://fake.test/exec?action=read&sheet=${sheet}`;
+    const seedObj = {};
+    ['os', 'diarias', 'os_itens', 'parcelas', 'clientes'].forEach(sh => {
+      seedObj[mk(sh)] = { data: { success: true, data: [{ id: sh + '1' }] }, ts: now - twoH };
+    });
+    const s = makeFrontSandbox({ saretta_api_cache_v1: JSON.stringify(seedObj) });
+    test('os/diarias/os_itens seguem cacheados após 2h (TTL longo)', () => {
+      assert.equal(vm.runInContext(`API.db.isCached('os')`, s), true);
+      assert.equal(vm.runInContext(`API.db.isCached('diarias')`, s), true);
+      assert.equal(vm.runInContext(`API.db.isCached('os_itens')`, s), true);
+      assert.equal(vm.runInContext(`API.db.isCached('clientes')`, s), true); // referência (já era 30d)
+    });
+    test('parcelas expira em 1h (não é sheet de trabalho da OS)', () => {
+      assert.equal(vm.runInContext(`API.db.isCached('parcelas')`, s), false);
+    });
+  }
+
+  console.log('\n— OS: tipos (horas/valor) e sessão em aberto —');
+  {
+    // os.js só declara no load (o IIFE retorna o objeto); osTipo/acharSessaoAberta
+    // são puras (Number / Calculator.blocosFromDiaria já em utils) → dá pra testar.
+    const s = makeFrontSandbox();
+    vm.runInContext(src('assets/js/os.js'), s, { filename: 'os.js' });
+    test('osTipo classifica horas/valor (retrocompat orcado_valor)', () => {
+      const t = expr => vm.runInContext(`OS.osTipo(${expr})`, s);
+      assert.equal(t(`{tipo:'valor'}`), 'valor');
+      assert.equal(t(`{tipo:'horas'}`), 'horas');
+      assert.equal(t(`{tipo:'normal'}`), 'horas');
+      assert.equal(t(`{tipo:'normal', orcado_valor:1500}`), 'valor'); // gerada de orçamento
+      assert.equal(t(`{}`), 'horas');
+    });
+    test('acharSessaoAberta acha a diária com bloco sem fim (ignora fechadas)', () => {
+      const diarias = `[
+        { id:'d1', os_id:'osX', data:'2026-07-12', blocos_json: JSON.stringify([{inicio:'13:00', fim:'', aberta:true}]) },
+        { id:'d2', os_id:'osX', data:'2026-07-11', blocos_json: JSON.stringify([{inicio:'08:00', fim:'11:00'}]) }
+      ]`;
+      const aberta = vm.runInContext(`OS.acharSessaoAberta(${diarias}, 'osX')`, s);
+      assert.ok(aberta, 'deveria achar sessão aberta na osX');
+      assert.equal(aberta.diariaId, 'd1');
+      assert.equal(aberta.inicio, '13:00');
+      const semAberta = vm.runInContext(
+        `OS.acharSessaoAberta([{ id:'d2', os_id:'osZ', blocos_json: JSON.stringify([{inicio:'08:00', fim:'11:00'}]) }], 'osZ')`, s);
+      assert.equal(semAberta, null);
+    });
+  }
+
+  console.log('\n— Code.gs: colunas p/ tipos de OS + sessão aberta (sem migração) —');
+  {
+    const g = makeGsSandbox();
+    test('sheet os tem tipo + orcado_valor; diarias tem blocos_json', () => {
+      const osH = vm.runInContext(`SHEET_HEADERS.os`, g);
+      assert.ok(osH.includes('tipo'), 'os.tipo');
+      assert.ok(osH.includes('orcado_valor'), 'os.orcado_valor');
+      assert.ok(vm.runInContext(`SHEET_HEADERS.diarias`, g).includes('blocos_json'), 'diarias.blocos_json');
+    });
+    test('OS de valor fechado: create/read preserva tipo e orcado_valor', () => {
+      const r = vm.runInContext(`create('os', { numero:'OS-1', registro:'os', tipo:'valor', orcado_valor:1800, status:'andamento' })`, g);
+      const back = vm.runInContext(`read('os', '${r.data.id}').data[0]`, g);
+      assert.equal(back.tipo, 'valor');
+      assert.equal(Number(back.orcado_valor), 1800);
+    });
+    test('sessão em aberto: diária com blocos_json sem fim persiste', () => {
+      const r = vm.runInContext(`create('diarias', { os_id:'os1', data:'2026-07-12', horas_totais:0, valor_calculado:0, blocos_json: JSON.stringify([{inicio:'13:00',fim:'',aberta:true}]) })`, g);
+      const back = vm.runInContext(`read('diarias', '${r.data.id}').data[0]`, g);
+      const blocos = JSON.parse(back.blocos_json);
+      assert.equal(blocos[0].inicio, '13:00');
+      assert.equal(blocos[0].fim, '');
     });
   }
 

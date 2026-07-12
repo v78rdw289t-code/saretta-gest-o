@@ -504,6 +504,8 @@ img { max-width: 100%; }
   border-left: 4px solid var(--gold);
 }
 .os-card:active { transform: scale(.97); }
+/* OS com sessão em andamento (só início, a encerrar) — realce dourado */
+.os-card-live { border-left-color: var(--gold-dk); box-shadow: 0 0 0 1.5px var(--gold), var(--shadow); }
 .os-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .os-card-num { font-size: .82rem; font-weight: 800; color: var(--navy); }
 .os-card-tipo { font-size: .64rem; font-weight: 700; padding: 2px 7px; border-radius: 20px; white-space: nowrap; }

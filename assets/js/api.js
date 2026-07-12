@@ -20,11 +20,21 @@ const API = (() => {
   // Ficam no cache por muito mais tempo (30 dias) e são servidas na HORA, mesmo
   // stale, sem esperar a rede — pra que funcionem offline mesmo depois de 1h.
   const REFERENCE_SHEETS = ['clientes', 'categorias', 'contas', 'estoque'];
+  // Sheets de TRABALHO da OS: a OS em andamento, suas sessões e seus materiais.
+  // Também precisam sobreviver offline por muito tempo (abrir e mexer numa OS em
+  // campo, sem sinal, no dia seguinte) — mas NÃO viram globais como as de
+  // referência. Ganham o mesmo TTL longo (30 dias) só pra leitura offline.
+  const OFFLINE_WORK_SHEETS = ['os', 'diarias', 'os_itens'];
   const REFERENCE_TTL    = 30 * 24 * 60 * 60 * 1000;  // 30 dias
-  function isReferenceKey(key) {
-    return REFERENCE_SHEETS.some(s => new RegExp('[?&]sheet=' + s + '(&|$)').test(key));
+  function keyHasSheet(key, sheet) {
+    return new RegExp('[?&]sheet=' + sheet + '(&|$)').test(key);
   }
-  function ttlFor(key) { return isReferenceKey(key) ? REFERENCE_TTL : STORAGE_TTL; }
+  // Chave de cache "longeva" = qualquer GET de sheet de referência ou de trabalho da OS.
+  function isLongLivedKey(key) {
+    return REFERENCE_SHEETS.some(s => keyHasSheet(key, s))
+        || OFFLINE_WORK_SHEETS.some(s => keyHasSheet(key, s));
+  }
+  function ttlFor(key) { return isLongLivedKey(key) ? REFERENCE_TTL : STORAGE_TTL; }
 
   const POST_INVALIDATES = {
     create:          (body) => [body.sheet],
@@ -186,9 +196,11 @@ const API = (() => {
     if (!urlStr) return false;
     const entry = cache.get(urlStr);
     // Stale conta como "cached": com o stale-while-revalidate o render é
-    // instantâneo com qualquer cache de até 1h (quem usa isto decide se
-    // mostra spinner — com stale não precisa).
-    return !!(entry && Date.now() - entry.ts < STORAGE_TTL);
+    // instantâneo com qualquer cache dentro do TTL (quem usa isto decide se
+    // mostra spinner — com stale não precisa). Usa ttlFor pra que sheets
+    // longevas (referência + trabalho da OS) contem como cacheadas por 30d,
+    // não só 1h — senão o fast-path offline da home (isCached('os')) some.
+    return !!(entry && Date.now() - entry.ts < ttlFor(urlStr));
   }
 
   // Overlay da caderneta offline: leituras de sheet inteira ganham por cima

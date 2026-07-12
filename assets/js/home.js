@@ -121,16 +121,16 @@ const Home = (() => {
 
   // ─── OS em andamento ─────────────────────────────────────────
   async function loadOSAndamento() {
-    // Caminho rápido: se 'os' inteira está em cache, filtra local sem novo request
-    if (API.db.isCached('os')) {
-      const res = await API.db.read('os');
-      return renderOSAndamento((res?.data || []).filter(o => o.status === 'andamento'));
-    }
-    const res = await API.db.read('os', null, { status: 'andamento' });
-    renderOSAndamento(res?.data || []);
+    // Lê OS (fast-path do cache quando disponível) + diárias (p/ detectar sessão aberta).
+    const [osRes, dRes] = await Promise.all([
+      API.db.isCached('os') ? API.db.read('os') : API.db.read('os', null, { status: 'andamento' }),
+      API.db.read('diarias').catch(() => null),
+    ]);
+    const items = (osRes?.data || []).filter(o => o.status === 'andamento');
+    renderOSAndamento(items, dRes?.data || []);
   }
 
-  function renderOSAndamento(items) {
+  function renderOSAndamento(items, diarias = []) {
     items = (items || []).sort((a, b) => a.data_criacao > b.data_criacao ? -1 : 1);
     if (items.length === 0) {
       qs('#home-os-andamento').innerHTML = '<div class="os-card-empty">✅ Nenhuma OS em andamento</div>';
@@ -143,16 +143,21 @@ const Home = (() => {
           const titulo = o.nome || App.clienteNome(o.cliente_id);
           const cliente = App.clienteNome(o.cliente_id);
           const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
+          const isValor = typeof OS !== 'undefined' && OS.osTipo && OS.osTipo(o) === 'valor';
+          const aberta  = (typeof OS !== 'undefined' && OS.acharSessaoAberta) ? OS.acharSessaoAberta(diarias, o.id) : null;
           return `
-            <div class="os-card" role="button" tabindex="0" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
+            <div class="os-card${aberta ? ' os-card-live' : ''}" role="button" tabindex="0" onclick="App.navigate('os').then(() => OS.openDetail('${o.id}'))">
               <div class="os-card-top">
                 <span class="os-card-num">#${num}</span>
+                ${isValor ? '<span class="os-card-tipo is-normal">💰 Fechado</span>' : ''}
                 ${catNome ? `<span class="os-card-tipo is-normal">${catNome}</span>` : ''}
               </div>
               <div class="os-card-title">${titulo}</div>
               ${titulo !== cliente ? `<div class="os-card-cli">👤 ${cliente}</div>` : ''}
               <div class="os-card-foot">
-                <span class="os-card-sess" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}')">⏱ Sessão</span>
+                ${aberta
+                  ? `<span class="os-card-sess" style="color:var(--gold-dk,#8a6d1a);font-weight:700" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}','${aberta.diariaId}')">▶ Desde ${aberta.inicio} · encerrar</span>`
+                  : `<span class="os-card-sess" onclick="event.stopPropagation();OS.registrarDiaEm('${o.id}')">⏱ Sessão</span>`}
                 <span class="os-card-go">Abrir ›</span>
               </div>
             </div>

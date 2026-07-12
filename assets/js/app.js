@@ -86,6 +86,12 @@ const App = (() => {
       // leem via API.db.read). Sem isso, a 1ª OS/orçamento em campo offline
       // poderia vir sem itens do estoque pra escolher.
       API.db.read('estoque').catch(() => null),
+      // Aquece OS + sessões + materiais no boot pra rodar a OS em campo offline.
+      // Têm TTL longo no api.js (OFFLINE_WORK_SHEETS); aquecer aqui garante que
+      // estejam no cache mesmo num boot frio sem rede no dia seguinte.
+      API.db.read('os').catch(() => null),
+      API.db.read('diarias').catch(() => null),
+      API.db.read('os_itens').catch(() => null),
     ]);
     allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
                                           .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));

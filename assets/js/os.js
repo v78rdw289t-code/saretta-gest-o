@@ -47,6 +47,24 @@ const OS = (() => {
     allItens   = iRes?.data  || [];
   }
 
+  // ─── TIPO DA OS: 'horas' | 'valor' ───────────────────────
+  // 'horas'  → as horas registradas viram o valor a cobrar (fechamento pelas sessões).
+  // 'valor'  → valor fechado com o cliente (guardado em orcado_valor); no fechamento
+  //            a base é esse valor e as horas viram só referência. Retrocompatível:
+  //            OS antigas (tipo 'normal'/vazio) e as geradas de orçamento (orcado_valor>0)
+  //            são classificadas sem precisar de migração.
+  function osTipo(o) {
+    if (!o) return 'horas';
+    if (o.tipo === 'valor') return 'valor';
+    if (o.tipo === 'horas')  return 'horas';
+    return Number(o.orcado_valor) > 0 ? 'valor' : 'horas';
+  }
+  function osTipoBadge(o) {
+    return osTipo(o) === 'valor'
+      ? '<span class="badge badge-gold">💰 Valor fechado</span>'
+      : '<span class="badge badge-secondary">🕐 Por horas</span>';
+  }
+
   // ─── LISTA ─────────────────────────────────────────────
   // Entra na tela já filtrada em "Andamento" (pedido do dono: o dia a dia é
   // com as abertas; Fechadas/Todas ficam a 1 toque). O filtro escolhido
@@ -167,7 +185,7 @@ const OS = (() => {
               : `OS.tapCard('${o.id}')`;
             const badges = isOrcView
               ? `<span class="badge badge-gold">📄 Orçamento</span>${jaGerou ? ' <span class="badge badge-success">✓ Gerou OS</span>' : ''}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`
-              : `${statusBadge(o.status)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`;
+              : `${statusBadge(o.status)} ${osTipoBadge(o)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`;
             return `
             <div class="entity-item${_loteMode && !selecionavel ? ' lote-off' : ''}${marcada ? ' lote-on' : ''}" onclick="${clique}">
               ${_loteMode ? `<span class="lote-check${marcada ? ' on' : ''}">${marcada ? '✓' : ''}</span>` : ''}
@@ -296,6 +314,7 @@ const OS = (() => {
     const diarias = allDiarias.filter(d => d.os_id === id)
                                .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === id);
+    const sessAberta = acharSessaoAberta(diarias, id); // sessão só com início, a encerrar
     // Parcelas (lançamentos financeiros) geradas por esta OS — origem='os',
     // ou a parcela única de um fechamento em lote que inclui esta OS (origem='os_lote',
     // vínculo via fechamento_os: os_id → fechamento_id → parcela.origem_id).
@@ -330,7 +349,18 @@ const OS = (() => {
 
       <!-- Barra de ações principais -->
       ${currentOS.status !== 'fechado' ? `
-        <div style="display:flex;gap:10px;margin-bottom:16px">
+        ${sessAberta ? `
+        <div class="card mb-3" style="cursor:pointer;border-left:4px solid var(--gold, #c8a24a)" onclick="OS.openDiaria('${sessAberta.diariaId}')">
+          <div class="card-body" style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:1.3rem">▶</span>
+            <div style="flex:1;min-width:0">
+              <div class="info-label">Sessão em andamento</div>
+              <strong>Desde ${sessAberta.inicio}${sessAberta.data && sessAberta.data !== DateUtil.today() ? ` · ${Fmt.date(sessAberta.data)}` : ''}</strong>
+            </div>
+            <span class="btn btn-gold btn-sm">Encerrar</span>
+          </div>
+        </div>` : ''}
+        <div style="display:flex;gap:10px;margin-bottom:${sessAberta ? '10px' : '16px'}">
           <button class="btn btn-primary" style="flex:1;font-size:1rem;padding:13px 8px;border-radius:12px" onclick="OS.openDiaria()">
             ⏱ Registrar Sessão
           </button>
@@ -338,6 +368,10 @@ const OS = (() => {
             ✓ Fechar OS
           </button>
         </div>
+        ${!sessAberta ? `
+        <button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:16px" onclick="OS.iniciarSessaoAgora('${id}')">
+          ▶ Iniciar sessão agora <small style="color:var(--text-muted);font-weight:400">— marca o horário de início</small>
+        </button>` : ''}
       ` : `
         <div style="text-align:center;margin-bottom:16px">${statusBadge('fechado')}</div>
       `}
@@ -350,12 +384,17 @@ const OS = (() => {
           <!-- Status (alterar via menu ⋯ no topo) -->
           <div style="grid-column:1/-1">
             <div class="info-label">Status</div>
-            ${statusBadge(currentOS.status)}
+            ${statusBadge(currentOS.status)} ${osTipoBadge(currentOS)}
           </div>
+          ${osTipo(currentOS) === 'valor' && !currentOS.orcamento_id && Number(currentOS.orcado_valor) > 0 ? `
+          <div style="grid-column:1/-1">
+            <div class="info-label">Valor fechado (combinado)</div>
+            <strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.orcado_valor)}</strong>
+          </div>` : ''}
           <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px">
             <div class="info-row"><span>Serviço (mão de obra)</span><strong>${Fmt.currency(_somaMO)}</strong></div>
             <div class="info-row"><span>Materiais</span><strong>${Fmt.currency(_somaMat)}</strong></div>
-            <div class="info-row" style="font-weight:800;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)"><span>Total</span><strong class="text-navy" style="font-size:1.1rem">${Fmt.currency(_somaTotal)}</strong></div>
+            <div class="info-row" style="font-weight:800;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)"><span>${osTipo(currentOS) === 'valor' ? 'Trabalho registrado (referência)' : 'Total'}</span><strong class="text-navy" style="font-size:1.1rem">${Fmt.currency(_somaTotal)}</strong></div>
           </div>
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
@@ -797,6 +836,7 @@ const OS = (() => {
     }
     const reg    = os ? (os.registro || 'os') : registro;
     const isOrc  = reg === 'orcamento';
+    const tipoAtual = os ? osTipo(os) : 'horas';
     const numero = os ? os.numero : await nextOSNumber(isOrc ? 'ORC' : 'OS');
     const titulo = isOrc ? (os ? 'Editar Orçamento' : 'Novo Orçamento') : (os ? 'Editar OS' : 'Nova OS');
     const section = qs('#page-os');
@@ -844,7 +884,24 @@ const OS = (() => {
                   <input type="number" name="prazo_dias" class="input" min="0" step="1" value="${os?.prazo_dias || ''}" placeholder="Ex: 5">
                 </div>
               </div>
+              <div class="form-group">
+                <label>Valor total do orçamento (opcional)
+                  <small style="color:var(--text-muted);font-weight:400">— deixe vazio p/ somar os itens</small>
+                </label>
+                <input type="number" name="orcado_valor" class="input" step="0.01" min="0" value="${os?.orcado_valor || ''}" placeholder="Ex: 2500,00 — total fechado sem detalhar item a item">
+              </div>
             ` : `
+              <div class="form-group">
+                <label>Tipo de cobrança</label>
+                <select name="tipo" id="os-form-tipo" class="input" onchange="OS.onTipoOSChange()">
+                  <option value="horas" ${tipoAtual==='valor'?'':'selected'}>🕐 Por horas — as horas registradas viram o valor</option>
+                  <option value="valor" ${tipoAtual==='valor'?'selected':''}>💰 Valor fechado — preço combinado com o cliente</option>
+                </select>
+              </div>
+              <div class="form-group" id="os-valor-fechado-wrap" style="${tipoAtual==='valor'?'':'display:none'}">
+                <label>Valor fechado (R$) <small style="color:var(--text-muted);font-weight:400">— o material pode entrar por cima no fechamento</small></label>
+                <input type="number" name="orcado_valor" id="os-form-orcado" class="input" step="0.01" min="0" value="${os?.orcado_valor || ''}" placeholder="Ex: 1500,00">
+              </div>
               <div class="form-row">
                 <div class="form-group">
                   <label>Data Início</label>
@@ -879,6 +936,14 @@ const OS = (() => {
     `;
   }
 
+  // Mostra/esconde o campo "Valor fechado" conforme o tipo de cobrança escolhido.
+  function onTipoOSChange() {
+    const valor = qs('#os-form-tipo')?.value === 'valor';
+    const wrap  = qs('#os-valor-fechado-wrap');
+    if (wrap) wrap.style.display = valor ? '' : 'none';
+    if (valor) qs('#os-form-orcado')?.focus();
+  }
+
   // trava de duplo clique (Guard) — o corpo real está em _saveForm
   function saveForm(e, id = '') { return Guard.run('os-save', () => _saveForm(e, id)); }
   async function _saveForm(e, id = '') {
@@ -889,13 +954,20 @@ const OS = (() => {
     data.data_atualizacao = new Date().toISOString();
 
     const isOrc = data.registro === 'orcamento';
+    // Normaliza tipo de cobrança + valor fechado.
+    if (isOrc) {
+      // Orçamento: total manual opcional em orcado_valor (vazio = soma dos itens).
+      data.orcado_valor = Number(data.orcado_valor) > 0 ? Number(data.orcado_valor) : '';
+    } else {
+      // OS: 'horas' (as sessões viram o valor) | 'valor' (preço fechado em orcado_valor).
+      data.tipo = data.tipo === 'valor' ? 'valor' : 'horas';
+      data.orcado_valor = data.tipo === 'valor' ? (Number(data.orcado_valor) || 0) : '';
+    }
     Loading.show();
     let res;
     if (id) {
       res = await API.db.update('os', id, data);
     } else {
-      // Tipo unificado: toda OS é por sessões (campo mantido p/ compat com dados/legado).
-      data.tipo = 'normal';
       if (isOrc && !data.status) data.status = 'orcamento';
       data.data_criacao = new Date().toISOString();
       res = await API.db.create('os', data);
@@ -921,7 +993,8 @@ const OS = (() => {
   // (render/add/remove/toggle dos blocos ficam logo após openDiaria)
 
   // Atalho da home "Registrar o dia": entra na OS e já abre o registro de horas.
-  async function registrarDiaEm(osId) {
+  // Com diariaId, abre aquela sessão (ex.: encerrar uma sessão em aberto).
+  async function registrarDiaEm(osId, diariaId = null) {
     if (!osId) return;
     // Sincroniza o hash para 'os' ANTES de navegar (via replaceState, que NÃO
     // dispara hashchange). Assim o navigate('os') não muda o hash e o listener
@@ -931,7 +1004,53 @@ const OS = (() => {
     }
     await App.navigate('os');   // hash já é 'os' → sem novo hashchange
     await openDetail(osId);     // seta currentOS + renderiza o detalhe
-    await openDiaria();         // abre o modal usando currentOS
+    await openDiaria(diariaId || null); // abre o modal (sessão nova ou a informada)
+  }
+
+  // ─── SESSÃO EM ABERTO (só início, encerra depois) ────────────
+  // Um bloco "aberto" = tem início e não tem fim. Detectado direto pelos blocos
+  // (robusto: independe do flag 'aberta' que gravamos por clareza).
+  function blocoAberto(d) {
+    try {
+      return (Calculator.blocosFromDiaria(d) || []).find(b => !b.avulso && b.inicio && !b.fim) || null;
+    } catch { return null; }
+  }
+  // Acha a 1ª sessão em aberto de uma OS num array de diárias (usado pela home,
+  // que tem suas próprias leituras). Retorna { diariaId, inicio, data } ou null.
+  function acharSessaoAberta(diariasArr, osId) {
+    for (const d of (diariasArr || [])) {
+      if (d.os_id !== osId) continue;
+      const b = blocoAberto(d);
+      if (b) return { diariaId: d.id, inicio: b.inicio, data: d.data };
+    }
+    return null;
+  }
+
+  // Inicia uma sessão AGORA em 1 toque: cria uma diária com um bloco aberto
+  // (início = hora atual, sem fim). Some no valor até ser encerrada.
+  function iniciarSessaoAgora(osId) { return Guard.run('os-iniciar-sessao', () => _iniciarSessaoAgora(osId)); }
+  async function _iniciarSessaoAgora(osId) {
+    const os = allOS.find(o => o.id === osId) || currentOS;
+    if (!os) return;
+    const agora = new Date();
+    const hh = String(agora.getHours()).padStart(2, '0');
+    const mm = String(agora.getMinutes()).padStart(2, '0');
+    const blocos = [{ inicio: `${hh}:${mm}`, fim: '', aberta: true, reajuste: false, fatores: [] }];
+    const data = {
+      os_id: osId, categoria_id: os.categoria_id || '', data: DateUtil.today(),
+      manha_inicio: '', manha_fim: '', tarde_inicio: '', tarde_fim: '',
+      horas_totais: 0, valor_calculado: 0, valor_manual: '',
+      reajuste_json: '', blocos_json: JSON.stringify(blocos), observacoes: '',
+    };
+    Loading.show();
+    const res = await API.db.create('diarias', data);
+    Loading.hide();
+    if (res?.success) {
+      Toast.success(`Sessão iniciada às ${hh}:${mm}`);
+      await loadData();
+      if (currentView === 'detail' && currentOS && currentOS.id === osId) openDetail(osId);
+      else if (typeof Home !== 'undefined' && Home.render) Home.render();
+    } else Toast.error('Erro: ' + (res?.error || ''));
   }
 
   async function openDiaria(diariaId = null) {
@@ -1104,6 +1223,14 @@ const OS = (() => {
                          : ((b.inicio && b.fim) ? DateUtil.diffHours(b.inicio, b.fim) : 0);
       return h > 0;
     });
+    // Períodos "abertos": têm início mas ainda não têm fim.
+    const blocosAbertos = _blocos.filter(b => !b.avulso && b.inicio && !b.fim);
+
+    // Sessão EM ABERTO: só início, sem fim e sem valor fixo → salva pra encerrar
+    // depois (na home aparece "▶ Desde HH:MM"). Não vira valor até ter o fim.
+    if (blocosValidos.length === 0 && !manual && blocosAbertos.length > 0) {
+      return _saveDiariaAberta(osId, id, blocosAbertos);
+    }
 
     if (blocosValidos.length === 0 && !manual) {
       Toast.warning('Preencha ao menos um período (início e fim) ou um valor fixo');
@@ -1149,6 +1276,37 @@ const OS = (() => {
       if (dias.length > 0) {
         await API.db.update('os', osId, { data_inicio: dias[0].data, data_fim: dias[dias.length-1].data });
       }
+      await loadData();
+      openDetail(osId);
+    } else {
+      Toast.error('Erro: ' + (res?.error || ''));
+    }
+  }
+
+  // Salva uma sessão EM ABERTO (só início, sem fim). horas/valor = 0 até encerrar.
+  async function _saveDiariaAberta(osId, id, blocosAbertos) {
+    const blocosClean = blocosAbertos.map(b => ({
+      inicio: b.inicio, fim: '', aberta: true, reajuste: !!b.reajuste,
+      fatores: (b.fatores || []).map(f => ({ id: f.id, label: f.label, percentual: f.percentual })),
+    }));
+    const data = {
+      os_id:           osId,
+      categoria_id:    qs('#modal-diaria-categoria')?.value || '',
+      data:            qs('#modal-diaria-data').value,
+      manha_inicio: '', manha_fim: '', tarde_inicio: '', tarde_fim: '',
+      horas_totais:    0,
+      valor_calculado: 0,
+      valor_manual:    '',
+      reajuste_json:   '',
+      blocos_json:     JSON.stringify(blocosClean),
+      observacoes:     qs('#modal-diaria-obs')?.value.trim() || '',
+    };
+    Loading.show();
+    const res = id ? await API.db.update('diarias', id, data) : await API.db.create('diarias', data);
+    Loading.hide();
+    if (res?.success) {
+      Toast.success('Sessão iniciada — encerre depois');
+      Modal.close('modal-diaria');
       await loadData();
       openDetail(osId);
     } else {
@@ -1390,7 +1548,10 @@ const OS = (() => {
   function renderOrcamentoDetail() {
     const o = currentOS;
     const itens = allItens.filter(i => i.os_id === o.id);
-    const total = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    // Total = valor total manual (se informado no cabeçalho) OU a soma dos itens.
+    const somaItens  = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const totalManual = Number(o.orcado_valor) > 0 ? Number(o.orcado_valor) : 0;
+    const total = totalManual > 0 ? totalManual : somaItens;
     const cliente = App.clienteNome(o.cliente_id);
     const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
     const jaGerou = allOS.some(x => x.orcamento_id === o.id);
@@ -1433,8 +1594,15 @@ const OS = (() => {
       </div>
 
       <div class="card mb-3">
-        <div class="card-body info-row" style="font-weight:800;font-size:1.05rem">
-          <span>Total estimado</span><span class="text-navy">${Fmt.currency(total)}</span>
+        <div class="card-body" style="font-weight:800;font-size:1.05rem">
+          <div class="info-row">
+            <span>${totalManual > 0 ? 'Total fechado' : 'Total estimado'}</span>
+            <span class="text-navy">${Fmt.currency(total)}</span>
+          </div>
+          ${totalManual > 0 && somaItens > 0 && Math.abs(somaItens - totalManual) > 0.005 ? `
+          <div class="info-row" style="font-weight:400;font-size:.78rem;color:var(--text-muted);margin-top:4px">
+            <span>Itens somam ${Fmt.currency(somaItens)} · vale o total fechado</span>
+          </div>` : ''}
         </div>
       </div>
     `;
@@ -1535,7 +1703,9 @@ const OS = (() => {
     const orc = allOS.find(o => o.id === orcId) || currentOS;
     if (!orc) return;
     Modal.confirm('Gerar uma OS a partir deste orçamento? O orçamento continua salvo.', async () => {
-      const valor = allItens.filter(i => i.os_id === orcId).reduce((s, i) => s + Number(i.valor_total || 0), 0);
+      // Valor levado p/ a OS = total manual do orçamento (se informado) OU soma dos itens.
+      const somaItens = allItens.filter(i => i.os_id === orcId).reduce((s, i) => s + Number(i.valor_total || 0), 0);
+      const valor = Number(orc.orcado_valor) > 0 ? Number(orc.orcado_valor) : somaItens;
       Loading.show();
       const res = await API.db.create('os', {
         numero:       await nextOSNumber('OS'),
@@ -1543,7 +1713,7 @@ const OS = (() => {
         cliente_id:   orc.cliente_id,
         categoria_id: orc.categoria_id || '',
         registro:     'os',
-        tipo:         'normal',
+        tipo:         'valor',
         status:       'andamento',
         data_inicio:  DateUtil.today(),
         orcamento_id: orcId,
@@ -1629,16 +1799,16 @@ const OS = (() => {
     if (inp) { inp.focus(); inp.select(); }
   }
 
-  // oninput da hora base no fechamento — recalcula tudo ao vivo.
+  // oninput da hora base no fechamento — recalcula a mão de obra e atualiza tudo.
+  // Só roda em OS por horas (o material entra à parte via atualizarFechamento).
   function recalcBaseFechamento() {
     const base = Number(qs('#fech-hora-base')?.value) || 0;
     const r = _calcFromBase(base);
-    _calc.liquido = r.calculado; _calc.bruto = r.calculado;
-    _calc.maoObra = r.maoObra;   _calc.totalItens = r.totalItens;
+    _calc.maoObra = r.maoObra; _calc.totalItens = r.totalItens;
     _calc.nSessoes = r.nSessoes; _calc.horaBase = base;
-    if (qs('#fech-maoobra'))           qs('#fech-maoobra').textContent = Fmt.currency(r.maoObra);
-    if (qs('#fech-calculado-num'))     qs('#fech-calculado-num').value = r.calculado.toFixed(2);
-    if (qs('#fech-calculado-display')) qs('#fech-calculado-display').textContent = Fmt.currency(r.calculado);
+    // preço-base da OS por horas = mão de obra recalculada
+    if (qs('#fech-preco-base')) qs('#fech-preco-base').value = r.maoObra.toFixed(2);
+    if (qs('#fech-maoobra'))    qs('#fech-maoobra').textContent = Fmt.currency(r.maoObra);
     atualizarFechamento();
   }
 
@@ -1650,12 +1820,18 @@ const OS = (() => {
     const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
 
     const r0 = _calcFromBase(baseRate);
-    // OS que veio de ORÇAMENTO aprovado: o valor orçado é o preço fechado com o
-    // cliente. A base do fechamento passa a ser ele; as horas viram REFERÊNCIA
-    // (pra saber se o serviço saiu no lucro), não recalculam o valor.
-    const orcado   = Number(currentOS.orcado_valor || 0);
+    // OS que veio de ORÇAMENTO / de valor fechado: o valor orçado é o preço
+    // combinado com o cliente. A base do fechamento passa a ser ele; as horas
+    // viram REFERÊNCIA (pra saber se saiu no lucro), não recalculam o valor.
+    const orcado    = Number(currentOS.orcado_valor || 0);
     const temOrcado = orcado > 0;
-    const calc     = temOrcado ? orcado : r0.calculado;
+    // "Serviço" = a base sem material: valor fechado (orçado) ou mão de obra das sessões.
+    const precoBase   = temOrcado ? orcado : r0.maoObra;
+    const materialBase = r0.totalItens;                       // soma crua dos itens de material
+    const matPctDef   = Calculator.cfgNum(cfg, 'taxa_admin_material', 15); // % padrão sobre o material
+    const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+    const matChargeInit = materialBase > 0 ? round2(materialBase * (1 + matPctDef / 100)) : 0;
+    const calc = round2(precoBase + matChargeInit);           // material incluído por padrão
     _calc.liquido  = calc; _calc.bruto = calc;
     _calc.maoObra  = r0.maoObra;   _calc.totalItens = r0.totalItens;
     _calc.nSessoes = r0.nSessoes;  _calc.horaBase = baseRate;
@@ -1675,35 +1851,45 @@ const OS = (() => {
             <input type="hidden" id="fech-os-id" value="${currentOS.id}">
 
             <!-- Breakdown de valores -->
-            <!-- hidden sempre presente — base para atualizarFechamento e saveFechamento -->
+            <!-- hidden sempre presentes — base para atualizarFechamento e saveFechamento -->
             <input type="hidden" id="fech-calculado-num" value="${calc.toFixed(2)}">
+            <input type="hidden" id="fech-preco-base"    value="${precoBase.toFixed(2)}">
+            <input type="hidden" id="fech-material-base"  value="${materialBase.toFixed(2)}">
 
-            ${temOrcado ? `
             <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Valor combinado (orçamento)</div>
+              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">${temOrcado ? 'Valor combinado' : 'Composição do valor'}</div>
               <div class="info-row" style="margin-bottom:4px">
-                <span>💰 Valor orçado</span>
-                <strong id="fech-calculado-display" class="text-green">${Fmt.currency(orcado)}</strong>
+                <span>${temOrcado ? '💰 Valor fechado' : `Mão de obra (${r0.nSessoes} sessão(ões))`}</span>
+                <strong id="fech-maoobra">${Fmt.currency(precoBase)}</strong>
               </div>
-              <div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">
-                🕐 pelas horas daria: <span id="fech-ref-horas">${Fmt.currency(r0.calculado)}</span> · ${r0.nSessoes} sessão(ões)
-                ${r0.totalItens > 0 ? ` (inclui ${Fmt.currency(r0.totalItens)} de materiais)` : ''}
-              </div>
-            </div>
-            ` : `
-            <div style="background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px">
-              <div style="font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Composição do valor</div>
-              <div class="info-row" style="margin-bottom:4px">
-                <span>Mão de obra (${r0.nSessoes} sessão(ões))</span>
-                <strong id="fech-maoobra">${Fmt.currency(r0.maoObra)}</strong>
-              </div>
-              ${r0.totalItens > 0 ? `<div class="info-row" style="margin-bottom:4px"><span>Materiais / Itens</span><strong>${Fmt.currency(r0.totalItens)}</strong></div>` : ''}
+
+              ${materialBase > 0 ? `
+              <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;font-weight:600">
+                  <input type="checkbox" id="fech-inc-material" checked onchange="OS.atualizarFechamento()" style="width:18px;height:18px;flex:0 0 auto">
+                  Incluir material p/ cobrar do cliente
+                </label>
+                <div class="info-row" style="margin-top:6px;font-size:.8rem;color:var(--text-muted)">
+                  <span>Material lançado</span><span>${Fmt.currency(materialBase)}</span>
+                </div>
+                <div class="input-row" style="margin-top:6px;align-items:center;gap:8px">
+                  <span style="font-size:.8rem;color:var(--text-muted);align-self:center">Acréscimo (%)</span>
+                  <input type="number" id="fech-mat-pct" class="input" step="1" min="0" value="${matPctDef}"
+                    style="flex:0 0 80px;text-align:center" oninput="OS.atualizarFechamento()">
+                  <span style="font-size:.8rem;color:var(--text-muted);align-self:center">→ cobrar <strong id="fech-mat-charge" class="text-navy">${Fmt.currency(matChargeInit)}</strong></span>
+                </div>
+              </div>` : ''}
+
               <div class="info-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
                 <span><strong>Valor calculado</strong></span>
                 <strong id="fech-calculado-display" class="text-green">${Fmt.currency(calc)}</strong>
               </div>
+
+              ${temOrcado ? `
+              <div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">
+                🕐 pelas horas daria: <span id="fech-ref-horas">${Fmt.currency(r0.maoObra)}</span> · ${r0.nSessoes} sessão(ões) de mão de obra
+              </div>` : ''}
             </div>
-            `}
 
             ${r0.nCalc > 0 && !temOrcado ? `
             <div style="margin-bottom:16px">
@@ -1798,12 +1984,26 @@ const OS = (() => {
     atualizarFechamento();
   }
 
-  // Recalcula valor final a partir de: (manual || calculado) - desconto
+  // Recalcula, ao vivo: valor calculado = preço-base + material (se incluído, com %),
+  // e depois o valor final = (sobrescrito || calculado) − desconto.
   function atualizarFechamento() {
-    const calc   = Number(qs('#fech-calculado-num')?.value) || 0;
-    const manual = Number(qs('#fech-manual')?.value)        || 0;
-    const base   = manual > 0 ? manual : calc;
+    const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+    const precoBase = Number(qs('#fech-preco-base')?.value)    || 0;
+    const matBase   = Number(qs('#fech-material-base')?.value) || 0;
+    const incEl     = qs('#fech-inc-material');
+    const inc       = incEl ? incEl.checked : false;
+    const pct       = Number(qs('#fech-mat-pct')?.value) || 0;
+    const matCharge = (inc && matBase > 0) ? round2(matBase * (1 + pct / 100)) : 0;
+    const calc      = round2(precoBase + matCharge);
 
+    // Atualiza a composição (material cobrado + valor calculado)
+    if (qs('#fech-mat-charge'))        qs('#fech-mat-charge').textContent = Fmt.currency(matCharge);
+    if (qs('#fech-calculado-num'))     qs('#fech-calculado-num').value = calc.toFixed(2);
+    if (qs('#fech-calculado-display')) qs('#fech-calculado-display').textContent = Fmt.currency(calc);
+
+    // Valor final = (sobrescrito || calculado) − desconto
+    const manual = Number(qs('#fech-manual')?.value) || 0;
+    const base   = manual > 0 ? manual : calc;
     const descVal  = Number(qs('#fech-desconto')?.value) || 0;
     const descTipo = qs('#fech-desconto-tipo')?.value || 'valor';
     const descontoAbs = descTipo === 'perc' ? (base * descVal / 100) : descVal;
@@ -2379,9 +2579,9 @@ const OS = (() => {
   }
 
   return {
-    render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, saveForm,
+    render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, onTipoOSChange, saveForm,
     openInsightsOS,
-    openDiaria, registrarDiaEm, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
+    openDiaria, registrarDiaEm, iniciarSessaoAgora, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
@@ -2393,5 +2593,7 @@ const OS = (() => {
     toggleLoteMode, toggleLoteSel, abrirFechamentoLote, openFechamentoLote,
     toggleLoteHoraBase, recalcLoteOS, toggleDescontoTipoLote, atualizarFechamentoLote, saveFechamentoLote,
     confirmDelete,
+    // Helpers expostos (usados pela home)
+    osTipo, osTipoBadge, acharSessaoAberta, blocoAberto,
   };
 })();
