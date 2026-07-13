@@ -278,10 +278,21 @@ const Estoque = (() => {
     const e = id ? allEstoque.find(x => x.id === id) : null;
     qs('#est-form-id').value   = id || '';
     qs('#est-form-desc').value = e?.descricao || '';
-    qs('#est-form-grupo').value = e?.grupo || '';
-    // Sugestões de grupo = os grupos já usados (autocomplete no datalist)
-    const dl = qs('#est-grupos-list');
-    if (dl) dl.innerHTML = gruposExistentes().map(g => `<option value="${g}">`).join('');
+    // Grupo é um SELETOR dos grupos já cadastrados (+ "＋ Novo grupo") — evita
+    // que um typo crie um grupo duplicado.
+    const selG = qs('#est-form-grupo');
+    if (selG) {
+      const atual  = String(e?.grupo || '').trim();
+      const grupos = gruposExistentes();
+      // Edição de item cujo grupo (raro) não esteja na lista → inclui p/ não perder.
+      if (atual && !grupos.some(g => g === atual)) grupos.unshift(atual);
+      selG.innerHTML =
+        `<option value="">${SEM_GRUPO}</option>` +
+        grupos.map(g => `<option value="${g.replace(/"/g, '&quot;')}" ${g === atual ? 'selected' : ''}>📁 ${g}</option>`).join('') +
+        `<option value="__novo__">＋ Novo grupo…</option>`;
+    }
+    const novoG = qs('#est-form-grupo-novo');
+    if (novoG) { novoG.value = ''; novoG.classList.add('hidden'); }
     qs('#est-form-qtd').value  = e?.quantidade ?? '0';
     qs('#est-form-unit').value = e?.valor_unit ?? '0';
     qs('#est-form-und').value  = e?.unidade || 'un';
@@ -294,6 +305,28 @@ const Estoque = (() => {
     Modal.open('modal-estoque');
   }
 
+  // Mostra o campo "novo grupo" quando o usuário escolhe "＋ Novo grupo…".
+  function onGrupoChange() {
+    const sel  = qs('#est-form-grupo');
+    const novo = qs('#est-form-grupo-novo');
+    if (!sel || !novo) return;
+    const isNovo = sel.value === '__novo__';
+    novo.classList.toggle('hidden', !isNovo);
+    if (isNovo) novo.focus();
+  }
+
+  // Grupo final do form: a seleção OU o nome digitado em "novo grupo". Se o nome
+  // novo bater (ignorando maiúsc/minúsc) com um grupo já existente, usa a grafia
+  // que já existe — assim "parafuso" cai no mesmo "Parafuso".
+  function _grupoEscolhido() {
+    const sel = qs('#est-form-grupo');
+    if (!sel) return '';
+    if (sel.value !== '__novo__') return sel.value.trim();
+    const novo = (qs('#est-form-grupo-novo')?.value || '').trim();
+    if (!novo) return '';
+    return gruposExistentes().find(g => g.toLowerCase() === novo.toLowerCase()) || novo;
+  }
+
   // trava de duplo clique (Guard) — o corpo real está em _saveForm
   function saveForm() { return Guard.run('estq-save', _saveForm); }
   async function _saveForm() {
@@ -304,7 +337,7 @@ const Estoque = (() => {
     const novoUnit = Number(qs('#est-form-unit').value) || 0;
     const dadosBase = {
       descricao:      desc,
-      grupo:          qs('#est-form-grupo').value.trim(),
+      grupo:          _grupoEscolhido(),
       unidade:        qs('#est-form-und').value.trim() || 'un',
       estoque_minimo: Number(qs('#est-form-min').value) || 0,
       categoria_id:   qs('#est-form-cat').value,
@@ -748,7 +781,7 @@ const Estoque = (() => {
   return {
     render, goTab, switchTab, tabsHTML,
     onSearch, onCatFiltro, onRelCat, toggleGrupo, openDetail, voltarLista,
-    openForm, saveForm, openBaixa, saveBaixa, confirmDelete,
+    openForm, saveForm, onGrupoChange, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
     onMovSearch, onMovMotivo, onContagem, finalizarContagem,
     // lista

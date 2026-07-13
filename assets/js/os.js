@@ -398,11 +398,17 @@ const OS = (() => {
             <div class="info-label">Valor fechado (combinado)</div>
             <strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.orcado_valor)}</strong>
           </div>` : ''}
+          ${osTipo(currentOS) === 'valor'
+            ? (_somaMat > 0 ? `
+          <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px">
+            <div class="info-row"><span>Materiais lançados</span><strong>${Fmt.currency(_somaMat)}</strong></div>
+          </div>` : '')
+            : `
           <div style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px">
             <div class="info-row"><span>Serviço (mão de obra)</span><strong>${Fmt.currency(_somaMO)}</strong></div>
             <div class="info-row"><span>Materiais</span><strong>${Fmt.currency(_somaMat)}</strong></div>
-            <div class="info-row" style="font-weight:800;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)"><span>${osTipo(currentOS) === 'valor' ? 'Trabalho registrado (referência)' : 'Total'}</span><strong class="text-navy" style="font-size:1.1rem">${Fmt.currency(_somaTotal)}</strong></div>
-          </div>
+            <div class="info-row" style="font-weight:800;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)"><span>Total</span><strong class="text-navy" style="font-size:1.1rem">${Fmt.currency(_somaTotal)}</strong></div>
+          </div>`}
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
         </div>
