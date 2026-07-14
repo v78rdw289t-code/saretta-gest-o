@@ -1455,6 +1455,9 @@ const OS = (() => {
     const vinc = item?.estoque_id ? _itemEstoque.find(e => e.id === item.estoque_id) : null;
     renderItemResultados(vinc ? [vinc] : [], vinc ? vinc.id : '');
     onItemTipoChange(); // sincroniza visibilidade do campo quem pagou
+    // "Adicionar e continuar" só faz sentido ao adicionar (não ao editar um item).
+    const contBtn = qs('#modal-item-continuar');
+    if (contBtn) contBtn.style.display = itemId ? 'none' : '';
     Modal.open('modal-item');
   }
 
@@ -1510,9 +1513,25 @@ const OS = (() => {
     }
   }
 
-  // trava de duplo clique (Guard) — o corpo real está em _saveItem
-  function saveItem() { return Guard.run('os-item', _saveItem); }
-  async function _saveItem() {
+  // Limpa o form do item pro próximo (mantém o tipo escolhido), foca a busca.
+  function _resetItemForm() {
+    qs('#modal-item-id').value      = '';
+    qs('#modal-item-estoque').value = '';
+    qs('#modal-item-desc').value    = '';
+    qs('#modal-item-qtd').value     = '1';
+    qs('#modal-item-unit').value    = '';
+    qs('#modal-item-total').value   = '';
+    if (qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
+    qs('#modal-item-busca').value   = '';
+    renderItemResultados([], '');
+    onItemTipoChange();
+    qs('#modal-item-busca')?.focus();
+  }
+
+  // trava de duplo clique (Guard) — o corpo real está em _saveItem.
+  // continuar=true: salva e mantém o modal aberto pra adicionar o próximo item.
+  function saveItem(continuar = false) { return Guard.run('os-item', () => _saveItem(continuar)); }
+  async function _saveItem(continuar = false) {
     const itemId    = qs('#modal-item-id').value;
     const osId      = qs('#modal-item-os-id').value;
     const tipo      = qs('#modal-item-tipo').value;
@@ -1615,9 +1634,16 @@ const OS = (() => {
         ? `Item adicionado! Fiado de reembolso gerado para ${quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1)}.`
         : (itemId ? 'Item atualizado!' : 'Item adicionado!');
       Toast.success(msg);
-      Modal.close('modal-item');
       await loadData();
-      openDetail(osId);
+      openDetail(osId); // re-renderiza o detalhe (fica atrás do modal se continuar)
+      if (continuar) {
+        // Mantém o modal aberto: atualiza o cache da busca e limpa o form pro próximo.
+        const estRes = await API.db.read('estoque');
+        _itemEstoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+        _resetItemForm();
+      } else {
+        Modal.close('modal-item');
+      }
     } else {
       Toast.error('Erro: ' + (res?.error || ''));
     }
