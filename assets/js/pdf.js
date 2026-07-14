@@ -263,14 +263,20 @@ const Doc = (() => {
     clone.style.width = '100%';
     holder.appendChild(clone);
     document.body.appendChild(holder);
+    // Mede o clone JÁ renderizado e trava a captura EXATAMENTE nesse retângulo.
+    // No Safari desktop (janela larga ~1440px) o html2canvas capturava uma região
+    // mais larga que o documento (760px) e o conteúdo saía espremido na metade
+    // esquerda da folha. Fixar width/height + window*/x/y = 0 remove esse "chute"
+    // de largura e vale igual em PC e celular. windowWidth<=760 também mantém as
+    // media queries mobile (<=560px) FORA do clone (PDF sempre no layout completo).
+    const cw = clone.offsetWidth  || 760;
+    const ch = clone.offsetHeight || clone.scrollHeight || 0;
     const opt = {
       margin:      [10, 10, 12, 10],
       filename:    _nomeArquivo + '.pdf',
       image:       { type: 'jpeg', quality: 0.98 },
-      // windowWidth 760 → as media queries mobile (<=560px) NÃO se aplicam ao
-      // clone (PDF sempre no layout completo). scrollX/Y:0 evita a captura sair
-      // deslocada/cortada no celular.
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 760, scrollX: 0, scrollY: 0 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff',
+        width: cw, height: ch, windowWidth: cw, windowHeight: ch, x: 0, y: 0, scrollX: 0, scrollY: 0 },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
       // Pagina entre linhas (sem cortar uma linha no meio) e cria as folhas
       // seguintes sozinho — documentos longos não são mais truncados.
