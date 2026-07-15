@@ -57,6 +57,18 @@ const API = (() => {
     gerarRecorrentes:   ()     => ['parcelas', 'recorrentes'],
   };
 
+  // ─── Epoch de invalidação (corrida SWR × escrita) ─────────
+  // Toda escrita invalida o cache e incrementa este contador. Um refetch em
+  // background que PARTIU antes da escrita leu o estado pré-escrita; se ele
+  // cachear a resposta ao voltar, o dado velho volta com ts NOVO e mascara a
+  // gravação até o TTL — 30 dias nas sheets de trabalho da OS. Não é só a tela
+  // mostrar stale: o app passa a DECIDIR sobre estado velho (encerrar uma sessão
+  // sobre blocos vencidos grava horas erradas). Quem parte num epoch e volta em
+  // outro tem o resultado descartado — o refetch seguinte traz o certo.
+  let _cacheEpoch = 0;
+  const epochAtual = () => _cacheEpoch;
+  const epochValido = (e) => e === _cacheEpoch;
+
   function invalidateSheets(sheets) {
     if (!sheets || sheets.length === 0) return;
     for (const key of Array.from(cache.keys())) {
@@ -218,10 +230,11 @@ const API = (() => {
   function backgroundRefetch(url, key) {
     if (_backgroundFetches.has(key)) return;
     _backgroundFetches.add(key);
+    const epoch = epochAtual(); // se uma escrita entrar antes da volta, este resultado nasceu velho
     fetchWithTimeout(url)
       .then(r => r.json())
       .then(json => {
-        if (json && json.success) {
+        if (json && json.success && epochValido(epoch)) {
           cache.set(key, { data: json, ts: Date.now() });
           persistCache();
         }
@@ -263,10 +276,11 @@ const API = (() => {
     const queue = _readQueue;
     _readQueue = null;
     const sheets = Array.from(queue.keys());
+    const epoch = epochAtual(); // idem backgroundRefetch: escrita no meio do voo invalida o que voltar
 
     const finish = (sheet, json) => {
       const item = queue.get(sheet);
-      if (json && json.success) cache.set(item.key, { data: json, ts: Date.now() });
+      if (json && json.success && epochValido(epoch)) cache.set(item.key, { data: json, ts: Date.now() });
       const out = (json && json.success) ? withOverlay(sheet, json) : json;
       item.resolvers.forEach(r => r(out));
     };
@@ -354,12 +368,13 @@ const API = (() => {
 
     if (soSheet && useCache) return enqueueRead(params.sheet, key, false);
 
+    const epoch = epochAtual(); // escrita durante o voo → o que voltar já nasceu velho (ver epoch)
     try {
       const json = await fetchJsonGet(urlStr);
       if (json && json.error && /autoriz|token/i.test(json.error)) {
         Toast.error('Acesso negado — confira o token em Configurações');
       }
-      if (useCache && json && json.success) {
+      if (useCache && json && json.success && epochValido(epoch)) {
         cache.set(key, { data: json, ts: Date.now() });
         persistCache();
       }
@@ -389,6 +404,7 @@ const API = (() => {
   }
 
   function invalidateForAction(action, body) {
+    _cacheEpoch++; // houve escrita: refetch em voo não pode mais cachear (ver epoch)
     const invalidator = POST_INVALIDATES[action];
     if (invalidator) {
       try { invalidateSheets(invalidator(body)); }
@@ -527,6 +543,7 @@ const API = (() => {
   };
 
   function clearCache() {
+    _cacheEpoch++; // refetch em voo não pode repopular o que acabou de ser zerado (ver epoch)
     cache.clear();
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
   }

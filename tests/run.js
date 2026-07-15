@@ -368,6 +368,34 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— api.js: refetch em background NÃO desfaz uma escrita (epoch) —');
+  {
+    // Corrida real: o SWR serve stale e dispara refetch; o dono grava (pausar/
+    // encerrar sessão) enquanto o refetch está em voo; o refetch volta com o
+    // estado PRÉ-escrita e recacheia com ts novo → o app volta a enxergar o
+    // estado velho por até 30 dias e passa a decidir sobre ele (encerrar sessão
+    // sobre blocos vencidos = horas erradas na planilha).
+    const key = 'http://fake.test/exec?action=read&sheet=diarias&os_id=os1';
+    const velho = { success: true, data: [{ id: 'd1', blocos_json: '[{"inicio":"08:00","fim":"","aberta":true}]' }] };
+    const s = makeFrontSandbox({
+      saretta_api_cache_v1: JSON.stringify({ [key]: { data: velho, ts: Date.now() - 2 * 60 * 1000 } }),
+    });
+    s.__fetchResponse = velho; // o refetch em voo leu o estado de ANTES da escrita
+
+    testAsync('resposta de refetch que partiu antes da escrita não volta pro cache', async () => {
+      // 1) read com filtro → serve stale (2min > REFRESH_AFTER) e dispara o refetch
+      const r = await vm.runInContext(`API.db.read('diarias', null, { os_id: 'os1' })`, s);
+      assert.equal(r.data[0].id, 'd1', 'serviu o cache stale, como o SWR manda');
+      // 2) a escrita acontece com o refetch ainda em voo
+      vm.runInContext(`API._invalidateFor('update', { sheet: 'diarias' })`, s);
+      // 3) deixa o refetch terminar e tentar cachear
+      await new Promise(res => setImmediate(res));
+      const cacheDepois = JSON.parse(s.localStorage.getItem('saretta_api_cache_v1') || '{}');
+      assert.ok(!cacheDepois[key],
+        'o refetch nasceu antes da escrita: recachear traria o estado velho de volta com ts novo');
+    });
+  }
+
   console.log('\n— OS: tipos (horas/valor) e sessão em aberto —');
   {
     // os.js só declara no load (o IIFE retorna o objeto); osTipo/acharSessaoAberta
@@ -403,6 +431,44 @@ function makeGsSandbox() {
       assert.ok(p, 'sessão pausada deve contar como ativa');
       assert.equal(p.pausada, true);
       assert.equal(p.diariaId, 'dp');
+    });
+
+    // Encerrar sessão em 1 toque (sem abrir o modal): blocosAoEncerrar decide o
+    // que vai pro blocos_json. Se errar aqui, o dono perde horas trabalhadas.
+    const encerra = (blocos, agora) => vm.runInContext(
+      `OS.blocosAoEncerrar({ blocos_json: ${JSON.stringify(JSON.stringify(blocos))} }, '${agora}')`, s);
+
+    test('blocosAoEncerrar fecha o período em execução com a hora de agora', () => {
+      const out = encerra([{ inicio: '13:00', fim: '', aberta: true }], '17:30');
+      assert.equal(out.length, 1);
+      assert.equal(out[0].inicio, '13:00');
+      assert.equal(out[0].fim, '17:30');
+      assert.ok(!out[0].aberta, 'a flag aberta tem que sair — senão a sessão segue "em andamento"');
+    });
+
+    test('blocosAoEncerrar em sessão PAUSADA só tira o marcador (relógio parou na pausa)', () => {
+      const out = encerra([{ inicio: '08:00', fim: '10:00' }, { aberta: true, pausada: true }], '17:30');
+      assert.equal(out.length, 1, 'o marcador de pausa não é período');
+      assert.equal(out[0].fim, '10:00', 'a pausa não pode virar hora trabalhada até agora');
+    });
+
+    test('blocosAoEncerrar com pausa+retomada fecha só o período aberto', () => {
+      const out = encerra([
+        { inicio: '08:00', fim: '11:00' },                 // antes da pausa
+        { inicio: '13:00', fim: '', aberta: true },        // retomado, em execução
+      ], '17:30');
+      assert.equal(out.length, 2);
+      assert.equal(out[0].fim, '11:00', 'período já concluído fica intacto');
+      assert.equal(out[1].fim, '17:30');
+      assert.ok(!out[1].aberta);
+    });
+
+    test('blocosAoEncerrar preserva bloco avulso e não o confunde com aberto', () => {
+      const out = encerra([{ avulso: true, horas: 2 }, { inicio: '13:00', fim: '', aberta: true }], '15:00');
+      assert.equal(out.length, 2);
+      assert.equal(out[0].avulso, true);
+      assert.equal(out[0].horas, 2);
+      assert.equal(out[1].fim, '15:00');
     });
   }
 

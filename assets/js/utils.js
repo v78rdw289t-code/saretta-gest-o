@@ -203,6 +203,45 @@ const Toast = {
   error(msg)   { this.show(msg, 'error', 5000); },
   warning(msg) { this.show(msg, 'warning'); },
   info(msg)    { this.show(msg, 'info'); },
+
+  // Toast "em andamento": aparece NO TOQUE e vira ✓/✕ no MESMO balão quando a
+  // gravação termina. Gravar no Apps Script leva de 2 a 5s — sem isto o único
+  // sinal é a barra de #global-loading, 3px no topo da tela, longe do dedo.
+  //   const t = Toast.progress('Pausando…');
+  //   … t.done('Sessão pausada')  |  t.done('Encerrada', () => abrir())  |  t.fail('Erro')
+  progress(msg) {
+    this._init();
+    if (!this._container) return { done() {}, fail() {} };
+    const el = document.createElement('div');
+    el.className = 'toast toast-progress';
+    el.innerHTML = `<span class="toast-icon">⏳</span><span>${msg}</span>`;
+    this._container.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('visible'));
+    let fechado = false;
+    const dismiss = () => {
+      if (fechado) return;
+      fechado = true;
+      el.classList.remove('visible');
+      setTimeout(() => el.remove(), 350);
+    };
+    // Rede pendurada não pode deixar o balão girando pra sempre
+    let timer = setTimeout(dismiss, 30000);
+    const encerra = (texto, tipo, icone, duracao, onClick) => {
+      clearTimeout(timer);
+      if (fechado) { Toast.show(texto, tipo, duracao, onClick); return; } // balão já saiu → manda um novo
+      el.className = `toast toast-${tipo} visible`;
+      el.innerHTML = `<span class="toast-icon">${icone}</span><span>${texto}</span>`;
+      if (onClick) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => { dismiss(); try { onClick(); } catch (e) {} });
+      }
+      timer = setTimeout(dismiss, duracao);
+    };
+    return {
+      done: (texto, onClick = null) => encerra(texto, 'success', '✓', onClick ? 6000 : 3500, onClick),
+      fail: (texto)                 => encerra(texto, 'error', '✕', 5000, null),
+    };
+  },
 };
 
 // ─── Modal ───────────────────────────────────────────────────
@@ -712,6 +751,12 @@ function genUUID() {
       const r = Math.random() * 16 | 0;
       return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
     }));
+}
+
+// Vibradinha curta de confirmação no toque (Android). Em obra, com sol na tela,
+// é o sinal mais confiável de "pegou". Silencioso onde não há suporte (iOS/desktop).
+function tapFeedback(ms = 30) {
+  try { navigator.vibrate?.(ms); } catch (e) {}
 }
 
 // ─── GUARD: trava de duplo clique em ações que gravam ───────

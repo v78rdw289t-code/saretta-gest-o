@@ -175,11 +175,29 @@ const App = (() => {
     // Badge de notificações (a partir do que estiver salvo de sessões anteriores)
     if (typeof Notif !== 'undefined') Notif.init();
 
+    // Protege o armazenamento antes de qualquer coisa (não bloqueia o boot)
+    pedirStoragePersistente();
+
     // Boot decide se mostra splash ou entra direto
     await bootApp();
 
     // Contas fixas: pede ao backend pra gerar as parcelas do mês (1x por dia)
     verificaRecorrentes();
+  }
+
+  // Pede armazenamento PERSISTENTE ao navegador. Sem isto os dados do app são
+  // "best-effort": quando o Android fica sem espaço, o Chrome despeja a ORIGEM
+  // INTEIRA por uso menos recente — e leva junto o localStorage com a URL do
+  // Apps Script e o token (saretta_config), não só o cache. Era esse o sumiço da
+  // conexão no celular. Com o app instalado na tela inicial o Chrome concede sem
+  // prompt; no navegador comum pode negar (aí o diagnóstico em Config → Conexão
+  // mostra "não protegido"). Idempotente: uma vez concedido, persiste.
+  async function pedirStoragePersistente() {
+    try {
+      if (!navigator.storage?.persist) return;
+      if (await navigator.storage.persisted()) return;
+      await navigator.storage.persist();
+    } catch (e) {}
   }
 
   // Dispara gerarRecorrentes com throttle diário. A geração roda NO backend
@@ -291,6 +309,7 @@ const App = (() => {
   }
 
   return { navigate, init, loadGlobals, getClientes, getCategorias, getContas,
+           pedirStoragePersistente,
            clienteNome, categoriaNome, contaNome,
            clienteOptions, categoriaOptions, contaOptions,
            quickAdd, onQuickAddDone,

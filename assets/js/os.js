@@ -363,7 +363,7 @@ const OS = (() => {
               ${sessAberta.pausada
                 ? `<button class="btn btn-gold btn-sm" style="flex:1" onclick="OS.retomarSessao('${sessAberta.diariaId}')">▶ Retomar</button>`
                 : `<button class="btn btn-outline btn-sm" style="flex:1" onclick="OS.pausarSessao('${sessAberta.diariaId}')">⏸ Pausar</button>`}
-              <button class="btn btn-gold btn-sm" style="flex:1" onclick="OS.openDiaria('${sessAberta.diariaId}')">⏹ Encerrar</button>
+              <button class="btn btn-gold btn-sm" style="flex:1" onclick="OS.encerrarSessao('${sessAberta.diariaId}')">⏹ Encerrar</button>
             </div>
           </div>
         </div>` : ''}
@@ -1060,10 +1060,10 @@ const OS = (() => {
       acoes.push({ icon: '⏱', label: 'Registrar sessão', fn: () => registrarDiaEm(osId) });
     } else if (ativa.pausada) {
       acoes.push({ icon: '▶', label: 'Retomar sessão', fn: () => retomarSessao(ativa.diariaId) });
-      acoes.push({ icon: '⏹', label: 'Encerrar sessão', fn: () => registrarDiaEm(osId, ativa.diariaId) });
+      acoes.push({ icon: '⏹', label: 'Encerrar sessão', fn: () => encerrarSessao(ativa.diariaId) });
     } else {
       acoes.push({ icon: '⏸', label: 'Pausar sessão', fn: () => pausarSessao(ativa.diariaId) });
-      acoes.push({ icon: '⏹', label: 'Encerrar sessão', fn: () => registrarDiaEm(osId, ativa.diariaId) });
+      acoes.push({ icon: '⏹', label: 'Encerrar sessão', fn: () => encerrarSessao(ativa.diariaId) });
     }
     ActionSheet.open('Sessão' + (os?.numero ? ' — ' + os.numero : ''), acoes);
   }
@@ -1078,9 +1078,14 @@ const OS = (() => {
     else if (typeof Home !== 'undefined' && Home.render) Home.render();
   }
 
+  // Sufixo do toast quando a gravação só entrou na caderneta (obra sem sinal).
+  const _sufixoFila = (r) => (r && r.queued) ? ' · 📮 sem rede' : '';
+
   // Grava o estado da sessão (recalcula horas/valor dos períodos concluídos) e
   // atualiza a tela (detalhe ou home). Preserva marcadores aberta/pausada.
-  async function _persistSessao(diariaId, osId, blocos) {
+  // `t` = balão do Toast.progress em andamento — recebe o erro se falhar.
+  // Retorna { ok, horas, queued }; horas = total dos períodos já concluídos.
+  async function _persistSessao(diariaId, osId, blocos, t = null) {
     const cfg = await Calculator.getConfig();
     const baseRate = Calculator.cfgNum(cfg, 'valor_hora_manutencao', 0) || Calculator.cfgNum(cfg, 'valor_hora', 0);
     const clean = blocos.map(b => {
@@ -1100,8 +1105,26 @@ const OS = (() => {
     if (res?.success) {
       await loadData();
       _refreshSessao(osId);
-    } else Toast.error('Erro: ' + (res?.error || ''));
-    return res;
+    } else {
+      const msg = 'Erro: ' + (res?.error || '');
+      if (t) t.fail(msg); else Toast.error(msg);
+    }
+    return { ok: !!res?.success, horas: bk.horas, queued: !!res?.queued };
+  }
+
+  // Mantém data_inicio/data_fim da OS cobrindo as sessões — mesma manutenção que
+  // o salvar pelo modal faz (saveDiaria, ~1400). Encerrar é caminho quente: usa o
+  // allDiarias já recarregado e só grava quando a 1ª/última data mudou de fato.
+  async function _sincronizaDatasOS(osId) {
+    const dia = (v) => String(v || '').substring(0, 10);
+    const datas = allDiarias.filter(x => x.os_id === osId).map(x => dia(x.data)).filter(Boolean).sort();
+    if (!datas.length) return;
+    const os = allOS.find(o => o.id === osId);
+    const ini = datas[0], fim = datas[datas.length - 1];
+    if (!os || (dia(os.data_inicio) === ini && dia(os.data_fim) === fim)) return;
+    await API.db.update('os', osId, { data_inicio: ini, data_fim: fim });
+    await loadData();
+    _refreshSessao(osId);
   }
 
   // Inicia uma sessão AGORA em 1 toque: diária com um período em execução.
@@ -1109,7 +1132,9 @@ const OS = (() => {
   async function _iniciarSessaoAgora(osId) {
     const os = allOS.find(o => o.id === osId) || currentOS;
     if (!os) return;
+    tapFeedback();
     const inicio = _horaAgora();
+    const t = Toast.progress('Iniciando sessão…');
     const blocos = [{ inicio, fim: '', aberta: true, reajuste: false, fatores: [] }];
     const data = {
       os_id: osId, categoria_id: os.categoria_id || '', data: DateUtil.today(),
@@ -1121,10 +1146,10 @@ const OS = (() => {
     const res = await API.db.create('diarias', data);
     Loading.hide();
     if (res?.success) {
-      Toast.success(`Sessão iniciada às ${inicio}`);
       await loadData();
       _refreshSessao(osId);
-    } else Toast.error('Erro: ' + (res?.error || ''));
+      t.done(`Sessão iniciada às ${inicio}${_sufixoFila(res)}`);
+    } else t.fail('Erro: ' + (res?.error || ''));
   }
 
   // Pausa a sessão: fecha o período em execução (fim = agora) e deixa um
@@ -1133,13 +1158,15 @@ const OS = (() => {
   async function _pausarSessao(diariaId) {
     const d = allDiarias.find(x => x.id === diariaId);
     if (!d) return;
+    tapFeedback();
+    const t = Toast.progress('Pausando sessão…');
     let blocos = Calculator.blocosFromDiaria(d).map(b => ({ ...b }));
     const idx = blocos.findIndex(b => b.aberta && b.inicio && !b.fim);
     if (idx >= 0) { blocos[idx].fim = _horaAgora(); delete blocos[idx].aberta; }
     blocos = blocos.filter(b => !b.pausada);
     blocos.push({ aberta: true, pausada: true });
-    const res = await _persistSessao(diariaId, d.os_id, blocos);
-    if (res?.success) Toast.success('Sessão pausada');
+    const r = await _persistSessao(diariaId, d.os_id, blocos, t);
+    if (r.ok) t.done('Sessão pausada' + _sufixoFila(r));
   }
 
   // Retoma a sessão pausada: abre um novo período em execução (início = agora).
@@ -1147,11 +1174,40 @@ const OS = (() => {
   async function _retomarSessao(diariaId) {
     const d = allDiarias.find(x => x.id === diariaId);
     if (!d) return;
+    tapFeedback();
     const inicio = _horaAgora();
+    const t = Toast.progress('Retomando sessão…');
     let blocos = Calculator.blocosFromDiaria(d).map(b => ({ ...b })).filter(b => !b.pausada);
     blocos.push({ inicio, fim: '', aberta: true, reajuste: false, fatores: [] });
-    const res = await _persistSessao(diariaId, d.os_id, blocos);
-    if (res?.success) Toast.success('Sessão retomada às ' + inicio);
+    const r = await _persistSessao(diariaId, d.os_id, blocos, t);
+    if (r.ok) t.done('Sessão retomada às ' + inicio + _sufixoFila(r));
+  }
+
+  // Como ficam os blocos ao encerrar: cai o marcador de pausa e o período em
+  // execução ganha fim = agora. Sessão pausada não tem período aberto (o relógio
+  // parou na pausa) → só perde o marcador. Pura, pra dar pra testar sem rede.
+  function blocosAoEncerrar(d, agora) {
+    const blocos = Calculator.blocosFromDiaria(d).map(b => ({ ...b })).filter(b => !b.pausada);
+    // Em execução — ou legado: início sem fim e sem a flag `aberta`.
+    const idx = blocos.findIndex(b => !b.avulso && b.inicio && !b.fim);
+    if (idx >= 0) { blocos[idx].fim = agora; delete blocos[idx].aberta; }
+    return blocos;
+  }
+
+  // Encerra a sessão NA HORA, sem abrir o modal pra salvar. O toast de sucesso é
+  // o caminho de ajuste: um toque abre a sessão pra corrigir horário/valor/obs.
+  function encerrarSessao(diariaId) { return Guard.run('os-encerrar', () => _encerrarSessao(diariaId)); }
+  async function _encerrarSessao(diariaId) {
+    const d = allDiarias.find(x => x.id === diariaId);
+    if (!d) return;
+    tapFeedback();
+    const osId = d.os_id;
+    const t = Toast.progress('Encerrando sessão…');
+    const r = await _persistSessao(diariaId, osId, blocosAoEncerrar(d, _horaAgora()), t);
+    if (!r.ok) return;
+    await _sincronizaDatasOS(osId);
+    t.done(`Sessão encerrada · ${Fmt.hours(r.horas)}${_sufixoFila(r)} — toque pra ajustar`,
+           () => registrarDiaEm(osId, diariaId));
   }
 
   async function openDiaria(diariaId = null) {
@@ -2709,7 +2765,7 @@ const OS = (() => {
   return {
     render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, onTipoOSChange, saveForm,
     openInsightsOS,
-    openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
+    openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
@@ -2722,6 +2778,6 @@ const OS = (() => {
     toggleLoteHoraBase, recalcLoteOS, toggleDescontoTipoLote, atualizarFechamentoLote, saveFechamentoLote,
     confirmDelete,
     // Helpers expostos (usados pela home)
-    osTipo, osTipoBadge, acharSessaoAberta, blocoAberto,
+    osTipo, osTipoBadge, acharSessaoAberta, blocoAberto, blocosAoEncerrar,
   };
 })();

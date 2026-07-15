@@ -66,6 +66,7 @@ const Config = (() => {
                 Veja as instruções no README.md do projeto.
               </div>
             ` : ''}
+            <div id="cfg-storage"></div>
           </div>
         </div>
 
@@ -231,6 +232,59 @@ const Config = (() => {
         </div>
       </div>
     `;
+
+    renderStorage(); // assíncrono: preenche o #cfg-storage quando o navegador responder
+  }
+
+  // ─── Diagnóstico de armazenamento ──────────────────────────
+  // A conexão (URL + token) vive no localStorage. Se o armazenamento não for
+  // persistente, o Chrome/Android apaga a ORIGEM INTEIRA quando o aparelho fica
+  // sem espaço — e a conexão some sozinha. Aqui dá pra ver se está protegido,
+  // quanto o app ocupa e como foi aberto: navegador interno (WhatsApp etc.) tem
+  // armazenamento SEPARADO — a config de lá não é a mesma do atalho.
+  async function renderStorage() {
+    const box = qs('#cfg-storage');
+    if (!box) return;
+    if (!navigator.storage?.estimate) { box.innerHTML = ''; return; }
+    let persistido = false, uso = 0, cota = 0;
+    try {
+      persistido = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+      const est = await navigator.storage.estimate();
+      uso  = est.usage || 0;
+      cota = est.quota || 0;
+    } catch (e) { box.innerHTML = ''; return; }
+    const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+    const atalho = window.matchMedia?.('(display-mode: standalone)')?.matches === true
+                || window.navigator.standalone === true;
+    box.innerHTML = `
+      <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:12px">
+        <div class="info-label" style="margin-bottom:6px">Armazenamento no aparelho</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="badge ${persistido ? 'badge-success' : 'badge-warning'}">${persistido ? '🔒 Protegido' : '⚠ Não protegido'}</span>
+          <span style="font-size:.78rem;color:var(--text-muted)">
+            ${mb(uso)}${cota ? ' de ' + mb(cota) : ''} · aberto ${atalho ? 'pelo atalho ✓' : 'no navegador'}
+          </span>
+        </div>
+        <p style="font-size:.75rem;color:var(--text-muted);margin:8px 0 0">
+          ${persistido
+            ? 'O navegador não vai apagar a conexão sozinho quando faltar espaço no celular.'
+            : `Sem proteção o Android pode apagar a URL e o token quando o aparelho ficar sem espaço.${
+                atalho ? '' : ' Abra o app pelo atalho da tela inicial (menu do Chrome → “Adicionar à tela inicial”) e tente de novo.'}`}
+        </p>
+        ${persistido ? '' : `<button class="btn btn-outline btn-sm mt-2" onclick="Config.protegerArmazenamento()">🔒 Proteger agora</button>`}
+      </div>`;
+  }
+
+  async function protegerArmazenamento() {
+    const t = Toast.progress('Pedindo proteção ao navegador…');
+    let ok = false;
+    try {
+      await App.pedirStoragePersistente();
+      ok = await navigator.storage.persisted();
+    } catch (e) {}
+    if (ok) t.done('Armazenamento protegido 🔒');
+    else    t.fail('O navegador negou — abra pelo atalho da tela inicial');
+    renderStorage();
   }
 
   function saveUrl() {
@@ -426,6 +480,7 @@ const Config = (() => {
   }
 
   return { render, saveUrl, testarConexao, toggleToken, saveHoras, saveFatores,
+           protegerArmazenamento,
            openCatForm, saveCat, toggleCat,
            openContaForm, saveConta, toggleConta,
            initDB, repairDB };
