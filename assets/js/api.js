@@ -156,11 +156,35 @@ const API = (() => {
   // fetch com timeout (AbortController) — evita travar o app em sinal ruim
   const NET_TIMEOUT       = 15000; // 15s na 1ª tentativa
   const NET_TIMEOUT_RETRY = 25000; // 2ª tentativa mais paciente (Apps Script frio demora)
+  // ─── Memória da última falha de rede ──────────────────────
+  // `navigator.onLine` só sabe se existe uma rede CONECTADA, não se ela chega no
+  // Google: uma barra de sinal na obra, ou o Wi-Fi do cliente que não navega,
+  // passam por "online" — e aí cada ação paga o timeout inteiro (15s) pra
+  // descobrir o óbvio. Então o app lembra: falhou de rede agora, assume-se fora
+  // por JANELA_FORA e as escritas enfileiráveis vão direto pra caderneta, sem
+  // esperar. A prova de que voltou é um fetch que dá certo — o flush da fila em
+  // background serve de sonda, sem travar ninguém. Só falha de REDE conta:
+  // resposta de erro do servidor (validação, token) significa rede VIVA.
+  const JANELA_FORA = 60 * 1000;
+  let _ultimaFalhaRede = 0;
+  function marcaRedeOk()   { _ultimaFalhaRede = 0; }
+  function marcaFalhaRede(e) {
+    if (e && (e.name === 'TypeError' || e.name === 'AbortError')) _ultimaFalhaRede = Date.now();
+  }
+  function redeProvavelmenteFora() { return (Date.now() - _ultimaFalhaRede) < JANELA_FORA; }
+  // O SO dizer que voltou já dá o benefício da dúvida: a próxima ação tenta.
+  window.addEventListener('online', marcaRedeOk);
+
   async function fetchWithTimeout(url, opts = {}, timeout = NET_TIMEOUT) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeout);
     try {
-      return await fetch(url, { ...opts, redirect: 'follow', signal: ctrl.signal });
+      const res = await fetch(url, { ...opts, redirect: 'follow', signal: ctrl.signal });
+      marcaRedeOk(); // veio resposta (mesmo 500): a rede chega no servidor
+      return res;
+    } catch (e) {
+      marcaFalhaRede(e);
+      throw e;
     } finally {
       clearTimeout(t);
     }
@@ -358,12 +382,23 @@ const API = (() => {
       // bloqueia mais a tela esperando a rede. Sheets de referência (clientes,
       // estoque…) têm TTL de 30 dias → seguem servindo offline em campo.
       if (age < ttlFor(key)) {
-        if (age > REFRESH_AFTER) {
+        // Com a rede fora não adianta revalidar: o refetch só ia pendurar 15s e
+        // gastar bateria. Volta a revalidar sozinho quando a janela expira ou o
+        // SO avisa que voltou (evento 'online' → marcaRedeOk).
+        if (age > REFRESH_AFTER && !redeProvavelmenteFora()) {
           if (soSheet) enqueueRead(params.sheet, key, true);
           else backgroundRefetch(urlStr, key);
         }
         return ovSheet ? withOverlay(ovSheet, data, ovFilters) : data;
       }
+    }
+
+    // Cache velho (fora do TTL) + rede que acabou de falhar: serve o que tem na
+    // hora em vez de esperar 15s+25s pra cair no mesmo fallback lá do catch.
+    if (useCache && cache.has(key) && redeProvavelmenteFora()) {
+      showOfflineWarning(netErrorMsg(' — mostrando dados salvos'));
+      const { data } = cache.get(key);
+      return ovSheet ? withOverlay(ovSheet, data, ovFilters) : data;
     }
 
     if (soSheet && useCache) return enqueueRead(params.sheet, key, false);
@@ -458,9 +493,12 @@ const API = (() => {
     if (queueable) {
       Outbox.stampIds(action, body);
       if (navigator.onLine === false) return Outbox.enqueue(action, body);
-      if (Outbox.pendentes() > 0) {
+      // Fila com item esperando (a ordem importa) OU rede que acabou de falhar
+      // (não paga o timeout de novo — ver JANELA_FORA): enfileira na hora e deixa
+      // o flush em background descobrir, sem travar o dono, se a rede voltou.
+      if (Outbox.pendentes() > 0 || redeProvavelmenteFora()) {
         const r = Outbox.enqueue(action, body);
-        Outbox.flush(); // tenta esvaziar já — pode ser só a fila que ficou pra trás
+        Outbox.flush();
         return r;
       }
     }
@@ -563,7 +601,8 @@ const API = (() => {
   // Hidrata cache do localStorage assim que o módulo carrega
   hydrateCache();
 
-  return { get, post, db, clearCache, hasCache, _postDireto, _invalidateFor: invalidateForAction };
+  return { get, post, db, clearCache, hasCache, _postDireto, _invalidateFor: invalidateForAction,
+           _redeFora: redeProvavelmenteFora };
 })();
 
 // ─── CONFIG LOCAL ────────────────────────────────────────────

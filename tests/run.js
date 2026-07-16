@@ -368,6 +368,47 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— api.js: memória da falha de rede (não paga o timeout duas vezes) —');
+  {
+    // navigator.onLine só sabe se HÁ rede conectada, não se ela chega no Google:
+    // sinal fraco na obra passa por "online" e cada ação pagaria 15s de timeout.
+    const s = makeFrontSandbox();
+
+    await testAsync('falha de REDE marca; resposta de erro do servidor NÃO (rede viva)', async () => {
+      assert.equal(vm.runInContext(`API._redeFora()`, s), false, 'começa dando o benefício da dúvida');
+      s.__fetchMode = 'typeerror'; // request nem saiu
+      await vm.runInContext(`API.get('read', { sheet: 'os' }, false)`, s);
+      assert.equal(vm.runInContext(`API._redeFora()`, s), true);
+      s.__fetchMode = 'apperror';  // servidor RESPONDEU (validação falhou) → rede viva
+      await vm.runInContext(`API.get('read', { sheet: 'os' }, false)`, s);
+      assert.equal(vm.runInContext(`API._redeFora()`, s), false,
+        'erro de aplicação não é rede fora — senão o app se declara offline com a rede boa');
+    });
+
+    await testAsync('escrita com a rede fora cai na caderneta na hora, sem tentar de novo', async () => {
+      s.__fetchMode = 'typeerror';
+      await vm.runInContext(`API.get('read', { sheet: 'os' }, false)`, s); // descobre que está fora
+      assert.equal(vm.runInContext(`API._redeFora()`, s), true);
+      s.localStorage.setItem('saretta_outbox_v1', '[]');   // fila vazia: quem decide é a memória
+      vm.runInContext(`Outbox.flush = async () => {}`, s); // silencia a sonda em background
+      s.__fetchCalls.length = 0;
+      const r = await vm.runInContext(`API.post('create', { sheet: 'diarias', data: { os_id: 'os9' } })`, s);
+      assert.equal(r.queued, true, 'foi pra caderneta');
+      assert.equal(s.__fetchCalls.length, 0,
+        'não pode pagar o timeout de novo pra descobrir o que já sabe');
+    });
+
+    await testAsync('rede de volta (fetch ok) desarma a memória: a próxima escrita tenta', async () => {
+      s.__fetchMode = 'ok';
+      await vm.runInContext(`API.get('read', { sheet: 'os' }, false)`, s);
+      assert.equal(vm.runInContext(`API._redeFora()`, s), false, 'fetch que voltou = rede viva');
+      s.localStorage.setItem('saretta_outbox_v1', '[]'); // fila do teste acima ficou pendente
+      s.__fetchCalls.length = 0;
+      await vm.runInContext(`API.post('create', { sheet: 'diarias', data: { os_id: 'os10' } })`, s);
+      assert.equal(s.__fetchCalls.length, 1, 'com rede, a escrita vai pra rede — não pra fila');
+    });
+  }
+
   console.log('\n— api.js: refetch em background NÃO desfaz uma escrita (epoch) —');
   {
     // Corrida real: o SWR serve stale e dispara refetch; o dono grava (pausar/
