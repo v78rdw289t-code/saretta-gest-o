@@ -511,6 +511,31 @@ function makeGsSandbox() {
       assert.equal(out[0].horas, 2);
       assert.equal(out[1].fim, '15:00');
     });
+
+    // Parcelas da OS: o openDetail não bloqueia mais esperando-as (senão o detalhe
+    // ficava preso vários segundos em rede lenta e parecia "parou na lista"); o
+    // filtro virou função pura _parcelasDaOS que a seção usa ao chegar a resposta.
+    const parcelasDe = (parc, fos, osId) => vm.runInContext(
+      `OS._parcelasDaOS(${JSON.stringify({ data: parc })}, ${JSON.stringify({ data: fos })}, '${osId}')`, s);
+
+    test('_parcelasDaOS pega origem direta (os) e via lote (os_lote→fechamento_os)', () => {
+      const parc = [
+        { id: 'p1', origem: 'os',       origem_id: 'osA', valor: 850, data_vencimento: '2026-07-20' },
+        { id: 'p2', origem: 'os_lote',  origem_id: 'fechA', valor: 300, data_vencimento: '2026-07-10' },
+        { id: 'p3', origem: 'manual',   origem_id: '',    valor: 500, data_vencimento: '2026-07-15' }, // de ninguém
+        { id: 'p4', origem: 'os',       origem_id: 'osZ', valor: 999, data_vencimento: '2026-07-01' }, // outra OS
+      ];
+      const fos = [{ os_id: 'osA', fechamento_id: 'fechA' }];
+      const out = parcelasDe(parc, fos, 'osA');
+      assert.deepEqual(out.map(p => p.id), ['p2', 'p1'], 'as 2 da osA, ordenadas por vencimento (mais antigo 1º)');
+    });
+
+    test('_parcelasDaOS sem fechamento_os ainda traz as diretas (não quebra)', () => {
+      const parc = [{ id: 'p1', origem: 'os', origem_id: 'osA', valor: 850, data_vencimento: '2026-07-20' }];
+      const out = parcelasDe(parc, [], 'osA'); // fechamento_os vazio (ainda carregando)
+      assert.equal(out.length, 1);
+      assert.equal(out[0].id, 'p1');
+    });
   }
 
   console.log('\n— Code.gs: colunas p/ tipos de OS + sessão aberta (sem migração) —');

@@ -315,18 +315,12 @@ const OS = (() => {
                                .sort((a, b) => a.data > b.data ? -1 : 1); // mais recente primeiro
     const itens   = allItens.filter(i => i.os_id === id);
     const sessAberta = acharSessaoAberta(diarias, id); // sessão só com início, a encerrar
-    // Parcelas (lançamentos financeiros) geradas por esta OS — origem='os',
-    // ou a parcela única de um fechamento em lote que inclui esta OS (origem='os_lote',
-    // vínculo via fechamento_os: os_id → fechamento_id → parcela.origem_id).
-    const [parcRes, fosRes] = await Promise.all([
-      API.db.read('parcelas'),
-      API.db.read('fechamento_os'),
-    ]);
-    const fechIds  = (fosRes?.data || []).filter(f => f.os_id === id).map(f => f.fechamento_id);
-    const parcelas = (parcRes?.data || [])
-      .filter(p => (p.origem === 'os' && p.origem_id === id) ||
-                   (p.origem === 'os_lote' && fechIds.includes(p.origem_id)))
-      .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1);
+    // Parcelas (lançamentos financeiros) NÃO bloqueiam mais o detalhe: elas moram
+    // em sheets (parcelas/fechamento_os) que qualquer fechamento/pagamento
+    // invalida, então caem fora do cache e vão à rede — e em sinal fraco na obra
+    // o detalhe INTEIRO ficava preso vários segundos esperando, com a lista ainda
+    // à mostra (parecia "parou na lista"). Agora a seção pinta "Carregando…" e o
+    // _preencheParcelas atualiza quando a rede responde. Ver openDetail no fim.
     const section = qs('#page-os');
     const cliente = App.clienteNome(currentOS.cliente_id);
     // Somas para o card de resumo (serviço = mão de obra; materiais = itens)
@@ -497,36 +491,68 @@ const OS = (() => {
         </div>
       </div>
 
-      <!-- Parcelas geradas por esta OS — clicáveis, levam para editar no Financeiro -->
-      <div class="card mb-3">
-        <div class="card-header">
-          <h3>Parcelas geradas</h3>
-          <span class="badge badge-info">${parcelas.length}</span>
-        </div>
-        <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">
-          ${parcelas.length === 0
-            ? `<div class="entity-empty">${currentOS.status === 'fechado' ? 'Nenhuma parcela vinculada.' : 'Nenhuma — a parcela é gerada ao fechar a OS.'}</div>`
-            : parcelas.map(p => {
-                const venc = p.data_vencimento ? Fmt.date(p.data_vencimento) : '—';
-                const atrasada = p.status === 'pendente' && String(p.data_vencimento || '').substring(0, 10) < DateUtil.today();
-                return `
-                  <div class="entity-item" onclick="OS.abrirParcela('${p.id}')">
-                    <div class="entity-info">
-                      <div class="entity-name">${p.descricao || (p.tipo === 'pagar' ? 'A pagar' : 'A receber')}</div>
-                      <div class="entity-sub">venc. ${venc}${atrasada ? ' · <span style="color:var(--danger)">atrasada</span>' : ''}</div>
-                      <div class="entity-badges">${statusBadge(p.status)}</div>
-                    </div>
-                    <div class="entity-right">
-                      <span class="entity-value">${Fmt.currency(p.valor)}</span>
-                      <span class="entity-chevron">›</span>
-                    </div>
-                  </div>`;
-              }).join('')}
-        </div>
-      </div>
+      <!-- Parcelas geradas por esta OS — clicáveis, levam para editar no Financeiro.
+           Preenchida em _preencheParcelas (não bloqueia o detalhe). -->
+      <div class="card mb-3" id="os-parcelas-card">${_parcelasCardInner(null, currentOS.status)}</div>
     `;
 
-    // Renderiza a calculadora de valor (se a OS ainda não foi fechada)
+    // Carrega as parcelas SEM bloquear: com cache é instantâneo, em rede lenta a
+    // seção fica "Carregando…" e atualiza quando responder — o detalhe já está na tela.
+    _preencheParcelas(id);
+  }
+
+  // Filtra as parcelas desta OS: origem direta ('os') ou via fechamento em lote
+  // ('os_lote', vínculo os → fechamento_id → parcela.origem_id). Pura, testável.
+  function _parcelasDaOS(parcRes, fosRes, osId) {
+    const fechIds = (fosRes?.data || []).filter(f => f.os_id === osId).map(f => f.fechamento_id);
+    return (parcRes?.data || [])
+      .filter(p => (p.origem === 'os' && p.origem_id === osId) ||
+                   (p.origem === 'os_lote' && fechIds.includes(p.origem_id)))
+      .sort((a, b) => String(a.data_vencimento || '') < String(b.data_vencimento || '') ? -1 : 1);
+  }
+
+  // Conteúdo do card "Parcelas geradas". parcelas=null → estado "Carregando…"
+  // (ainda buscando); [] → "nenhuma"; senão a lista clicável.
+  function _parcelasCardInner(parcelas, statusOS) {
+    const corpo = parcelas === null
+      ? `<div class="entity-empty loading-pulse">Carregando…</div>`
+      : (parcelas.length === 0
+          ? `<div class="entity-empty">${statusOS === 'fechado' ? 'Nenhuma parcela vinculada.' : 'Nenhuma — a parcela é gerada ao fechar a OS.'}</div>`
+          : parcelas.map(p => {
+              const venc = p.data_vencimento ? Fmt.date(p.data_vencimento) : '—';
+              const atrasada = p.status === 'pendente' && String(p.data_vencimento || '').substring(0, 10) < DateUtil.today();
+              return `
+                <div class="entity-item" onclick="OS.abrirParcela('${p.id}')">
+                  <div class="entity-info">
+                    <div class="entity-name">${p.descricao || (p.tipo === 'pagar' ? 'A pagar' : 'A receber')}</div>
+                    <div class="entity-sub">venc. ${venc}${atrasada ? ' · <span style="color:var(--danger)">atrasada</span>' : ''}</div>
+                    <div class="entity-badges">${statusBadge(p.status)}</div>
+                  </div>
+                  <div class="entity-right">
+                    <span class="entity-value">${Fmt.currency(p.valor)}</span>
+                    <span class="entity-chevron">›</span>
+                  </div>
+                </div>`;
+            }).join(''));
+    return `
+      <div class="card-header">
+        <h3>Parcelas geradas</h3>
+        ${parcelas === null ? '' : `<span class="badge badge-info">${parcelas.length}</span>`}
+      </div>
+      <div class="entity-list" style="border-radius:0;border:none;box-shadow:none">${corpo}</div>`;
+  }
+
+  // Busca parcelas/fechamento_os e injeta no card, sem travar o detalhe. Se o dono
+  // trocou de OS ou saiu do detalhe enquanto a rede vinha, descarta (a resposta
+  // era pra outra tela). Ver openDetail — foi ele que disparou.
+  async function _preencheParcelas(osId) {
+    const [parcRes, fosRes] = await Promise.all([
+      API.db.read('parcelas'),
+      API.db.read('fechamento_os'),
+    ]);
+    const card = qs('#os-parcelas-card');
+    if (!card || currentView !== 'detail' || !currentOS || currentOS.id !== osId) return;
+    card.innerHTML = _parcelasCardInner(_parcelasDaOS(parcRes, fosRes, osId), currentOS.status);
   }
 
   // Abre uma parcela gerada por esta OS para edição (no módulo Financeiro).
@@ -2778,6 +2804,6 @@ const OS = (() => {
     toggleLoteHoraBase, recalcLoteOS, toggleDescontoTipoLote, atualizarFechamentoLote, saveFechamentoLote,
     confirmDelete,
     // Helpers expostos (usados pela home)
-    osTipo, osTipoBadge, acharSessaoAberta, blocoAberto, blocosAoEncerrar,
+    osTipo, osTipoBadge, acharSessaoAberta, blocoAberto, blocosAoEncerrar, _parcelasDaOS,
   };
 })();
