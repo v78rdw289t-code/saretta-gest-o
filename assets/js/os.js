@@ -1798,7 +1798,10 @@ const OS = (() => {
       <div class="card mb-3">
         <div class="card-header">
           <h3>Itens do Orçamento</h3>
-          <button class="btn btn-sm btn-primary" onclick="OS.openOrcItemForm()">+ Item</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm(null,'grupo')">+ Grupo</button>
+            <button class="btn btn-sm btn-primary" onclick="OS.openOrcItemForm()">+ Item</button>
+          </div>
         </div>
         <div>${renderOrcItens(itens)}</div>
       </div>
@@ -1819,45 +1822,137 @@ const OS = (() => {
   }
 
   function renderOrcItens(itens) {
-    if (itens.length === 0) return '<p class="p-3 text-muted">Nenhum item — use “+ Item”.</p>';
-    return `<div class="table-responsive"><table class="table">
-      <thead><tr><th>Tipo</th><th>Descrição</th><th>Qtd</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
-      <tbody>
-        ${itens.map(i => `
-          <tr>
-            <td><span class="badge ${i.tipo === 'material' ? 'badge-info' : 'badge-secondary'}">${i.tipo === 'material' ? 'material' : 'serviço'}</span></td>
-            <td>${i.descricao}</td>
-            <td>${i.quantidade === '' || i.quantidade == null ? '—' : i.quantidade}</td>
-            <td>${i.valor_unit === '' || i.valor_unit == null || Number(i.valor_unit) === 0 ? '—' : Fmt.currency(i.valor_unit)}</td>
-            <td>${Fmt.currency(i.valor_total)}</td>
-            <td style="white-space:nowrap">
-              <button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm('${i.id}')">Editar</button>
-              <button class="btn btn-sm btn-danger"  onclick="OS.deleteOrcItem('${i.id}')">✕</button>
-            </td>
-          </tr>`).join('')}
-      </tbody>
-    </table></div>`;
+    if (itens.length === 0) return '<p class="p-3 text-muted">Nada ainda — use “+ Grupo” ou “+ Item”.</p>';
+    const grupos  = itens.filter(i => i.tipo === 'grupo');
+    const simples = itens.filter(i => i.tipo !== 'grupo');
+    let html = '';
+    // Grupos como blocos (título + valor + serviços em tópicos).
+    grupos.forEach((i, idx) => {
+      const g = parseGrupo(i);
+      html += `
+        <div class="orc-grupo-card">
+          <div class="orc-grupo-head">
+            <div class="orc-grupo-titulo">${idx + 1}. ${Fmt.esc(g.titulo)}</div>
+            <div class="orc-grupo-valor">${Fmt.currency(g.valor)}</div>
+          </div>
+          ${g.servicos.length ? `<ul class="orc-grupo-lista">
+            ${g.servicos.map(s => `<li>${Fmt.esc(s.desc)}${s.valor ? ` <span class="orc-gserv-tag">${Fmt.currency(s.valor)}</span>` : ''}</li>`).join('')}
+          </ul>` : ''}
+          <div class="orc-grupo-actions">
+            <button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm('${i.id}')">Editar</button>
+            <button class="btn btn-sm btn-danger"  onclick="OS.deleteOrcItem('${i.id}')">✕</button>
+          </div>
+        </div>`;
+    });
+    // Itens avulsos (material/serviço) na tabela de sempre.
+    if (simples.length) {
+      html += `<div class="table-responsive"><table class="table">
+        <thead><tr><th>Tipo</th><th>Descrição</th><th>Qtd</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
+        <tbody>
+          ${simples.map(i => `
+            <tr>
+              <td><span class="badge ${i.tipo === 'material' ? 'badge-info' : 'badge-secondary'}">${i.tipo === 'material' ? 'material' : 'serviço'}</span></td>
+              <td>${Fmt.esc(i.descricao)}</td>
+              <td>${i.quantidade === '' || i.quantidade == null ? '—' : i.quantidade}</td>
+              <td>${i.valor_unit === '' || i.valor_unit == null || Number(i.valor_unit) === 0 ? '—' : Fmt.currency(i.valor_unit)}</td>
+              <td>${Fmt.currency(i.valor_total)}</td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-sm btn-outline" onclick="OS.openOrcItemForm('${i.id}')">Editar</button>
+                <button class="btn btn-sm btn-danger"  onclick="OS.deleteOrcItem('${i.id}')">✕</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+    }
+    return html;
   }
 
   // Item do orçamento: grava em os_itens (os_id = orçamento), SEM mexer no estoque.
   // Serviço: esconde quantidade/unitário (basta descrição + um valor opcional).
   function onOrcItemTipoChange() {
-    const serv = qs('#orc-item-tipo')?.value === 'servico';
+    const tipo   = qs('#orc-item-tipo')?.value;
+    const grupo  = tipo === 'grupo';
+    const serv   = tipo === 'servico';
     const row = qs('#orc-item-qtdrow');
-    if (row) row.style.display = serv ? 'none' : '';
+    if (row) row.style.display = (serv || grupo) ? 'none' : '';        // grupo/serviço não têm qtd×unit
+    const gwrap = qs('#orc-grupo-wrap');
+    if (gwrap) gwrap.style.display = grupo ? '' : 'none';
+    const dlbl = qs('#orc-item-desc-label');
+    if (dlbl) dlbl.textContent = grupo ? 'Título do grupo *' : 'Descrição *';
+    const desc = qs('#orc-item-desc');
+    if (desc) desc.placeholder = grupo ? 'Ex: Reforma e vedação das portas' : 'Ex: Cabo 2,5mm  /  Instalação elétrica';
     const lbl = qs('#orc-item-total-label');
-    if (lbl) lbl.textContent = serv ? 'Valor do serviço (opcional)' : 'Valor Total';
+    if (lbl) lbl.textContent = grupo ? 'Valor do grupo (R$)' : (serv ? 'Valor do serviço (opcional)' : 'Valor Total');
+    // Grupo recém-escolhido sem nenhuma linha ainda: começa com uma vazia.
+    if (grupo && qs('#orc-grupo-servicos') && !qs('#orc-grupo-servicos').children.length) addGrupoServico();
   }
 
-  function openOrcItemForm(itemId = null) {
+  // ─── GRUPO DE SERVIÇOS (item do orçamento, tipo 'grupo') ─────
+  // Encaixado em os_itens SEM coluna nova: `descricao` guarda o título na 1ª
+  // linha e cada serviço nas seguintes ("desc" ou "desc\tvalor"); `valor_total`
+  // guarda o valor do grupo. Assim soma normal no total, no PDF e no "Gerar OS".
+  function parseGrupo(item) {
+    const linhas = String(item.descricao || '').split('\n');
+    const titulo = (linhas[0] || '').trim();
+    const servicos = linhas.slice(1).map(l => {
+      const [d, v] = String(l).split('\t');
+      const valor = (v != null && String(v).trim() !== '') ? Number(v) || 0 : '';
+      return { desc: (d || '').trim(), valor };
+    }).filter(s => s.desc);
+    return { titulo, servicos, valor: Number(item.valor_total) || 0 };
+  }
+  // Monta {descricao, valor_total} a partir do form. Valor do grupo manual vence;
+  // vazio → soma dos serviços que tiverem preço (0 se nenhum tiver).
+  function encodeGrupo(titulo, servicos, valorGrupo) {
+    const linhas = [String(titulo || '').trim()];
+    let somaServ = 0;
+    servicos.forEach(s => {
+      const d = String(s.desc || '').trim();
+      if (!d) return;
+      const v = Number(s.valor) || 0;
+      if (v > 0) { somaServ += v; linhas.push(d + '\t' + v); }
+      else linhas.push(d);
+    });
+    const vg = Number(valorGrupo) || 0;
+    return { descricao: linhas.join('\n'), valor_total: vg > 0 ? vg : somaServ };
+  }
+  // Adiciona uma linha de serviço no modal do grupo (desc + valor opcional).
+  function addGrupoServico(desc = '', valor = '') {
+    const wrap = qs('#orc-grupo-servicos');
+    if (!wrap) return;
+    const row = document.createElement('div');
+    row.className = 'orc-gserv-row';
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+    row.innerHTML = `
+      <input type="text" class="input orc-gserv-desc" placeholder="Ex: Reforma da porta principal" style="flex:2;min-width:0">
+      <input type="number" class="input orc-gserv-val" placeholder="R$ opc." step="0.01" min="0" style="flex:1;min-width:0">
+      <button type="button" class="btn btn-sm btn-danger" title="Remover" onclick="this.closest('.orc-gserv-row').remove()">✕</button>`;
+    // value via propriedade (não innerHTML) p/ não precisar escapar aspas.
+    row.querySelector('.orc-gserv-desc').value = desc;
+    if (valor !== '' && valor != null) row.querySelector('.orc-gserv-val').value = valor;
+    wrap.appendChild(row);
+  }
+
+  function openOrcItemForm(itemId = null, presetTipo = null) {
     if (!currentOS) return;
     const item = itemId ? allItens.find(i => i.id === itemId) : null;
     qs('#orc-item-id').value    = itemId || '';
-    qs('#orc-item-tipo').value  = item?.tipo || 'material';
-    qs('#orc-item-desc').value  = item?.descricao || '';
-    qs('#orc-item-qtd').value   = (item && item.quantidade !== '' && item.quantidade != null) ? item.quantidade : '1';
-    qs('#orc-item-unit').value  = (item && item.valor_unit !== '' && item.valor_unit != null) ? item.valor_unit : '';
-    qs('#orc-item-total').value = item?.valor_total || '';
+    qs('#orc-item-tipo').value  = item?.tipo || presetTipo || 'material';
+    qs('#orc-grupo-servicos').innerHTML = '';
+    if (item?.tipo === 'grupo') {
+      const g = parseGrupo(item);
+      qs('#orc-item-desc').value  = g.titulo;
+      g.servicos.forEach(s => addGrupoServico(s.desc, s.valor));
+      if (!g.servicos.length) addGrupoServico();
+      qs('#orc-item-total').value = Number(item.valor_total) > 0 ? item.valor_total : '';
+      qs('#orc-item-qtd').value   = '';
+      qs('#orc-item-unit').value  = '';
+    } else {
+      qs('#orc-item-desc').value  = item?.descricao || '';
+      qs('#orc-item-qtd').value   = (item && item.quantidade !== '' && item.quantidade != null) ? item.quantidade : '1';
+      qs('#orc-item-unit').value  = (item && item.valor_unit !== '' && item.valor_unit != null) ? item.valor_unit : '';
+      qs('#orc-item-total').value = item?.valor_total || '';
+    }
     qs('#modal-orc-item-title').textContent = item ? 'Editar item' : 'Adicionar item';
     onOrcItemTipoChange();
     Modal.open('modal-orc-item');
@@ -1868,21 +1963,33 @@ const OS = (() => {
     const itemId = qs('#orc-item-id').value;
     const osId   = currentOS.id;
     const tipo   = qs('#orc-item-tipo').value;
-    const desc   = qs('#orc-item-desc').value.trim();
-    if (!desc) { Toast.warning('Informe a descrição'); return; }
 
-    // Serviço: só descrição + um valor total (opcional) — sem quantidade/unitário.
-    // Material: quantidade × unitário (ou valor total digitado).
-    let quantidade = '', valor_unit = '', valor_total = 0;
-    if (tipo === 'servico') {
-      valor_total = Number(qs('#orc-item-total').value) || 0;
+    let itemData;
+    if (tipo === 'grupo') {
+      // Grupo: título + serviços (bullets, valor opcional) + valor do grupo.
+      const titulo = qs('#orc-item-desc').value.trim();
+      if (!titulo) { Toast.warning('Informe o título do grupo'); return; }
+      const servicos = [...document.querySelectorAll('#orc-grupo-servicos .orc-gserv-row')]
+        .map(r => ({ desc: r.querySelector('.orc-gserv-desc').value, valor: r.querySelector('.orc-gserv-val').value }))
+        .filter(s => s.desc.trim());
+      const { descricao, valor_total } = encodeGrupo(titulo, servicos, qs('#orc-item-total').value);
+      itemData = { os_id: osId, tipo: 'grupo', descricao, estoque_id: '', quantidade: '', valor_unit: '', valor_total };
     } else {
-      quantidade = Number(qs('#orc-item-qtd').value) || 1;
-      valor_unit = Number(qs('#orc-item-unit').value) || 0;
-      valor_total = Number(qs('#orc-item-total').value) || (quantidade * valor_unit);
+      const desc = qs('#orc-item-desc').value.trim();
+      if (!desc) { Toast.warning('Informe a descrição'); return; }
+      // Serviço: só descrição + um valor total (opcional) — sem quantidade/unitário.
+      // Material: quantidade × unitário (ou valor total digitado).
+      let quantidade = '', valor_unit = '', valor_total = 0;
+      if (tipo === 'servico') {
+        valor_total = Number(qs('#orc-item-total').value) || 0;
+      } else {
+        quantidade = Number(qs('#orc-item-qtd').value) || 1;
+        valor_unit = Number(qs('#orc-item-unit').value) || 0;
+        valor_total = Number(qs('#orc-item-total').value) || (quantidade * valor_unit);
+      }
+      // Orçamento NÃO mexe em estoque: estoque_id sempre vazio.
+      itemData = { os_id: osId, tipo, descricao: desc, estoque_id: '', quantidade, valor_unit, valor_total };
     }
-    // Orçamento NÃO mexe em estoque: estoque_id sempre vazio.
-    const itemData = { os_id: osId, tipo, descricao: desc, estoque_id: '', quantidade, valor_unit, valor_total };
 
     Loading.show();
     const res = itemId
@@ -2795,6 +2902,7 @@ const OS = (() => {
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
+    addGrupoServico, parseGrupo, encodeGrupo,
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,

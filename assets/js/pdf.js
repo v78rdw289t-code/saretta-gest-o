@@ -45,14 +45,19 @@ const Doc = (() => {
     const cliente  = (cliRes?.data || []).find(c => c.id === os.cliente_id) || {};
     const diarias  = (diaRes?.data || []).filter(d => d.os_id === osId);
     const itens    = (itRes?.data  || []).filter(i => i.os_id === osId);
+    const grupos   = itens.filter(i => i.tipo === 'grupo');   // blocos "serviço + valor"
+    const simples  = itens.filter(i => i.tipo !== 'grupo');   // material/serviço avulso
     const emp      = _empresa(cfg);
 
     const isOrc      = modo === 'orcamento';
-    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);   // grupos + avulsos
     const maoObra    = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
     const totalHoras = diarias.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
-    // Orçamento: valor = soma dos itens; OS: valor calculado ou (mão de obra + itens).
-    const total      = isOrc ? (maoObra + totalItens) : (Number(os.valor_calculado || 0) || (maoObra + totalItens));
+    // Orçamento: valor total manual (se informado) OU soma dos itens/grupos — igual à tela.
+    // OS: valor calculado ou (mão de obra + itens).
+    const total      = isOrc
+      ? (Number(os.orcado_valor) > 0 ? Number(os.orcado_valor) : totalItens)
+      : (Number(os.valor_calculado || 0) || (maoObra + totalItens));
     const prazoDias  = Number(os.prazo_dias || 0);
 
     const linhas    = _linhasExecucao(diarias);
@@ -96,7 +101,6 @@ const Doc = (() => {
           <div class="doc-bloco-titulo">Serviço</div>
           <div class="doc-serv-nome">${os.nome || catNome || 'Serviço'}</div>
           ${catNome && os.nome ? `<div class="doc-cli-info">Categoria: ${catNome}</div>` : ''}
-          ${os.observacoes ? `<div class="doc-obs">${os.observacoes}</div>` : ''}
         </section>
 
         <!-- Dias trabalhados (só na OS executada; orçamento não tem sessões) -->
@@ -113,16 +117,33 @@ const Doc = (() => {
           </table>
         </section>` : ''}
 
-        <!-- Itens / materiais -->
-        ${itens.length > 0 ? `
+        <!-- Serviços (grupos): título + valor à direita + tópicos, como na proposta -->
+        ${grupos.length > 0 ? `
         <section class="doc-bloco">
-          <div class="doc-bloco-titulo">Materiais e itens</div>
+          <div class="doc-bloco-titulo">Serviços</div>
+          ${grupos.map((i, idx) => { const g = OS.parseGrupo(i); return `
+            <div class="doc-grupo">
+              <div class="doc-grupo-head">
+                <span class="doc-grupo-titulo">${idx + 1}. ${Fmt.esc(g.titulo)}</span>
+                <span class="doc-grupo-leader"></span>
+                <span class="doc-grupo-valor">${Fmt.currency(g.valor)}</span>
+              </div>
+              ${g.servicos.length ? `<ul class="doc-grupo-lista">
+                ${g.servicos.map(s => `<li>${Fmt.esc(s.desc)}${s.valor ? ` <span class="doc-grupo-serv-val">${Fmt.currency(s.valor)}</span>` : ''}</li>`).join('')}
+              </ul>` : ''}
+            </div>`; }).join('')}
+        </section>` : ''}
+
+        <!-- Itens / materiais avulsos -->
+        ${simples.length > 0 ? `
+        <section class="doc-bloco">
+          <div class="doc-bloco-titulo">${isOrc ? 'Itens e materiais' : 'Materiais e itens'}</div>
           <table class="doc-table">
             <thead><tr><th>Item</th><th class="r">Qtd</th><th class="r">Valor</th></tr></thead>
             <tbody>
-              ${itens.map(i => `
+              ${simples.map(i => `
                 <tr>
-                  <td>${i.descricao || i.nome || 'Item'}</td>
+                  <td>${Fmt.esc(i.descricao || i.nome || 'Item')}</td>
                   <td class="r">${i.quantidade || 1}</td>
                   <td class="r">${Fmt.currency(i.valor_total || 0)}</td>
                 </tr>`).join('')}
@@ -133,9 +154,16 @@ const Doc = (() => {
         <!-- Resumo de valores -->
         <section class="doc-resumo">
           ${maoObra > 0 ? `<div class="doc-row"><span>Mão de obra${!isOrc && totalHoras > 0 ? ` (${Fmt.hours(totalHoras)})` : ''}</span><span>${Fmt.currency(maoObra)}</span></div>` : ''}
-          ${totalItens > 0 ? `<div class="doc-row"><span>${isOrc ? 'Itens e serviços' : 'Materiais e itens'}</span><span>${Fmt.currency(totalItens)}</span></div>` : ''}
+          ${maoObra > 0 && totalItens > 0 ? `<div class="doc-row"><span>${isOrc ? 'Itens e serviços' : 'Materiais e itens'}</span><span>${Fmt.currency(totalItens)}</span></div>` : ''}
           <div class="doc-row doc-total"><span>${isOrc ? 'Total estimado' : 'Total'}</span><span>${Fmt.currency(total)}</span></div>
         </section>
+
+        <!-- Observações — bloco dedicado, sai no PDF de orçamento E de OS -->
+        ${os.observacoes ? `
+        <section class="doc-bloco doc-obs-bloco">
+          <div class="doc-bloco-titulo">Observações</div>
+          <div class="doc-obs-texto">${Fmt.esc(os.observacoes)}</div>
+        </section>` : ''}
 
         ${isOrc ? `<p class="doc-validade">${prazoDias > 0 ? `Prazo estimado: ${prazoDias} dia(s). ` : ''}Sujeito a confirmação após avaliação no local.</p>` : ''}
 

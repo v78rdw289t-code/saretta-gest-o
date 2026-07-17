@@ -474,6 +474,36 @@ function makeGsSandbox() {
       assert.equal(p.diariaId, 'dp');
     });
 
+    // Grupo de serviços do orçamento: codifica título+serviços em `descricao`
+    // (título na 1ª linha, "desc\tvalor" nas seguintes) e valor em `valor_total`.
+    test('parseGrupo/encodeGrupo: round-trip e regra do valor', () => {
+      const enc = args => JSON.parse(vm.runInContext(`JSON.stringify(OS.encodeGrupo(${args}))`, s));
+      const par = item => JSON.parse(vm.runInContext(`JSON.stringify(OS.parseGrupo(${item}))`, s));
+
+      // Sem preço nos serviços → vale só o valor do grupo (2200).
+      const g1 = enc(`'Reforma das portas', [{desc:'Porta principal'},{desc:'Vedação'}], 2200`);
+      assert.equal(g1.valor_total, 2200);
+      assert.equal(g1.descricao, 'Reforma das portas\nPorta principal\nVedação');
+      const p1 = par(`{descricao:${JSON.stringify(g1.descricao)}, valor_total:2200}`);
+      assert.equal(p1.titulo, 'Reforma das portas');
+      assert.equal(p1.valor, 2200);
+      assert.deepEqual(p1.servicos, [{desc:'Porta principal', valor:''},{desc:'Vedação', valor:''}]);
+
+      // Valor do grupo vazio + serviços com preço → soma dos serviços (150+90=240).
+      const g2 = enc(`'Iluminação', [{desc:'Refletor', valor:150},{desc:'Fotocélula', valor:90}], ''`);
+      assert.equal(g2.valor_total, 240);
+      assert.equal(g2.descricao, 'Iluminação\nRefletor\t150\nFotocélula\t90');
+      assert.deepEqual(par(`{descricao:${JSON.stringify(g2.descricao)}, valor_total:240}`).servicos,
+        [{desc:'Refletor', valor:150},{desc:'Fotocélula', valor:90}]);
+
+      // Valor do grupo manual vence a soma dos serviços (500, não 240).
+      assert.equal(enc(`'Misto', [{desc:'A', valor:150},{desc:'B'}], 500`).valor_total, 500);
+      // Serviço sem descrição é ignorado; grupo só com título fica 0.
+      const g4 = enc(`'Só título', [{desc:''},{desc:'   '}], ''`);
+      assert.equal(g4.descricao, 'Só título');
+      assert.equal(g4.valor_total, 0);
+    });
+
     // Encerrar sessão em 1 toque (sem abrir o modal): blocosAoEncerrar decide o
     // que vai pro blocos_json. Se errar aqui, o dono perde horas trabalhadas.
     const encerra = (blocos, agora) => vm.runInContext(

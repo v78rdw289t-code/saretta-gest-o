@@ -29,6 +29,11 @@ const Fmt = {
     return Math.floor(total / 60) + 'h ' + String(total % 60).padStart(2, '0') + 'min';
   },
   number(v, dec = 2) { return Number(v || 0).toFixed(dec); },
+  // Escapa texto do usuário antes de jogar em innerHTML (título de grupo, obs…).
+  esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  },
   // Converte qualquer formato de hora do Sheets para "HH:MM"
   // Suporta: decimal (0.333=08:00), "HH:MM", "H:MM", "HH:MM:SS",
   //          ISO "1899-12-30T08:00:00.000Z" (usa getHours local para timezone)
