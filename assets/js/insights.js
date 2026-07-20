@@ -530,6 +530,7 @@ const Insights = (() => {
       ${_renderKPIs(snapAtual, snapAnt, margem, margemAnt)}
       ${periodoMensal ? _renderMeta(faturamento, meta, fechado, diasRestantes, previstaPeriodo) : ''}
       ${_renderResumo(mega)}
+      ${_renderOrcamentos()}
       ${_renderSuaHora({ horasPeriodo, receitaHora, custoHora, horaBase, fechado })}
       ${custeio ? _renderCusteio(custeio, fechado, diasRestantes) : ''}
       ${_renderPipeline({ receitaPrevista, previstaPeriodo, faturamento, nOSAbertas, naoRecebidoValor, naoRecebidoQtd, osParada })}
@@ -539,6 +540,34 @@ const Insights = (() => {
       ${_renderInadimplencia({ totalReceber, totalAtrasado, atrasados, prazoMedio })}
       ${_renderProximos30(prox30)}
     `;
+  }
+
+  // ─── Orçamentos: conversão (viraram OS) + pipeline em aberto ──
+  function _renderOrcamentos() {
+    const os = _cache.osList || [];
+    const orcs = os.filter(o => (o.registro || 'os') === 'orcamento');
+    if (!orcs.length) return '';
+    const converteu = o => os.some(x => x.orcamento_id === o.id);
+    const convertidos = orcs.filter(converteu);
+    const abertos     = orcs.filter(o => !converteu(o));
+    const taxa = Math.round(convertidos.length / orcs.length * 100);
+    const pipeline = abertos.reduce((s, o) => s + Number(o.orcado_valor || 0), 0);
+    return `
+      <div class="card mb-3">
+        <div class="card-header"><h3>📄 Orçamentos</h3></div>
+        <div class="card-body ins-orc-grid">
+          <div class="ins-orc-tile">
+            <div class="ins-orc-label">Conversão</div>
+            <div class="ins-orc-val" style="color:#1D9E75">${taxa}%</div>
+            <div class="ins-orc-sub">${convertidos.length} de ${orcs.length} viraram OS</div>
+          </div>
+          <div class="ins-orc-tile">
+            <div class="ins-orc-label">Pipeline aberto</div>
+            <div class="ins-orc-val" style="color:var(--gold-dk)">${Fmt.currency(pipeline)}</div>
+            <div class="ins-orc-sub">${abertos.length} proposta(s) na mão</div>
+          </div>
+        </div>
+      </div>`;
   }
 
   // ─── HELPERS ─────────────────────────────────────────────

@@ -1025,8 +1025,11 @@ const Financeiro = (() => {
     qs('#manual-pagto').value  = DateUtil.today();  // padrão: pago hoje
     qs('#manual-quempagou').value = '';
     qs('#manual-conta').innerHTML = App.contaOptions('', '— Selecione conta —');
-    setTipo('pagar');       // repinta segmento + refresh selects/quempagou
-    setStatus('pago');      // repinta segmento + aplica visibilidade (Data+Conta) + competência
+    // Tipo já vem certo pela aba (Receber → receita; Pagar/Resumo → despesa).
+    const tipoIni = currentTab === 'receber' ? 'receber' : 'pagar';
+    setTipo(tipoIni);       // repinta segmento + refresh selects/quempagou
+    // Status por tipo: despesa normalmente já foi paga; receita normalmente é a receber.
+    setStatus(tipoIni === 'receber' ? 'pendente' : 'pago');
     qs('#manual-quempagou').onchange = () => refreshQuemPagouHint();
     refreshQuemPagouHint();
     qs('#manual-obs').value = '';
@@ -1056,7 +1059,16 @@ const Financeiro = (() => {
   //   3) Reembolso A-Pagar (status=pendente)— empresa deve a Rodrigo/Odinei
   //   + Registro 'fiado' vinculado à parcela #3
   // trava de duplo clique (Guard) — o corpo real está em _saveManual
-  function saveManual() { return Guard.run('fin-lancamento', _saveManual); }
+  function saveManual(novo) {
+    return Guard.run('fin-lancamento', async () => {
+      await _saveManual();
+      // Sucesso = _saveManual fechou o modal; validação que falha o deixa aberto.
+      if (novo) {
+        const m = document.getElementById('modal-manual-lancamento');
+        if (m && !m.classList.contains('open')) openManual();
+      }
+    });
+  }
   async function _saveManual() {
     const status   = qs('#manual-status').value;
     const tipo     = qs('#manual-tipo').value;
@@ -1078,6 +1090,7 @@ const Financeiro = (() => {
     const isFixa      = qs('#manual-parcelado')?.value === 'fixa';
 
     if (!desc || !valor) { Toast.warning('Preencha descrição e valor'); return; }
+    if (!categoria)      { Toast.warning('Escolha a categoria'); return; }
     // Conta obrigatória quando pago — EXCETO quando o sócio pagou do bolso
     // (quemPagou): aí a despesa não sai de conta da empresa (conta_id='').
     if (!isParcelado && !isFixa && !quemPagou && status === 'pago' && !conta) {

@@ -26,6 +26,7 @@ const OS = (() => {
   let _loteSel     = new Set();  // ids das OS marcadas
   let _loteCliente = '';         // cliente fixado pela 1ª OS marcada
   let _loteCalc    = {};         // osId → { base, baseOrig, maoObra, totalItens, calculado, ... }
+  let _fechIncluir = new Set();  // OS irmãs marcadas p/ entrar no fechamento (vira lote)
 
   // ─── RENDER PRINCIPAL ───────────────────────────────────
   async function render(params = {}) {
@@ -66,165 +67,175 @@ const OS = (() => {
   }
 
   // ─── LISTA ─────────────────────────────────────────────
-  // Entra na tela já filtrada em "Andamento" (pedido do dono: o dia a dia é
-  // com as abertas; Fechadas/Todas ficam a 1 toque). O filtro escolhido
-  // persiste na sessão — voltar do detalhe não reseta a aba.
-  function renderList(filtroStatus = _currentStatus, filtroTipo = '', q = '') {
+  // Busca sempre visível + filtro escondido (componente Filtro) + cards
+  // agrupados por status (andamento → acerto → encerrados), ~10 no total
+  // com "Ver mais". Havendo busca/filtro ativo, vira lista plana.
+  let _filtros = { busca:'', tipo:'', status:'', categoria:'', periodoTipo:'mes', mes:'', de:'', ate:'' };
+  let _filtroAberto = false;
+  let _verMais = false;
+  const _VER_MAIS_LIMITE = 10;
+
+  const _statusAv = s => s === 'fechado' ? 'av-green' : s === 'andamento' ? 'av-blue' : s === 'acerto' ? 'av-orange' : 'av-navy';
+
+  function _filtroCampos(isOrcView) {
+    const cats = (App.getCategorias ? App.getCategorias() : []).map(c => ({ v: c.id, label: c.nome }));
+    if (isOrcView) return [
+      { tipo:'periodo', key:'periodo' },
+      { tipo:'select', key:'categoria', label:'Categoria', opcoes: cats },
+    ];
+    return [
+      { tipo:'chips', key:'tipo', label:'Tipo', full:true, opcoes:[{v:'horas',label:'Por horas'},{v:'valor',label:'Valor fechado'}] },
+      { tipo:'chips', key:'status', label:'Status', full:true, opcoes:[{v:'andamento',label:'Andamento'},{v:'acerto',label:'Acerto'},{v:'fechado',label:'Fechada'}] },
+      { tipo:'select', key:'categoria', label:'Categoria', opcoes: cats },
+      { tipo:'periodo', key:'periodo' },
+    ];
+  }
+
+  function _temFiltroAtivo(isOrcView) {
+    const f = _filtros;
+    if (f.busca || f.categoria) return true;
+    if (f.periodoTipo === 'intervalo' && (f.de || f.ate)) return true;
+    if (!isOrcView && (f.tipo || f.status)) return true;
+    return false;
+  }
+
+  function _aplicaFiltros(items, isOrcView) {
+    const f = _filtros;
+    let out = items;
+    if (!isOrcView && f.tipo)   out = out.filter(o => osTipo(o) === f.tipo);
+    if (!isOrcView && f.status) out = out.filter(o => o.status === f.status);
+    if (f.categoria) out = out.filter(o => String(o.categoria_id || '') === String(f.categoria));
+    if (f.periodoTipo === 'intervalo' && (f.de || f.ate)) {
+      out = out.filter(o => {
+        const d = String(o.data_inicio || o.data_criacao || '').substring(0, 10);
+        if (f.de && d < f.de) return false;
+        if (f.ate && d > f.ate) return false;
+        return true;
+      });
+    }
+    if (f.busca) {
+      const q = f.busca;
+      out = filterRecords(out, q, ['numero','nome','observacoes']).concat(
+        out.filter(o =>
+          App.clienteNome(o.cliente_id).toLowerCase().includes(q.toLowerCase()) ||
+          (App.categoriaNome(o.categoria_id) || '').toLowerCase().includes(q.toLowerCase())
+        )
+      ).filter((v, i, a) => a.indexOf(v) === i);
+    }
+    return out;
+  }
+
+  function _cardHTML(o, isOrcView) {
+    const catNome  = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
+    const numShort = (o.numero || '').replace(/^(OS|ORC)-/i, '');
+    const jaGerou  = isOrcView && allOS.some(x => x.orcamento_id === o.id);
+    const badges = isOrcView
+      ? `<span class="badge badge-gold">📄 Orçamento</span>${jaGerou ? ' <span class="badge badge-success">✓ Gerou OS</span>' : ''}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`
+      : `${statusBadge(o.status)} ${osTipoBadge(o)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`;
+    return `
+      <div class="entity-item" onclick="OS.tapCard('${o.id}')">
+        <div class="avatar ${isOrcView ? 'av-gold' : _statusAv(o.status)}">
+          <span style="font-size:.75rem;font-weight:800">${numShort}</span>
+        </div>
+        <div class="entity-info">
+          <div class="entity-name">${App.clienteNome(o.cliente_id)}${o.nome ? ` <span style="font-weight:500;color:var(--text-muted);font-size:.85em">· ${o.nome}</span>` : ''}</div>
+          <div class="entity-sub">${Fmt.date(o.data_inicio)}${!isOrcView && o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}${isOrcView && o.prazo_dias ? ' · ' + o.prazo_dias + ' dia(s)' : ''}</div>
+          <div class="entity-badges">${badges}</div>
+        </div>
+        <div class="entity-right"><span class="entity-chevron">›</span></div>
+      </div>`;
+  }
+
+  function _grupo(titulo, arr, isOrcView) {
+    if (!arr.length) return '';
+    return `<div class="os-group-head"><span class="os-group-title">${titulo}</span><span class="os-group-count">${arr.length}</span></div>
+      <div class="entity-list">${arr.map(o => _cardHTML(o, isOrcView)).join('')}</div>`;
+  }
+
+  // Só a lista (grupos ou plana) — usada no render e no repinte da busca.
+  function _listaHTML(isOrcView) {
+    const base = allOS.filter(o => (o.registro || 'os') === _registroView);
+    const filtrados = _aplicaFiltros(base, isOrcView)
+      .sort((a, b) => (a.data_criacao > b.data_criacao ? -1 : 1));
+
+    if (_temFiltroAtivo(isOrcView)) {
+      return filtrados.length === 0
+        ? `<div class="entity-empty">Nada encontrado</div>`
+        : `<div class="entity-list">${filtrados.map(o => _cardHTML(o, isOrcView)).join('')}</div>`;
+    }
+    if (isOrcView) {
+      const gerou = o => allOS.some(x => x.orcamento_id === o.id);
+      const pend = filtrados.filter(o => !gerou(o));
+      const vir  = filtrados.filter(gerou);
+      const mostraPend = _verMais ? pend : pend.slice(0, Math.max(0, _VER_MAIS_LIMITE - vir.length));
+      const oculto = pend.length - mostraPend.length;
+      if (!filtrados.length) return `<div class="entity-empty">Nenhum orçamento ainda</div>`;
+      return `
+        ${_grupo('Pendentes', mostraPend, true)}
+        ${oculto > 0 ? `<button class="btn btn-outline btn-sm os-vermais" onclick="OS.verMais()">Ver mais (${oculto})</button>` : ''}
+        ${_grupo('Viraram OS', vir, true)}`;
+    }
+    const andamento = filtrados.filter(o => o.status === 'andamento');
+    const acerto    = filtrados.filter(o => o.status === 'acerto');
+    const fechado   = filtrados.filter(o => o.status === 'fechado');
+    const usados = andamento.length + acerto.length;
+    const mostraFech = _verMais ? fechado : fechado.slice(0, Math.max(0, _VER_MAIS_LIMITE - usados));
+    const oculto = fechado.length - mostraFech.length;
+    if (!filtrados.length) return `<div class="entity-empty">Nenhuma OS encontrada</div>`;
+    return `
+      ${_grupo('Em andamento', andamento, false)}
+      ${_grupo('Em acerto', acerto, false)}
+      ${fechado.length ? `${_grupo('Encerrados', mostraFech, false)}${oculto > 0 ? `<div class="os-vermais-info">mostrando ${mostraFech.length} de ${fechado.length}</div><button class="btn btn-outline btn-sm os-vermais" onclick="OS.verMais()">Ver mais encerradas (${oculto})</button>` : ''}` : ''}`;
+  }
+
+  function renderList() {
     currentView = 'list';
     const isOrcView = _registroView === 'orcamento';
-    let items = allOS.filter(o => (o.registro || 'os') === _registroView);
-    if (filtroStatus && !isOrcView) items = items.filter(o => o.status === filtroStatus);
-    if (filtroTipo)   items = items.filter(o => o.tipo === filtroTipo);
-    if (q)            items = filterRecords(items, q, ['numero','nome','observacoes']).concat(
-                               items.filter(o =>
-                                 App.clienteNome(o.cliente_id).toLowerCase().includes(q.toLowerCase()) ||
-                                 (App.categoriaNome(o.categoria_id) || '').toLowerCase().includes(q.toLowerCase())
-                               )
-                             ).filter((v, i, a) => a.indexOf(v) === i);
-
-    items = [...items].sort((a, b) => (a.data_criacao > b.data_criacao ? -1 : 1));
-
-    const statusAv = s => s === 'fechado' ? 'av-green' : s === 'andamento' ? 'av-blue' : s === 'acerto' ? 'av-orange' : 'av-navy';
-
-    // Insights rápidos
-    const mes = new Date().toISOString().substring(0,7);
-    const totalAndamento = allOS.filter(o => o.status === 'andamento').length;
-    const totalAcerto    = allOS.filter(o => o.status === 'acerto').length;
-    const fechadasMes    = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes)).length;
-    const receitaMes     = allOS.filter(o => o.status === 'fechado' && String(o.data_atualizacao||o.data_inicio||'').startsWith(mes))
-                                .reduce((s,o) => s + Number(o.valor_fechamento||0), 0);
-
-    // Subtotal do lote (valores já gravados nas sessões + itens — sem recalcular base)
-    const loteSubtotal = Array.from(_loteSel).reduce((s, id) => {
-      const mo = allDiarias.filter(d => d.os_id === id)
-        .reduce((t, d) => t + Number(d.valor_manual || d.valor_calculado || 0), 0);
-      const it = allItens.filter(i => i.os_id === id)
-        .reduce((t, i) => t + Number(i.valor_total || 0), 0);
-      return s + mo + it;
-    }, 0);
-
-    const section = qs('#page-os');
-    section.innerHTML = `
+    const filtroHTML = Filtro.render({
+      ns: 'os', handler: 'OS', aberto: _filtroAberto,
+      busca: { value: _filtros.busca, placeholder: isOrcView ? 'Buscar orçamento ou cliente...' : 'Buscar OS ou cliente...' },
+      campos: _filtroCampos(isOrcView), estado: _filtros,
+    });
+    qs('#page-os').innerHTML = `
       <div class="page-header">
         <h1>${isOrcView ? 'Orçamentos' : 'Ordens de Serviço'}</h1>
-        <div style="display:flex;gap:8px">
-          ${!isOrcView ? `<button class="btn ${_loteMode ? 'btn-gold' : 'btn-outline'} btn-sm" onclick="OS.toggleLoteMode()">${_loteMode ? '✕ Cancelar' : '☑ Fechar em lote'}</button>` : ''}
-          ${_loteMode ? '' : (isOrcView
-            ? `<button class="btn btn-primary" onclick="OS.openForm(null,'orcamento')">+ Novo Orçamento</button>`
-            : `<button class="btn btn-primary" onclick="OS.openForm()">+ Nova OS</button>`)}
-        </div>
+        <button class="btn btn-primary" onclick="${isOrcView ? "OS.openForm(null,'orcamento')" : 'OS.openForm()'}">${isOrcView ? '+ Novo Orçamento' : '+ Nova OS'}</button>
       </div>
-
       <div class="tab-bar mb-3">
         <button class="tab-btn ${!isOrcView ? 'active' : ''}" onclick="OS.setRegistroView('os')">🧾 OS</button>
         <button class="tab-btn ${isOrcView ? 'active' : ''}" onclick="OS.setRegistroView('orcamento')">📄 Orçamentos</button>
       </div>
-
-      ${_loteMode ? `
-      <div class="lote-hint mb-3">
-        Toque nas OS <strong>do mesmo cliente</strong> que quer juntar num fechamento só (1 parcela).
-      </div>` : ''}
-
-      ${isOrcView ? `
-        <div class="stats-grid mb-3">
-          <div class="stat-card stat-navy">
-            <div class="stat-label">Orçamentos</div>
-            <div class="stat-value">${items.length}</div>
-          </div>
-          <div class="stat-card stat-green">
-            <div class="stat-label">Viraram OS</div>
-            <div class="stat-value">${items.filter(o => allOS.some(x => x.orcamento_id === o.id)).length}</div>
-          </div>
-        </div>
-        <div class="mb-3">
-          <input type="text" id="os-search" placeholder="Buscar orçamento ou cliente..." class="input-search" value="${q}"
-            oninput="OS.applyFilters()">
-        </div>
-      ` : `
-        <div class="stats-grid mb-3">
-          <div class="stat-card stat-blue" style="cursor:pointer" onclick="OS.setStatus('andamento')">
-            <div class="stat-label">Andamento</div>
-            <div class="stat-value">${totalAndamento}</div>
-          </div>
-          <div class="stat-card stat-orange" style="cursor:pointer" onclick="OS.setStatus('acerto')">
-            <div class="stat-label">Em Acerto</div>
-            <div class="stat-value">${totalAcerto}</div>
-          </div>
-          <div class="stat-card stat-green">
-            <div class="stat-label">Fechadas (mês)</div>
-            <div class="stat-value">${fechadasMes}</div>
-          </div>
-          <div class="stat-card stat-navy">
-            <div class="stat-label">Receita (mês)</div>
-            <div class="stat-value" style="font-size:1rem">${Fmt.currency(receitaMes)}</div>
-          </div>
-        </div>
-        <div class="mb-3">
-          <input type="text" id="os-search" placeholder="Buscar OS ou cliente..." class="input-search" value="${q}"
-            oninput="OS.applyFilters()">
-        </div>
-        <div class="tab-bar mb-3">
-          <button class="tab-btn ${filtroStatus===''       ?'active':''}" onclick="OS.setStatus('')">Todas</button>
-          <button class="tab-btn ${filtroStatus==='andamento'?'active':''}" onclick="OS.setStatus('andamento')">Andamento</button>
-          <button class="tab-btn ${filtroStatus==='acerto' ?'active':''}" onclick="OS.setStatus('acerto')">Acerto</button>
-          <button class="tab-btn ${filtroStatus==='fechado'?'active':''}" onclick="OS.setStatus('fechado')">Fechadas</button>
-        </div>
-      `}
-      <div class="entity-list">
-        ${items.length === 0
-          ? `<div class="entity-empty">${isOrcView ? 'Nenhum orçamento ainda' : 'Nenhuma OS encontrada'}</div>`
-          : items.map(o => {
-            const catNome = o.categoria_id ? App.categoriaNome(o.categoria_id) : '';
-            const numShort = (o.numero || '').replace(/^(OS|ORC)-/i, '');
-            const jaGerou = isOrcView && allOS.some(x => x.orcamento_id === o.id);
-            // Em modo lote: só OS não fechadas e (após a 1ª marcada) do mesmo cliente
-            const selecionavel = !_loteMode || (o.status !== 'fechado' && (!_loteCliente || o.cliente_id === _loteCliente));
-            const marcada = _loteMode && _loteSel.has(o.id);
-            const clique = _loteMode
-              ? (selecionavel ? `OS.toggleLoteSel('${o.id}')` : '')
-              : `OS.tapCard('${o.id}')`;
-            const badges = isOrcView
-              ? `<span class="badge badge-gold">📄 Orçamento</span>${jaGerou ? ' <span class="badge badge-success">✓ Gerou OS</span>' : ''}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`
-              : `${statusBadge(o.status)} ${osTipoBadge(o)}${catNome ? ` <span class="badge badge-info">${catNome}</span>` : ''}`;
-            return `
-            <div class="entity-item${_loteMode && !selecionavel ? ' lote-off' : ''}${marcada ? ' lote-on' : ''}" onclick="${clique}">
-              ${_loteMode ? `<span class="lote-check${marcada ? ' on' : ''}">${marcada ? '✓' : ''}</span>` : ''}
-              <div class="avatar ${isOrcView ? 'av-gold' : statusAv(o.status)}">
-                <span style="font-size:.75rem;font-weight:800">${numShort}</span>
-              </div>
-              <div class="entity-info">
-                <div class="entity-name">${App.clienteNome(o.cliente_id)}${o.nome ? ` <span style="font-weight:500;color:var(--text-muted);font-size:.85em">· ${o.nome}</span>` : ''}</div>
-                <div class="entity-sub">${Fmt.date(o.data_inicio)}${!isOrcView && o.data_fim ? ' → ' + Fmt.date(o.data_fim) : ''}${isOrcView && o.prazo_dias ? ' · ' + o.prazo_dias + ' dia(s)' : ''}</div>
-                <div class="entity-badges">${badges}</div>
-              </div>
-              <div class="entity-right">
-                <span class="entity-chevron">›</span>
-              </div>
-            </div>
-          `;
-          }).join('')}
-      </div>
-
-      ${_loteMode ? `
-      <div style="height:84px"></div>
-      <div class="lote-bar">
-        <div class="lote-bar-info">
-          <strong>${_loteSel.size} OS selecionada(s)</strong>
-          <span>${_loteSel.size ? Fmt.currency(loteSubtotal) + (_loteCliente ? ' · ' + App.clienteNome(_loteCliente) : '') : 'marque 2 ou mais'}</span>
-        </div>
-        <button class="btn btn-gold" ${_loteSel.size >= 2 ? '' : 'disabled'} onclick="OS.abrirFechamentoLote()">Fechar juntas →</button>
-      </div>` : ''}
+      ${filtroHTML}
+      <div id="os-lista">${_listaHTML(isOrcView)}</div>
     `;
   }
 
-  // ─── Seleção múltipla p/ fechamento em lote ─────────────
-  function toggleLoteMode() {
-    _loteMode = !_loteMode;
-    _loteSel.clear();
-    _loteCliente = '';
-    renderList(_currentStatus, '', qs('#os-search')?.value || '');
+  // Repinta só a lista (mantém o foco no campo de busca ao digitar).
+  function _repintaLista() {
+    const el = qs('#os-lista');
+    if (el) el.innerHTML = _listaHTML(_registroView === 'orcamento');
   }
 
+  // ─── Filtro (handlers do componente Filtro) ─────────────
+  function onFiltroBusca(v) { _filtros.busca = v; _verMais = false; _repintaLista(); }
+  function onFiltroChange() {
+    Object.assign(_filtros, Filtro.coletar('os', _filtroCampos(_registroView === 'orcamento'), _filtros));
+    _verMais = false; renderList();
+  }
+  function toggleFiltro() { _filtroAberto = Filtro.togglePanel('os'); }
+  function setFiltroChip(k, v) { _filtros[k] = (_filtros[k] === v ? '' : v); _verMais = false; renderList(); }
+  function limparFiltros() {
+    _filtros = { busca:'', tipo:'', status:'', categoria:'', periodoTipo:'mes', mes:'', de:'', ate:'' };
+    _verMais = false; renderList();
+  }
+  function removeChip(k) {
+    if (k === 'periodo') { _filtros.periodoTipo = 'mes'; _filtros.de = ''; _filtros.ate = ''; }
+    else _filtros[k] = '';
+    _verMais = false; renderList();
+  }
+  function verMais() { _verMais = true; _repintaLista(); }
+
+  // ─── Fechamento em lote: engine (o gatilho migra p/ dentro do fechamento no M2) ─
   function toggleLoteSel(id) {
     const os = allOS.find(o => o.id === id);
     if (!os || os.status === 'fechado') return;
@@ -239,25 +250,14 @@ const OS = (() => {
       _loteCliente = os.cliente_id;
       _loteSel.add(id);
     }
-    renderList(_currentStatus, '', qs('#os-search')?.value || '');
   }
 
-  function applyFilters() {
-    const q  = qs('#os-search')?.value || '';
-    renderList(_currentStatus, '', q);
-  }
-
-  let _currentStatus = 'andamento'; // filtro inicial da lista (ver renderList)
-  function setStatus(s) {
-    _currentStatus = s;
-    applyFilters();
-  }
+  // Compat: applyFilters/setStatus agora operam sobre o filtro novo.
+  function applyFilters() { onFiltroChange(); }
+  function setStatus(s) { _filtros.status = s; _verMais = false; renderList(); }
 
   // Alterna a lista entre OS e Orçamentos
-  function setRegistroView(v) {
-    _registroView = v;
-    renderList(_currentStatus, '', qs('#os-search')?.value || '');
-  }
+  function setRegistroView(v) { _registroView = v; _verMais = false; _filtroAberto = false; renderList(); }
 
   function _maisOpcoes(id) {
     const o = allOS.find(x => x.id === id) || currentOS;
@@ -1244,6 +1244,8 @@ const OS = (() => {
     if (titleEl) titleEl.textContent = diariaId ? 'Editar Sessão' : 'Registrar Sessão';
     const saveBtn = qs('#modal-diaria-save-btn');
     if (saveBtn) saveBtn.textContent = 'Salvar Sessão';
+    const delBtn = qs('#modal-diaria-del');
+    if (delBtn) delBtn.style.display = diariaId ? '' : 'none'; // excluir só na edição
     const cfg = await Calculator.getConfig();
 
     qs('#modal-diaria-os-id').value     = currentOS.id;
@@ -1297,11 +1299,17 @@ const OS = (() => {
           <button type="button" class="bloco-del" title="Remover período" onclick="OS.removeBloco(${i})">🗑</button>
         </div>
         <div class="bloco-times">
-          <input type="time" class="input" value="${b.inicio || ''}"
-            oninput="OS.setBloco(${i},'inicio',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Início">
+          <div class="bloco-time">
+            <label>Início</label>
+            <input type="time" class="input" value="${b.inicio || ''}"
+              oninput="OS.setBloco(${i},'inicio',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Início">
+          </div>
           <span class="bloco-sep">→</span>
-          <input type="time" class="input" value="${b.fim || ''}"
-            oninput="OS.setBloco(${i},'fim',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Fim">
+          <div class="bloco-time">
+            <label>Fim</label>
+            <input type="time" class="input" value="${b.fim || ''}"
+              oninput="OS.setBloco(${i},'fim',this.value)" onchange="OS.calcDiariaPreview()" aria-label="Fim">
+          </div>
         </div>
         <button type="button" class="bloco-reaj-toggle ${b.reajuste ? 'on' : ''}"
           aria-pressed="${b.reajuste}" onclick="OS.toggleBlocoReajuste(${i})">
@@ -1507,11 +1515,16 @@ const OS = (() => {
     });
   }
 
-  function tapDiaria(id) {
-    ActionSheet.open('Sessão registrada', [
-      { icon: '✏️', label: 'Editar', fn: () => openDiaria(id) },
-      { icon: '🗑', label: 'Excluir', fn: () => deleteDiaria(id), danger: true },
-    ]);
+  // Clicar na sessão abre direto pra editar (o excluir mora dentro do modal).
+  function tapDiaria(id) { openDiaria(id); }
+
+  // Botão "Excluir" do modal de sessão (só na edição): fecha o modal e
+  // delega ao deleteDiaria, que confirma antes de remover.
+  function excluirDiariaAtual() {
+    const id = qs('#modal-diaria-id')?.value;
+    if (!id) return;
+    Modal.close('modal-diaria');
+    deleteDiaria(id);
   }
 
   // ─── ITENS ──────────────────────────────────────────────
@@ -2131,6 +2144,7 @@ const OS = (() => {
 
   async function openFechamento() {
     if (!currentOS) return;
+    _fechIncluir.clear(); // começa sem OS irmãs marcadas
 
     // Hora base padrão vem da config; pode ser sobrescrita no fechamento.
     const cfg      = await Calculator.getConfig();
@@ -2164,7 +2178,7 @@ const OS = (() => {
 
       <div class="card" style="max-width:560px;margin:0 auto">
         <div class="card-body">
-          <form id="fechamento-form" onsubmit="OS.saveFechamento(event)">
+          <form id="fechamento-form" onsubmit="OS.confirmarFechamento(event)">
             <input type="hidden" id="fech-os-id" value="${currentOS.id}">
 
             <!-- Breakdown de valores -->
@@ -2283,6 +2297,23 @@ const OS = (() => {
               <textarea id="fech-obs" class="input" rows="2"></textarea>
             </div>
 
+            ${(() => {
+              const irmas = allOS.filter(o => o.cliente_id === currentOS.cliente_id && o.id !== currentOS.id
+                && o.status !== 'fechado' && (o.registro || 'os') !== 'orcamento');
+              if (!irmas.length) return '';
+              return `
+              <div class="form-group">
+                <label>Incluir outras OS deste cliente <small style="color:var(--text-muted);font-weight:400">(fecha tudo numa conta só)</small></label>
+                <div class="fech-incluir">
+                  ${irmas.map(o => `
+                    <label class="fech-incluir-item">
+                      <input type="checkbox" ${_fechIncluir.has(o.id) ? 'checked' : ''} onchange="OS.toggleFechIncluir('${o.id}')">
+                      <span>${o.numero}${o.nome ? ` · ${o.nome}` : ''}</span>
+                    </label>`).join('')}
+                </div>
+              </div>`;
+            })()}
+
             <div class="form-actions">
               <button type="submit" class="btn btn-primary btn-lg">Fechar OS e Gerar Parcela</button>
             </div>
@@ -2331,6 +2362,21 @@ const OS = (() => {
   }
 
   // trava de duplo clique (Guard) — o corpo real está em _saveFechamento
+  function toggleFechIncluir(id) {
+    if (_fechIncluir.has(id)) _fechIncluir.delete(id); else _fechIncluir.add(id);
+  }
+
+  // Se há OS irmãs marcadas, o fechamento vira em LOTE (1 parcela p/ todas);
+  // senão, segue o fechamento individual.
+  function confirmarFechamento(e) {
+    if (_fechIncluir.size > 0) {
+      if (e) e.preventDefault();
+      openFechamentoLote([currentOS.id, ...Array.from(_fechIncluir)]);
+      return;
+    }
+    return saveFechamento(e);
+  }
+
   function saveFechamento(e) { return Guard.run('os-fechar', () => _saveFechamento(e)); }
   async function _saveFechamento(e) {
     e.preventDefault();
@@ -2897,8 +2943,9 @@ const OS = (() => {
 
   return {
     render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, onTipoOSChange, saveForm,
+    onFiltroBusca, onFiltroChange, toggleFiltro, setFiltroChip, limparFiltros, removeChip, verMais,
     openInsightsOS,
-    openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, toggleMaisOpcoes,
+    openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, excluirDiariaAtual, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
@@ -2906,9 +2953,9 @@ const OS = (() => {
     openFaltouMaterial, saveFaltouMaterial,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
-    openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, mudarStatus,
+    openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, confirmarFechamento, toggleFechIncluir, mudarStatus,
     // Fechamento em lote
-    toggleLoteMode, toggleLoteSel, abrirFechamentoLote, openFechamentoLote,
+    toggleLoteSel, abrirFechamentoLote, openFechamentoLote,
     toggleLoteHoraBase, recalcLoteOS, toggleDescontoTipoLote, atualizarFechamentoLote, saveFechamentoLote,
     confirmDelete,
     // Helpers expostos (usados pela home)

@@ -63,38 +63,11 @@ const Doc = (() => {
     const linhas    = _linhasExecucao(diarias);
     const titulo    = isOrc ? 'ORÇAMENTO' : 'ORDEM DE SERVIÇO';
     const catNome   = os.categoria_id ? App.categoriaNome(os.categoria_id) : '';
-    const hoje      = new Date().toLocaleDateString('pt-BR');
-
-    const logo = 'assets/img/logo-app.png?v=2.0.3';
 
     const html = `
       <div class="doc-page">
-        <!-- Cabeçalho -->
-        <header class="doc-head">
-          <img src="${logo}" class="doc-logo" alt=""
-            onerror="this.style.display='none'">
-          <div class="doc-emp">
-            <div class="doc-emp-nome">${emp.nome}</div>
-            <div class="doc-emp-sub">${emp.sub}</div>
-            <div class="doc-emp-contato">
-              ${[emp.doc, emp.telefone, emp.cidade].filter(Boolean).join(' · ')}
-            </div>
-          </div>
-          <div class="doc-meta">
-            <div class="doc-tipo">${titulo}</div>
-            <div class="doc-num">${os.numero || ''}</div>
-            <div class="doc-data">${hoje}</div>
-          </div>
-        </header>
-
-        <!-- Cliente -->
-        <section class="doc-bloco">
-          <div class="doc-bloco-titulo">Cliente</div>
-          <div class="doc-cli-nome">${cliente.nome || '—'}</div>
-          <div class="doc-cli-info">
-            ${[cliente.endereco, cliente.telefone].filter(Boolean).join(' · ') || ''}
-          </div>
-        </section>
+        ${_docHead(emp, titulo, os.numero)}
+        ${_clienteBloco(cliente)}
 
         <!-- Serviço -->
         <section class="doc-bloco">
@@ -167,10 +140,7 @@ const Doc = (() => {
 
         ${isOrc ? `<p class="doc-validade">${prazoDias > 0 ? `Prazo estimado: ${prazoDias} dia(s). ` : ''}Sujeito a confirmação após avaliação no local.</p>` : ''}
 
-        <footer class="doc-foot">
-          <div class="doc-foot-slogan">${emp.slogan}</div>
-          <div>${emp.nome}${emp.telefone ? ' · ' + emp.telefone : ''}</div>
-        </footer>
+        ${_docFoot(emp)}
       </div>
     `;
 
@@ -183,8 +153,6 @@ const Doc = (() => {
   async function relatorioFinanceiro(d) {
     const cfg  = await Calculator.getConfig();
     const emp  = _empresa(cfg);
-    const hoje = new Date().toLocaleDateString('pt-BR');
-    const logo = 'assets/img/logo-app.png?v=2.7.2';
     const resultado = (d.totalReceitas || 0) - (d.totalDespesas || 0);
     const corResult = resultado >= 0 ? '#1a7f37' : '#c81e1e';
 
@@ -212,19 +180,7 @@ const Doc = (() => {
 
     const html = `
       <div class="doc-page">
-        <header class="doc-head">
-          <img src="${logo}" class="doc-logo" alt="" onerror="this.style.display='none'">
-          <div class="doc-emp">
-            <div class="doc-emp-nome">${emp.nome}</div>
-            <div class="doc-emp-sub">${emp.sub}</div>
-            <div class="doc-emp-contato">${[emp.doc, emp.telefone, emp.cidade].filter(Boolean).join(' · ')}</div>
-          </div>
-          <div class="doc-meta">
-            <div class="doc-tipo">RELATÓRIO FINANCEIRO</div>
-            <div class="doc-num">${d.periodoLabel || ''}</div>
-            <div class="doc-data">${hoje}</div>
-          </div>
-        </header>
+        ${_docHead(emp, 'RELATÓRIO FINANCEIRO', d.periodoLabel)}
 
         <section class="doc-resumo" style="margin-top:0;margin-bottom:14px">
           <div class="doc-row"><span>Recebimentos</span><span>${Fmt.currency(d.totalReceitas || 0)}</span></div>
@@ -235,10 +191,7 @@ const Doc = (() => {
         ${secao('Recebimentos', d.receitasList || [], d.totalReceitas || 0)}
         ${secao('Pagamentos', d.despesasList || [], d.totalDespesas || 0)}
 
-        <footer class="doc-foot">
-          <div class="doc-foot-slogan">${emp.slogan}</div>
-          <div>${emp.nome}${emp.telefone ? ' · ' + emp.telefone : ''}</div>
-        </footer>
+        ${_docFoot(emp)}
       </div>
     `;
     _abrir(html, `relatorio financeiro ${d.periodoLabel || ''}`.trim());
@@ -246,9 +199,18 @@ const Doc = (() => {
 
   let _nomeArquivo = 'documento';
 
+  // Nome do arquivo: sem acento/Ç, sem hífen, com espaços, mantendo a caixa.
+  // Ex.: "OS-142 Mercado São Jorge" → "OS 142 Mercado Sao Jorge". Puro (testável).
+  function slugNome(nome) {
+    return (nome || 'documento')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos e o cedilha (ã→a, ç→c, é→e)
+      .replace(/[^a-zA-Z0-9]+/g, ' ')                    // separadores (hífen, espaço…) → um espaço
+      .trim().replace(/\s+/g, ' ') || 'documento';
+  }
+
   // Mostra o documento em overlay com ações (Baixar / Enviar / Fechar)
   function _abrir(html, nome) {
-    _nomeArquivo = (nome || 'documento').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
+    _nomeArquivo = slugNome(nome);
     let ov = qs('#doc-overlay');
     if (!ov) {
       ov = document.createElement('div');
@@ -500,5 +462,5 @@ const Doc = (() => {
     _abrir(html, `em aberto ${cliente?.nome || ''}`.trim());
   }
 
-  return { gerar, relatorioFinanceiro, resumoOS, recibo, valoresEmAberto, baixar, compartilhar, fechar };
+  return { gerar, relatorioFinanceiro, resumoOS, recibo, valoresEmAberto, baixar, compartilhar, fechar, slugNome };
 })();

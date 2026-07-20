@@ -4,7 +4,8 @@
 
 const Clientes = (() => {
   let allClientes = [];
-  let _filtroTipo = '';
+  let _filtros = { busca: '', tipo: '' };
+  let _filtroAberto = false;
   let _view       = 'lista';   // lista | resumo
   // Modos de seleção na tela do cliente: 'resumo' (OS → documento-resumo) e
   // 'recibo' (parcelas pagas → recibo). Só um ativo por vez.
@@ -42,63 +43,69 @@ const Clientes = (() => {
     allClientes = res?.data || [];
   }
 
-  function renderList(q = '', filtroTipo = _filtroTipo) {
-    _view = 'lista';
-    _filtroTipo = filtroTipo;
+  function _cliCampos() {
+    return [{ tipo: 'chips', key: 'tipo', label: 'Tipo', full: true, opcoes: [
+      { v: 'cliente', label: 'Clientes' }, { v: 'fornecedor', label: 'Fornec.' },
+      { v: 'equipe', label: 'Equipe' }, { v: 'ambos', label: 'Ambos' },
+    ] }];
+  }
+
+  const _tipoBadgeCli = t => {
+    if (t === 'cliente')    return '<span class="badge badge-info">Cliente</span>';
+    if (t === 'fornecedor') return '<span class="badge badge-secondary">Fornecedor</span>';
+    if (t === 'equipe')     return '<span class="badge badge-success">Equipe</span>';
+    if (t === 'ambos')      return '<span class="badge badge-gold">Ambos</span>';
+    return '<span class="badge badge-secondary">' + (t || 'Outro') + '</span>';
+  };
+
+  function _cliItens() {
     let items = allClientes.filter(c => c.ativo !== false && c.ativo !== 'false');
-    if (filtroTipo) items = items.filter(c => c.tipo === filtroTipo);
-    if (q) items = filterRecords(items, q, ['nome','telefone','endereco']);
-    items = [...items].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+    if (_filtros.tipo)  items = items.filter(c => c.tipo === _filtros.tipo);
+    if (_filtros.busca) items = filterRecords(items, _filtros.busca, ['nome','telefone','endereco']);
+    return items.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+  }
 
-    const tipoBadgeCli = t => {
-      if (t === 'cliente')    return '<span class="badge badge-info">Cliente</span>';
-      if (t === 'fornecedor') return '<span class="badge badge-secondary">Fornecedor</span>';
-      if (t === 'equipe')     return '<span class="badge badge-success">Equipe</span>';
-      if (t === 'ambos')      return '<span class="badge badge-gold">Ambos</span>';
-      return '<span class="badge badge-secondary">' + (t || 'Outro') + '</span>';
-    };
+  function _cliListaHTML() {
+    const items = _cliItens();
+    return `<div class="entity-list">${items.length === 0
+      ? '<div class="entity-empty">Nenhum cadastro encontrado</div>'
+      : items.map(c => `
+        <div class="entity-item" onclick="Clientes.openDetail('${c.id}')">
+          <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
+          <div class="entity-info">
+            <div class="entity-name">${c.nome}</div>
+            <div class="entity-sub">${c.endereco || (c.telefone ? '📞 ' + c.telefone : 'Sem endereço')}</div>
+            <div class="entity-badges">${_tipoBadgeCli(c.tipo)}${c.telefone && c.endereco ? `<span class="badge badge-secondary">📞 ${c.telefone}</span>` : ''}</div>
+          </div>
+          <div class="entity-right"><span class="entity-chevron">›</span></div>
+        </div>`).join('')}</div>`;
+  }
 
-    const section = qs('#page-clientes');
-    section.innerHTML = `
+  function renderList() {
+    _view = 'lista';
+    qs('#page-clientes').innerHTML = `
       <div class="page-header">
         <h1>Clientes / Fornecedores</h1>
         <button class="btn btn-primary" onclick="Clientes.openForm()">+ Novo</button>
       </div>
       ${viewTabsHTML('lista')}
-      <div class="mb-3">
-        <input type="text" id="cli-search" placeholder="Buscar nome, telefone..." class="input-search" value="${q}"
-          oninput="Clientes.applyFilters()">
-      </div>
-      <div class="tab-bar mb-3">
-        <button class="tab-btn ${filtroTipo===''?'active':''}"           onclick="Clientes.renderList(qs('#cli-search')?.value||'','')">Todos</button>
-        <button class="tab-btn ${filtroTipo==='cliente'?'active':''}"    onclick="Clientes.renderList(qs('#cli-search')?.value||'','cliente')">Clientes</button>
-        <button class="tab-btn ${filtroTipo==='fornecedor'?'active':''}" onclick="Clientes.renderList(qs('#cli-search')?.value||'','fornecedor')">Fornec.</button>
-        <button class="tab-btn ${filtroTipo==='equipe'?'active':''}"     onclick="Clientes.renderList(qs('#cli-search')?.value||'','equipe')">Equipe</button>
-      </div>
-      <div class="entity-list">
-        ${items.length === 0
-          ? '<div class="entity-empty">Nenhum cadastro encontrado</div>'
-          : items.map(c => `
-            <div class="entity-item" onclick="Clientes.openDetail('${c.id}')">
-              <div class="avatar ${avatarColor(c.nome)}">${getInitials(c.nome)}</div>
-              <div class="entity-info">
-                <div class="entity-name">${c.nome}</div>
-                <div class="entity-sub">${c.endereco || (c.telefone ? '📞 ' + c.telefone : 'Sem endereço')}</div>
-                <div class="entity-badges">${tipoBadgeCli(c.tipo)}${c.telefone && c.endereco ? `<span class="badge badge-secondary">📞 ${c.telefone}</span>` : ''}</div>
-              </div>
-              <div class="entity-right">
-                <span class="entity-chevron">›</span>
-              </div>
-            </div>
-          `).join('')}
-      </div>
+      ${Filtro.render({ ns: 'cli', handler: 'Clientes', aberto: _filtroAberto,
+        busca: { value: _filtros.busca, placeholder: 'Buscar nome, telefone...' },
+        campos: _cliCampos(), estado: _filtros })}
+      <div id="cli-lista">${_cliListaHTML()}</div>
     `;
   }
 
-  function applyFilters() {
-    const q = qs('#cli-search')?.value || '';
-    renderList(q, _filtroTipo);
-  }
+  function _repintaCli() { const el = qs('#cli-lista'); if (el) el.innerHTML = _cliListaHTML(); }
+
+  // Handlers do filtro compartilhado
+  function onFiltroBusca(v) { _filtros.busca = v; _repintaCli(); }
+  function onFiltroChange() { Object.assign(_filtros, Filtro.coletar('cli', _cliCampos(), _filtros)); renderList(); }
+  function toggleFiltro() { _filtroAberto = Filtro.togglePanel('cli'); }
+  function setFiltroChip(k, v) { _filtros[k] = (_filtros[k] === v ? '' : v); renderList(); }
+  function limparFiltros() { _filtros = { busca: '', tipo: '' }; renderList(); }
+  function removeChip(k) { _filtros[k] = ''; renderList(); }
+  function applyFilters() { renderList(); }
 
   // ── Aba Resumo: visão financeira da carteira de clientes ──
   async function renderResumo() {
@@ -657,6 +664,7 @@ const Clientes = (() => {
   }
 
   return { render, renderList, renderResumo, goView, applyFilters, openDetail, openForm, saveForm, confirmDelete,
+    onFiltroBusca, onFiltroChange, toggleFiltro, setFiltroChip, limparFiltros, removeChip,
            toggleResumoMode, toggleResumoSel, gerarResumo, gerarEmAberto,
            toggleReciboMode, toggleReciboSel, gerarRecibo, gerarReciboParcela };
 })();

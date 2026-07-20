@@ -78,20 +78,41 @@ const Home = (() => {
         </div>
       </div>
 
-      <!-- Insights do dia — status/contagens, sem valores de faturamento -->
-      <div class="home-section-head">
-        <h2 class="home-section-title">📊 Insights do dia</h2>
+      <!-- Resumo financeiro: A receber / A pagar (toca → Financeiro) -->
+      <div id="home-financeiro" class="home-fin-grid">
+        <div class="loading-pulse" style="height:80px;border-radius:14px"></div>
+        <div class="loading-pulse" style="height:80px;border-radius:14px"></div>
       </div>
-      <div id="home-insights">
-        <div class="loading-pulse" style="height:58px;border-radius:12px"></div>
+
+      <!-- Atalho "A fazer" (lembretes) — com contador de atrasados/hoje -->
+      <div class="home-afazer" onclick="App.navigate('agenda')">
+        <span style="font-size:20px">✓</span>
+        <div>
+          <div style="font-weight:800;font-size:14px">A fazer</div>
+          <div style="font-size:12px;color:var(--text-muted)">Lembretes e pendências</div>
+        </div>
+        <span id="home-afazer-badge"></span>
+      </div>
+
+      <!-- Botão flutuante (＋) com speed-dial -->
+      <div id="home-fab-scrim" class="home-fab-scrim" onclick="Home.toggleFab()"></div>
+      <div class="home-fab-wrap" id="home-fab-wrap">
+        <div class="home-fab-actions">
+          <button class="home-fab-act" onclick="Home.fabAction('os')"><span class="home-fab-label">Nova OS</span><span class="home-fab-mini">🧾</span></button>
+          <button class="home-fab-act" onclick="Home.fabAction('orcamento')"><span class="home-fab-label">Novo orçamento</span><span class="home-fab-mini">📄</span></button>
+          <button class="home-fab-act" onclick="Home.fabAction('despesa')"><span class="home-fab-label">Nova despesa</span><span class="home-fab-mini">💸</span></button>
+          <button class="home-fab-act" onclick="Home.fabAction('compra')"><span class="home-fab-label">Nova compra</span><span class="home-fab-mini">🛒</span></button>
+        </div>
+        <button class="home-fab-main" id="home-fab-main" onclick="Home.toggleFab()" aria-label="Ações rápidas">＋</button>
       </div>
     `;
+    _fabOpen = false;
 
     // Sem URL configurada: mostra orientação e para por aqui.
     if (!LocalConfig.getUrl()) {
       const cfgMsg = '<p class="text-muted p-3" style="margin:0">Configure a conexão em Configurações</p>';
       qs('#home-os-andamento').innerHTML = cfgMsg;
-      const ins = qs('#home-insights'); if (ins) ins.innerHTML = cfgMsg;
+      const fin = qs('#home-financeiro'); if (fin) fin.innerHTML = cfgMsg;
       const est = qs('#home-estoque-info'); if (est) est.textContent = 'Configure a conexão';
       return;
     }
@@ -99,8 +120,68 @@ const Home = (() => {
     // Dispara em paralelo, SEM await — cada bloco se preenche sozinho.
     loadOSAndamento();
     loadEstoqueCard();
-    loadInsightsHome();
+    loadFinanceiroHome();
+    loadAfazerHome();
     loadLembrete();
+  }
+
+  // Contador de "A fazer" (atrasados + hoje) no atalho da Home.
+  async function loadAfazerHome() {
+    const el = qs('#home-afazer-badge');
+    if (!el) return;
+    const hoje = DateUtil.today();
+    const [cRes, pRes] = await Promise.all([
+      API.db.read('compromissos').catch(() => null),
+      API.db.read('parcelas').catch(() => null),
+    ]);
+    let n = 0;
+    (cRes?.data || []).forEach(c => { if (c.status !== 'cancelado' && c.status !== 'feito' && c.data && Fmt.dateInput(c.data) <= hoje) n++; });
+    (pRes?.data || []).forEach(p => { if (p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem) && Fmt.dateInput(p.data_vencimento) <= hoje) n++; });
+    el.innerHTML = n > 0 ? `<span class="badge-count">${n}</span>` : '';
+  }
+
+  // ─── Botão flutuante (FAB) + speed-dial ──────────────────────
+  let _fabOpen = false;
+  function toggleFab() {
+    _fabOpen = !_fabOpen;
+    const wrap  = qs('#home-fab-wrap');
+    const scrim = qs('#home-fab-scrim');
+    const main  = qs('#home-fab-main');
+    if (wrap)  wrap.classList.toggle('open', _fabOpen);
+    if (scrim) scrim.classList.toggle('open', _fabOpen);
+    if (main)  main.textContent = _fabOpen ? '✕' : '＋';
+    if (typeof tapFeedback === 'function') tapFeedback();
+  }
+  function fabAction(k) {
+    if (_fabOpen) toggleFab();
+    if (k === 'os')        App.navigate('os').then(() => OS.openForm(null));
+    else if (k === 'orcamento') App.navigate('os').then(() => OS.openForm(null, 'orcamento'));
+    else if (k === 'despesa')   App.navigate('financeiro', { tab: 'pagar' }).then(() => Financeiro.openManual());
+    else if (k === 'compra')    App.navigate('compras').then(() => Compras.openForm());
+  }
+
+  // ─── Resumo financeiro (A receber / A pagar) ─────────────────
+  async function loadFinanceiroHome() {
+    const el = qs('#home-financeiro');
+    if (!el) return;
+    const res = await API.db.read('parcelas');
+    const parcelas = (res?.data || []).filter(p => p.status === 'pendente' && !origemForaResultado(p.origem));
+    const receber = parcelas.filter(p => p.tipo === 'receber');
+    const pagar   = parcelas.filter(p => p.tipo === 'pagar');
+    const hoje = DateUtil.today();
+    const vencendo = pagar.filter(p => String(p.data_vencimento || '').substring(0, 10) <= hoje).length;
+    const soma = arr => arr.reduce((s, p) => s + Number(p.valor || 0), 0);
+    el.innerHTML = `
+      <div class="home-fin-card" onclick="App.navigate('financeiro', { tab: 'receber' })">
+        <div class="home-fin-label rec">A receber</div>
+        <div class="home-fin-val">${Fmt.currency(soma(receber))}</div>
+        <div class="home-fin-sub">${receber.length} em aberto ›</div>
+      </div>
+      <div class="home-fin-card" onclick="App.navigate('financeiro', { tab: 'pagar' })">
+        <div class="home-fin-label pag">A pagar</div>
+        <div class="home-fin-val">${Fmt.currency(soma(pagar))}</div>
+        <div class="home-fin-sub">${vencendo > 0 ? vencendo + ' vencendo' : pagar.length + ' em aberto'} ›</div>
+      </div>`;
   }
 
   // Preenche o resumo do card de Estoque na home (nº de itens + quantos a repor).
@@ -479,5 +560,5 @@ const Home = (() => {
     if (autoScroll) resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  return { render, search, clearSearch, onSearchInput, abrirLancamento };
+  return { render, search, clearSearch, onSearchInput, abrirLancamento, toggleFab, fabAction, loadFinanceiroHome };
 })();

@@ -191,29 +191,101 @@ const Agenda = (() => {
     fillHome();
   }
 
-  // ─── PÁGINA: semana inteira empilhada ─────────────────────
+  // ─── PÁGINA: "A fazer" (checklist agrupado por prazo) ─────────
+  // Lembrete manual (compromisso) com checkbox; contas a vencer e OS iniciando
+  // entram como itens automáticos (read-only), encaixados nos grupos por data.
+  function lembreteHTML(c) {
+    const t = TIPOS[c.tipo] || TIPOS.compromisso;
+    const cli = c.cliente_id ? App.clienteNome(c.cliente_id) : '';
+    const titulo = c.titulo || (cli ? `${t.label} — ${cli}` : t.label);
+    const feito = c.status === 'feito';
+    const sub = [];
+    const hora = Fmt.timeInput(c.hora_inicio);
+    if (hora) sub.push(`🕐 ${hora}`);
+    if (cli && c.titulo) sub.push(esc(cli));
+    if (c.os_id) sub.push(osChip(c.os_id));
+    return `<div class="afazer-item${feito ? ' is-feito' : ''}">
+      <button class="afazer-check${feito ? ' on' : ''}" onclick="Agenda.toggleFeito('${c.id}')" aria-label="Concluir">${feito ? '✓' : ''}</button>
+      <div class="afazer-body" onclick="Agenda.tapItem('${c.id}')">
+        <div class="ag-title">${esc(titulo)}</div>
+        ${sub.length ? `<div class="ag-sub">${sub.join(' · ')}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function _dateOf(it) {
+    if (it.kind === 'lembrete') return it.obj.data ? Fmt.dateInput(it.obj.data) : '';
+    if (it.kind === 'conta')    return Fmt.dateInput(it.obj.data_vencimento);
+    return Fmt.dateInput(it.obj.data_inicio); // os
+  }
+  function _htmlOf(it) {
+    if (it.kind === 'lembrete') return lembreteHTML(it.obj);
+    if (it.kind === 'conta')    return contaHTML(it.obj);
+    return osHTML(it.obj);
+  }
+
+  // Contagem p/ o atalho da Home (atrasados + hoje, só o que exige ação).
+  function pendentesHojeAtrasados() {
+    const hoje = DateUtil.today();
+    let n = 0;
+    (_compromissos || []).forEach(c => { if (c.status !== 'cancelado' && c.status !== 'feito' && c.data && Fmt.dateInput(c.data) <= hoje) n++; });
+    (_parcelas || []).forEach(p => { if (p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem) && Fmt.dateInput(p.data_vencimento) <= hoje) n++; });
+    return n;
+  }
+
   function fillPage() {
     const el = qs('#page-agenda');
     if (!el) return;
-    const dates = weekDates();
-    const blocos = dates.map(d => `
-      <div class="ag-dayblock ${DateUtil.ehHoje(d) ? 'is-hoje' : ''}">
-        ${dayLabelHTML(d, countDoDia(d))}
-        ${diaItensHTML(d)}
-      </div>`).join('');
+    const hoje = DateUtil.today();
+    const itens = [];
+    (_compromissos || []).filter(c => c.status !== 'cancelado').forEach(c => itens.push({ kind: 'lembrete', obj: c }));
+    (_parcelas || []).filter(p => p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem)).forEach(p => itens.push({ kind: 'conta', obj: p }));
+    (_os || []).filter(o => o.status === 'andamento' && o.data_inicio).forEach(o => itens.push({ kind: 'os', obj: o }));
+
+    const g = { atrasado: [], hoje: [], breve: [], semData: [], feito: [] };
+    itens.forEach(it => {
+      if (it.kind === 'lembrete' && it.obj.status === 'feito') { g.feito.push(it); return; }
+      const d = _dateOf(it);
+      if (!d) g.semData.push(it);
+      else if (d < hoje) g.atrasado.push(it);
+      else if (d === hoje) g.hoje.push(it);
+      else g.breve.push(it);
+    });
+    const ordena = arr => arr.sort((a, b) => (_dateOf(a) || '9999').localeCompare(_dateOf(b) || '9999'));
+    ['atrasado', 'hoje', 'breve'].forEach(k => ordena(g[k]));
+
+    const secao = (titulo, arr, cls = '') => arr.length
+      ? `<div class="afazer-group-head ${cls}">${titulo} <span>${arr.length}</span></div>${arr.map(_htmlOf).join('')}`
+      : '';
+
     el.innerHTML = `
       <div class="page-header">
-        <h1>Agenda</h1>
+        <h1>✓ A fazer</h1>
         <button class="btn btn-primary" onclick="Agenda.openForm()">＋ Novo</button>
       </div>
-      ${weekNavHTML()}
-      <div class="ag-week">${blocos}</div>`;
+      ${itens.length === 0 ? '<div class="ag-empty">Nada por aqui. Toque em <strong>＋ Novo</strong> pra anotar um lembrete.</div>' : ''}
+      ${secao('⚠ Atrasados', g.atrasado, 'is-atrasado')}
+      ${secao('Hoje', g.hoje)}
+      ${secao('Em breve', g.breve)}
+      ${secao('Sem prazo', g.semData)}
+      ${secao('Concluídos', g.feito, 'is-feito')}`;
+  }
+
+  // Marca/desmarca um lembrete como feito (otimista + persiste).
+  async function toggleFeito(id) {
+    const c = (_compromissos || []).find(x => x.id === id);
+    if (!c) return;
+    const novo = c.status === 'feito' ? 'pendente' : 'feito';
+    c.status = novo;
+    if (typeof tapFeedback === 'function') tapFeedback();
+    rerender();
+    await API.db.update('compromissos', id, { status: novo });
   }
 
   async function render() {
     if (!LocalConfig.getUrl()) {
       const el = qs('#page-agenda');
-      if (el) el.innerHTML = '<div class="page-header"><h1>Agenda</h1></div><p class="text-muted p-3">Configure a conexão em Configurações</p>';
+      if (el) el.innerHTML = '<div class="page-header"><h1>✓ A fazer</h1></div><p class="text-muted p-3">Configure a conexão em Configurações</p>';
       return;
     }
     await loadData(true);
@@ -352,6 +424,6 @@ const Agenda = (() => {
   return {
     render, renderHomeSection, selectDay, homeWeek,
     openForm, saveForm, tapItem, moverPrompt, mover, concluir, excluir,
-    abrirParcela, abrirOS,
+    abrirParcela, abrirOS, toggleFeito, pendentesHojeAtrasados,
   };
 })();

@@ -977,6 +977,69 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 .btn-sort:active { background: var(--bg); }
 
+/* ─── Filtro compartilhado (Filtro.render) — mesmo visual em todo módulo ─── */
+.filter-search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.filter-search-row .input-search { flex: 1; min-width: 0; }
+.filter-panel {
+  background: var(--card); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.filter-panel .form-group { margin-bottom: 0; }
+.filter-panel .form-group label {
+  font-size: .65rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px; display: block; margin-bottom: 4px;
+}
+.filter-panel select, .filter-panel input[type="date"], .filter-panel .input {
+  width: 100%; padding: 8px 10px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--bg); color: var(--text); font-size: .82rem;
+  font-family: inherit; -webkit-appearance: none;
+}
+.filter-panel .full-col { grid-column: 1 / -1; }
+/* Segmented (chips de opção — enumeração curta: Tipo, Status) */
+.filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-chip-opt {
+  flex: 1 1 auto; text-align: center; white-space: nowrap;
+  padding: 7px 10px; border-radius: 50px; font-size: .74rem; font-weight: 700;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--text-muted);
+  transition: all .15s;
+}
+.filter-chip-opt.active { border-color: var(--navy); background: var(--navy); color: #fff; }
+/* Chips dos filtros ativos (removíveis) */
+.filter-active-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.filter-active-chips:empty { display: none; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--info-lt); color: var(--info);
+  border: 1px solid rgba(0,122,255,.2); border-radius: 50px; padding: 3px 10px;
+  font-size: .72rem; font-weight: 600;
+}
+.filter-chip button { background: none; border: none; cursor: pointer; font-size: .8rem; color: inherit; line-height: 1; padding: 0; }
+
+/* ─── Grupos da lista de OS (cabeçalho: só título + contagem) ─── */
+.os-group-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 16px 2px 8px; padding: 0;
+}
+.os-group-head:first-child { margin-top: 4px; }
+.os-group-title { font-size: 1rem; font-weight: 800; color: var(--navy); letter-spacing: -.2px; }
+.os-group-count {
+  font-size: .72rem; font-weight: 800; color: var(--gold-dk);
+  background: var(--gold-lt); border-radius: 50px; padding: 1px 9px;
+}
+.os-vermais { width: 100%; margin-top: 8px; }
+.os-vermais-info { text-align: center; font-size: .72rem; color: var(--text-muted); margin-top: 8px; }
+
+/* Incluir OS irmãs no fechamento (fechar em lote a partir do fechamento) */
+.fech-incluir { display: flex; flex-direction: column; gap: 2px; }
+.fech-incluir-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 4px;
+  border-bottom: 1px solid var(--border); font-size: .88rem; font-weight: 600; cursor: pointer;
+}
+.fech-incluir-item:last-child { border-bottom: none; }
+.fech-incluir-item input { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--gold); }
+
 /* Grupo de categoria na lista */
 .fin-cat-group-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -1095,9 +1158,11 @@ textarea.input { resize: vertical; min-height: 80px; }
 .bloco-num { font-size: .82rem; font-weight: 800; color: var(--text); letter-spacing: -.1px; }
 .bloco-num small { font-weight: 600; color: var(--text-muted); }
 .bloco-row.bloco-reajuste .bloco-num { color: var(--gold-dk); }
-.bloco-times { display: flex; align-items: center; gap: 8px; }
-.bloco-times .input { flex: 1; min-width: 0; text-align: center; background: var(--card); }
-.bloco-sep { color: var(--text-light); font-weight: 700; flex: 0 0 auto; }
+.bloco-times { display: flex; align-items: flex-end; gap: 8px; }
+.bloco-time { flex: 1; min-width: 0; }
+.bloco-time label { display: block; font-size: .6rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+.bloco-times .input { width: 100%; min-width: 0; text-align: center; background: var(--card); }
+.bloco-sep { color: var(--text-light); font-weight: 700; flex: 0 0 auto; padding-bottom: 9px; }
 .bloco-del {
   flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
   background: transparent; border: none;
@@ -1141,17 +1206,18 @@ textarea.input { resize: vertical; min-height: 80px; }
   font-size: .74rem; color: var(--text-muted); margin-top: 4px;
   font-style: italic; line-height: 1.35;
 }
+/* Resultado da sessão — bloco VIVO na marca (navy + gold), não mais verde pastel */
 .calc-preview {
-  background: var(--success-lt); border: 1.5px solid rgba(48,209,88,.3);
-  border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 14px;
+  background: linear-gradient(150deg, var(--navy-lt), var(--navy));
+  border: none; border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 14px;
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
 }
-.calc-item label { font-size: .7rem; color: var(--navy); font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 3px; }
-.calc-item span  { font-size: 1.15rem; font-weight: 800; color: var(--navy); }
-/* Sublinha da caixa verde: base/h + quebra (ou aviso de valor fixo) — ocupa a largura toda */
-.calc-sub { grid-column: 1 / -1; font-size: .68rem; color: #2F7D4F; font-weight: 600; line-height: 1.4; margin-top: 2px; }
+.calc-item label { font-size: .68rem; color: var(--gold); font-weight: 800; text-transform: uppercase; letter-spacing: .5px; display: block; margin-bottom: 3px; }
+.calc-item span  { font-size: 1.35rem; font-weight: 800; color: #fff; }
+/* Sublinha (base/h + quebra ou aviso de valor fixo) — legível sobre o navy */
+.calc-sub { grid-column: 1 / -1; font-size: .68rem; color: rgba(255,255,255,.72); font-weight: 600; line-height: 1.4; margin-top: 2px; }
 .calc-sub:empty { display: none; }
-.calc-sub-reaj { color: var(--gold-dk); font-weight: 700; }
+.calc-sub-reaj { color: var(--gold); font-weight: 700; }
 /* Calculadora OS normal v2 — mão de obra (das sessões) + seções */
 .calc-maoobra {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -1707,4 +1773,102 @@ textarea.input { resize: vertical; min-height: 80px; }
 .lote-bar .btn[disabled] { opacity: .45; }
 @media (min-width: 768px) {
   .lote-bar { left: auto; right: 24px; bottom: 24px; max-width: 420px; min-width: 320px; }
+}
+
+/* Abas do Estoque (2 abas na marca + botão "⋯ Mais") */
+.estq-tabs { display: flex; align-items: center; gap: 8px; }
+.estq-mais {
+  flex: 0 0 auto; width: 44px; height: 40px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: var(--card);
+  font-size: 1.2rem; font-weight: 800; color: var(--navy); line-height: 1;
+}
+.estq-mais:active { background: var(--bg); transform: scale(.97); }
+
+/* ─── Home: resumo financeiro (A receber / A pagar) ─── */
+.home-fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.home-fin-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); cursor: pointer; }
+.home-fin-card:active { transform: scale(.98); }
+.home-fin-label { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; }
+.home-fin-label.rec { color: #1D9E75; }
+.home-fin-label.pag { color: var(--danger); }
+.home-fin-val { font-size: 1.2rem; font-weight: 800; color: var(--navy); margin-top: 3px; }
+.home-fin-sub { font-size: .68rem; color: var(--text-light); margin-top: 2px; }
+
+/* ─── Home: botão flutuante (FAB) + speed-dial ─── */
+.home-fab-wrap {
+  position: fixed; right: 18px;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 14px);
+  z-index: 200; display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
+}
+.home-fab-main {
+  width: 58px; height: 58px; border-radius: 50%;
+  background: var(--gold); color: var(--navy); font-size: 30px; font-weight: 800; line-height: 1;
+  box-shadow: 0 6px 18px rgba(245,166,35,.5); display: flex; align-items: center; justify-content: center;
+}
+.home-fab-main:active { transform: scale(.94); }
+.home-fab-actions {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
+  pointer-events: none; opacity: 0; transform: translateY(10px); transition: opacity .18s, transform .18s;
+}
+.home-fab-wrap.open .home-fab-actions { pointer-events: auto; opacity: 1; transform: translateY(0); }
+.home-fab-act { display: flex; align-items: center; gap: 8px; background: transparent; border: none; padding: 0; }
+.home-fab-label { background: var(--navy); color: #fff; font-size: .74rem; font-weight: 700; padding: 4px 10px; border-radius: 8px; box-shadow: var(--shadow); white-space: nowrap; }
+.home-fab-mini { width: 46px; height: 46px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 21px; box-shadow: 0 3px 12px rgba(0,0,0,.14); }
+.home-fab-scrim { position: fixed; inset: 0; background: rgba(15,29,53,.4); z-index: 199; opacity: 0; pointer-events: none; transition: opacity .18s; }
+.home-fab-scrim.open { opacity: 1; pointer-events: auto; }
+
+/* ─── Config: cards em sanfona (accordion) ─── */
+#page-config .cfg-acc-head { cursor: pointer; }
+#page-config .cfg-acc-head h3 { flex: 1; }
+.cfg-acc-chev { margin-left: 8px; color: var(--text-muted); font-size: 1.1rem; transition: transform .2s; flex: 0 0 auto; }
+.card.open .cfg-acc-chev { transform: rotate(180deg); }
+.cfg-acc-body { display: none; }
+.card.open .cfg-acc-body { display: block; }
+
+/* Config: categorias agrupadas por tipo (chips) */
+.cat-grupo { margin-bottom: 14px; }
+.cat-grupo:last-child { margin-bottom: 0; }
+.cat-grupo-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cat-grupo-title { font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; color: var(--text); }
+.cat-grupo-count { font-size: .68rem; font-weight: 700; color: var(--text-muted); }
+.cat-grupo-add { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--border); background: var(--card); color: var(--gold-dk); font-size: 1rem; font-weight: 800; line-height: 1; }
+.cat-grupo-add:active { background: var(--bg); }
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-chip { font-size: .78rem; font-weight: 700; padding: 5px 11px; border-radius: 50px; border: none; }
+.cat-chip.inativa { opacity: .45; text-decoration: line-through; }
+.cat-vazio { font-size: .74rem; color: var(--text-light); font-style: italic; }
+
+/* Insights: seção Orçamentos (conversão + pipeline) */
+.ins-orc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ins-orc-tile { text-align: center; }
+.ins-orc-label { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); }
+.ins-orc-val { font-size: 1.5rem; font-weight: 800; margin-top: 3px; }
+.ins-orc-sub { font-size: .7rem; color: var(--text-light); margin-top: 2px; }
+
+/* ─── "A fazer" (checklist agrupado por prazo) ─── */
+.afazer-group-head { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); margin: 16px 2px 8px; display: flex; gap: 8px; align-items: baseline; }
+.afazer-group-head span { color: var(--text-light); }
+.afazer-group-head.is-atrasado { color: var(--danger); }
+.afazer-item { display: flex; align-items: center; gap: 11px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 11px 13px; margin-bottom: 8px; box-shadow: var(--shadow); }
+.afazer-item.is-feito { opacity: .6; }
+.afazer-item.is-feito .ag-title { text-decoration: line-through; color: var(--text-muted); }
+.afazer-check { width: 24px; height: 24px; flex: 0 0 auto; border-radius: 7px; border: 2px solid #C7D0E0; background: var(--card); color: #fff; font-size: 14px; font-weight: 800; line-height: 1; }
+.afazer-check.on { background: var(--success); border-color: var(--success); }
+.afazer-body { flex: 1; min-width: 0; cursor: pointer; }
+.afazer-body .ag-title { font-weight: 700; font-size: .92rem; }
+.afazer-body .ag-sub { font-size: .74rem; color: var(--text-muted); margin-top: 2px; }
+/* Atalho "A fazer" na Home */
+.home-afazer { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); margin-bottom: 8px; cursor: pointer; }
+.home-afazer .badge-count { margin-left: auto; background: var(--danger); color: #fff; font-size: .7rem; font-weight: 800; border-radius: 50px; padding: 1px 9px; }
+
+/* Barra fixa do Inventário — "Finalizar contagem" sempre visível */
+.inv-bar {
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+  z-index: 190;
+}
+.inv-bar .btn { width: 100%; box-shadow: 0 8px 24px rgba(15, 29, 53, .35); }
+.inv-bar .btn[disabled] { opacity: .5; }
+@media (min-width: 768px) {
+  .inv-bar { left: auto; right: 24px; bottom: 24px; max-width: 420px; min-width: 320px; }
 }

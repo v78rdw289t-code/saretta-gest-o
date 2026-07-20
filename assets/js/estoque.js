@@ -17,6 +17,7 @@ const Estoque = (() => {
   let _movMotivo  = '';   // filtro de motivo na aba Movimentações
   let _movQ       = '';   // busca por item na aba Movimentações
   let _contagem   = {};   // estoque_id -> qtd contada (aba Inventário)
+  let _invQ       = '';   // busca de item na contagem do Inventário
   let _gruposFechados = new Set(); // grupos recolhidos na aba Itens
 
   const SEM_GRUPO = '— Sem grupo —';
@@ -63,13 +64,27 @@ const Estoque = (() => {
   }
   const switchTab = goTab;
 
+  // 2 abas na marca (Estoque · Compras). Movimentações/Relatório/Inventário/Lista
+  // saem da barra e viram o menu "⋯ Mais".
   function tabsHTML(active) {
     const t = (id, label) =>
-      `<button class="section-tab ${active === id ? 'active' : ''}" onclick="Estoque.goTab('${id}')">${label}</button>`;
-    return `<div class="section-tabs">
-      ${t('itens', '📦 Itens')}${t('compras', '🛒 Compras')}${t('lista', '📝 Lista')}
-      ${t('mov', '🔄 Mov.')}${t('rel', '📊 Relat.')}${t('inventario', '📋 Invent.')}
+      `<button class="tab-btn ${active === id ? 'active' : ''}" onclick="Estoque.goTab('${id}')">${label}</button>`;
+    return `<div class="estq-tabs mb-3">
+      <div class="tab-bar" style="flex:1;margin-bottom:0">
+        ${t('itens', '📦 Estoque')}${t('compras', '🛒 Compras')}
+      </div>
+      <button class="estq-mais" onclick="Estoque.abrirMais()" aria-label="Mais opções" title="Mais">⋯</button>
     </div>`;
+  }
+
+  // Menu das telas secundárias (fora da barra de abas).
+  function abrirMais() {
+    ActionSheet.open('Mais', [
+      { icon: '📋', label: 'Inventário / Contagem', fn: () => goTab('inventario') },
+      { icon: '📝', label: 'Lista de compras',      fn: () => goTab('lista') },
+      { icon: '📊', label: 'Relatório',             fn: () => goTab('rel') },
+      { icon: '🔄', label: 'Movimentações',         fn: () => goTab('mov') },
+    ]);
   }
 
   // ─── Carregamento + dispatch ─────────────────────────────────
@@ -484,17 +499,23 @@ const Estoque = (() => {
   }
 
   function renderInventario() {
-    const itens = allEstoque.slice().sort((a, b) => (a.descricao || '').localeCompare(b.descricao || ''));
+    let itens = allEstoque.slice().sort((a, b) => (a.descricao || '').localeCompare(b.descricao || ''));
+    if (_invQ) itens = filterRecords(itens, _invQ, ['descricao', 'unidade']);
     const pend = _contagemPend().length;
+    const contados = allEstoque.filter(e => { const c = _contagem[e.id]; return c !== '' && c != null; }).length;
     qs('#page-estoque').innerHTML = `
       ${tabsHTML('inventario')}
       <div class="page-header"><h1>Inventário / Contagem</h1></div>
-      <p class="text-muted mb-3" style="font-size:.82rem;line-height:1.45">
+      <p class="text-muted" style="font-size:.82rem;line-height:1.45;margin-bottom:8px">
         Conte o estoque físico, digite a quantidade <strong>contada</strong> e finalize — o sistema gera os ajustes.
-        Toque em ✏️ pra corrigir nome, custo ou categoria do item.
       </p>
+      <div class="mb-3" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <input type="search" id="inv-search" class="input-search" placeholder="Buscar item na contagem..." value="${_invQ}"
+          style="flex:1;min-width:0" oninput="Estoque.onInvSearch(this.value)">
+        <span style="font-size:.72rem;color:var(--text-muted);font-weight:700;white-space:nowrap">${contados}/${allEstoque.length} contados</span>
+      </div>
       <div class="entity-list">
-        ${itens.length === 0 ? '<div class="entity-empty">Sem itens</div>' : itens.map(e => {
+        ${itens.length === 0 ? '<div class="entity-empty">Nenhum item</div>' : itens.map(e => {
           const sis = Number(e.quantidade || 0);
           const c   = _contagem[e.id];
           const tem = c !== '' && c != null;
@@ -515,10 +536,20 @@ const Estoque = (() => {
             </div>`;
         }).join('')}
       </div>
-      <button id="inv-finalizar" class="btn btn-primary btn-full mt-3" onclick="Estoque.finalizarContagem()">
-        Finalizar contagem${pend ? ` (${pend} ajuste${pend > 1 ? 's' : ''})` : ''}
-      </button>
+      <div style="height:80px"></div>
+      <div class="inv-bar">
+        <button id="inv-finalizar" class="btn btn-gold" ${pend ? '' : 'disabled'} onclick="Estoque.finalizarContagem()">
+          Finalizar contagem${pend ? ` (${pend} ajuste${pend > 1 ? 's' : ''})` : ''}
+        </button>
+      </div>
     `;
+  }
+
+  // Busca na contagem: re-renderiza e devolve o foco ao campo (cursor no fim).
+  function onInvSearch(v) {
+    _invQ = v; renderInventario();
+    const el = qs('#inv-search');
+    if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} }
   }
 
   // Atualiza a diferença do item + o contador do botão SEM re-render (mantém o foco no input)
@@ -779,11 +810,11 @@ const Estoque = (() => {
   }
 
   return {
-    render, goTab, switchTab, tabsHTML,
+    render, goTab, switchTab, tabsHTML, abrirMais,
     onSearch, onCatFiltro, onRelCat, toggleGrupo, openDetail, voltarLista,
     openForm, saveForm, onGrupoChange, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
-    onMovSearch, onMovMotivo, onContagem, finalizarContagem,
+    onMovSearch, onMovMotivo, onContagem, onInvSearch, finalizarContagem,
     // lista
     openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
     addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado, deleteListaItem,

@@ -92,6 +92,15 @@ const App = (() => {
       API.db.read('os').catch(() => null),
       API.db.read('diarias').catch(() => null),
       API.db.read('os_itens').catch(() => null),
+      // Aquece as sheets "frias" que abriam com spinner (Compras/Lista, Fiado,
+      // A fazer). Fire-and-forget: não bloqueiam o boot e servem do cache (SWR)
+      // quando a aba abre, com refetch em background.
+      API.db.read('compras').catch(() => null),
+      API.db.read('lista_compras').catch(() => null),
+      API.db.read('estoque_movimentacoes').catch(() => null),
+      API.db.read('fiado_mov').catch(() => null),
+      API.db.read('fiado').catch(() => null),
+      API.db.read('compromissos').catch(() => null),
     ]);
     allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
                                           .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));

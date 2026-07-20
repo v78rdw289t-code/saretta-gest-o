@@ -161,30 +161,8 @@ const Config = (() => {
         </div>
 
         <div class="card">
-          <div class="card-header">
-            <h3>Categorias</h3>
-            <button class="btn btn-sm btn-primary" onclick="Config.openCatForm()">+ Nova</button>
-          </div>
-          <div class="table-responsive">
-            <table class="table">
-              <thead><tr><th>Nome</th><th>Tipo</th><th>Ativo</th><th></th></tr></thead>
-              <tbody>
-                ${allCategorias.map(c => `
-                  <tr>
-                    <td>${c.nome}</td>
-                    <td><span class="badge ${c.tipo==='entrada'?'badge-success':c.tipo==='saida'?'badge-danger':c.tipo==='os'?'badge-info':'badge-secondary'}">${c.tipo}</span></td>
-                    <td>${c.ativo !== false && c.ativo !== 'false' ? '✓' : '—'}</td>
-                    <td>
-                      <button class="btn btn-sm btn-outline" onclick="Config.openCatForm('${c.id}')">Editar</button>
-                      <button class="btn btn-sm btn-danger" onclick="Config.toggleCat('${c.id}', ${c.ativo})">
-                        ${c.ativo !== false && c.ativo !== 'false' ? 'Desativar' : 'Ativar'}
-                      </button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
+          <div class="card-header"><h3>Categorias</h3></div>
+          <div class="card-body">${_catChipsHTML()}</div>
         </div>
 
         <div class="card">
@@ -234,6 +212,61 @@ const Config = (() => {
     `;
 
     renderStorage(); // assíncrono: preenche o #cfg-storage quando o navegador responder
+    _aplicaAccordion(); // cards viram sanfona (minimizados, lembrando o estado)
+  }
+
+  // Categorias agrupadas por tipo, como chips coloridos (tocar edita, ＋ cria no tipo).
+  function _catChipsHTML() {
+    const grupos = [
+      { tipo: 'entrada', label: '💰 Receitas',      badge: 'badge-success' },
+      { tipo: 'saida',   label: '💸 Despesas',      badge: 'badge-danger'  },
+      { tipo: 'os',      label: '🔧 OS / Serviço',  badge: 'badge-info'    },
+      { tipo: 'ambos',   label: '🔁 Ambos',         badge: 'badge-secondary' },
+    ];
+    return grupos.map(g => {
+      const cats = allCategorias.filter(c => (c.tipo || '') === g.tipo);
+      return `
+        <div class="cat-grupo">
+          <div class="cat-grupo-head">
+            <span class="cat-grupo-title">${g.label}</span>
+            <span class="cat-grupo-count">${cats.length}</span>
+            <button class="cat-grupo-add" onclick="Config.openCatForm('', '${g.tipo}')" aria-label="Nova categoria">＋</button>
+          </div>
+          <div class="cat-chips">
+            ${cats.length === 0 ? '<span class="cat-vazio">nenhuma</span>' : cats.map(c => {
+              const inativa = c.ativo === false || c.ativo === 'false';
+              return `<button class="cat-chip ${g.badge}${inativa ? ' inativa' : ''}" onclick="Config.openCatForm('${c.id}')">${c.nome}</button>`;
+            }).join('')}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // Envolve cada card do Config numa sanfona (header clicável + corpo colapsável).
+  // Começa tudo minimizado; lembra o que ficou aberto em localStorage.
+  function _aplicaAccordion() {
+    let estado = {};
+    try { estado = JSON.parse(localStorage.getItem('cfg_cards_abertos') || '{}'); } catch (_) {}
+    qs('#page-config').querySelectorAll('.card').forEach((card, i) => {
+      const head = card.querySelector('.card-header');
+      if (!head || card.dataset.acc) return;
+      card.dataset.acc = '1';
+      const key = (head.querySelector('h3')?.textContent || String(i)).trim();
+      const body = document.createElement('div');
+      body.className = 'cfg-acc-body';
+      while (head.nextSibling) body.appendChild(head.nextSibling);
+      card.appendChild(body);
+      head.classList.add('cfg-acc-head');
+      head.insertAdjacentHTML('beforeend', '<span class="cfg-acc-chev">⌄</span>');
+      card.classList.toggle('open', !!estado[key]);
+      head.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return; // não togglar clicando num botão do header
+        const open = !card.classList.contains('open');
+        card.classList.toggle('open', open);
+        estado[key] = open;
+        localStorage.setItem('cfg_cards_abertos', JSON.stringify(estado));
+      });
+    });
   }
 
   // ─── Diagnóstico de armazenamento ──────────────────────────
@@ -329,14 +362,27 @@ const Config = (() => {
   }
 
   let _editCatId = '';
-  function openCatForm(id = '') {
+  function openCatForm(id = '', tipoPreset = '') {
     _editCatId = id;
     const cat = id ? allCategorias.find(x => x.id === id) : null;
     qs('#cat-form-nome').value = cat?.nome || '';
-    qs('#cat-form-tipo').value = cat?.tipo || 'ambos';
+    qs('#cat-form-tipo').value = cat?.tipo || tipoPreset || 'ambos';
     qs('#cat-form-title').textContent = cat ? 'Editar Categoria' : 'Nova Categoria';
     qs('#cat-save-btn').textContent   = cat ? 'Salvar' : 'Criar';
+    const del = qs('#cat-desativar-btn');
+    if (del) {
+      if (cat) { del.style.display = ''; del.textContent = (cat.ativo === false || cat.ativo === 'false') ? 'Ativar' : 'Desativar'; }
+      else del.style.display = 'none';
+    }
     Modal.open('modal-categoria');
+  }
+
+  // Ativa/desativa a categoria em edição (o toggle mora dentro do form).
+  function toggleCatAtual() {
+    if (!_editCatId) return;
+    const cat = allCategorias.find(x => x.id === _editCatId);
+    Modal.close('modal-categoria');
+    toggleCat(_editCatId, cat ? cat.ativo : true);
   }
 
   async function saveCat() {
@@ -481,7 +527,7 @@ const Config = (() => {
 
   return { render, saveUrl, testarConexao, toggleToken, saveHoras, saveFatores,
            protegerArmazenamento,
-           openCatForm, saveCat, toggleCat,
+           openCatForm, saveCat, toggleCat, toggleCatAtual,
            openContaForm, saveConta, toggleConta,
            initDB, repairDB };
 })();

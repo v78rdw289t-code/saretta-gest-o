@@ -29,6 +29,7 @@ const Compras = (() => {
         <h1>Compras</h1>
         <button class="btn btn-primary" onclick="Compras.openForm()">+ Nova Compra</button>
       </div>
+      <button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:12px" onclick="Estoque.goTab('lista')">📝 Lista de compras</button>
       <div class="entity-list">
         ${allCompras.length === 0
           ? '<div class="entity-empty">Nenhuma compra registrada</div>'
@@ -110,12 +111,12 @@ const Compras = (() => {
               <thead><tr><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 ${parcelas.map(p => `
-                  <tr>
+                  <tr style="cursor:pointer" onclick="App.navigate('financeiro').then(() => Financeiro.tapParcela('${p.id}'))" title="Editar no Financeiro">
                     <td>${Fmt.date(p.data_vencimento)}</td>
                     <td>${Fmt.currency(p.valor)}</td>
                     <td>${statusBadge(p.status)}</td>
                     <td>
-                      ${p.status === 'pendente' ? `<button class="btn btn-sm btn-success" onclick="App.navigate('financeiro').then(() => Financeiro.openPagamento('${p.id}'))">Pagar</button>` : ''}
+                      ${p.status === 'pendente' ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();App.navigate('financeiro').then(() => Financeiro.openPagamento('${p.id}'))">Pagar</button>` : ''}
                     </td>
                   </tr>
                 `).join('')}
