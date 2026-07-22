@@ -258,12 +258,14 @@ const Config = (() => {
       card.appendChild(body);
       head.classList.add('cfg-acc-head');
       head.insertAdjacentHTML('beforeend', '<span class="cfg-acc-chev">⌄</span>');
-      card.classList.toggle('open', !!estado[key]);
+      card.classList.toggle('open', estado.aberto === key); // um por vez
       head.addEventListener('click', (e) => {
         if (e.target.closest('button')) return; // não togglar clicando num botão do header
-        const open = !card.classList.contains('open');
-        card.classList.toggle('open', open);
-        estado[key] = open;
+        const abrir = !card.classList.contains('open');
+        // Um por vez: fecha todos os outros cards antes de abrir este.
+        qs('#page-config').querySelectorAll('.card.open').forEach(c => c.classList.remove('open'));
+        card.classList.toggle('open', abrir);
+        estado = abrir ? { aberto: key } : {};
         localStorage.setItem('cfg_cards_abertos', JSON.stringify(estado));
       });
     });

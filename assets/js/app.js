@@ -76,8 +76,17 @@ const App = (() => {
   function getCurrentParent() { return currentParent; }
   function getCurrentPage()   { return currentPage; }
 
+  let _prewarmed = false;
   async function loadGlobals() {
     if (!LocalConfig.getUrl()) return;
+    // Aquece as sheets "frias" (Compras/Lista, Fiado, A fazer) SEM await e uma
+    // única vez: não bloqueiam o boot nem a navegação — só populam o cache (SWR)
+    // em background, pra a aba abrir instantânea depois.
+    if (!_prewarmed) {
+      _prewarmed = true;
+      ['compras', 'lista_compras', 'estoque_movimentacoes', 'fiado_mov', 'fiado', 'compromissos']
+        .forEach(s => { API.db.read(s).catch(() => null); });
+    }
     const [cliRes, catRes, conRes] = await Promise.all([
       API.db.read('clientes'),
       API.db.read('categorias'),
@@ -92,15 +101,6 @@ const App = (() => {
       API.db.read('os').catch(() => null),
       API.db.read('diarias').catch(() => null),
       API.db.read('os_itens').catch(() => null),
-      // Aquece as sheets "frias" que abriam com spinner (Compras/Lista, Fiado,
-      // A fazer). Fire-and-forget: não bloqueiam o boot e servem do cache (SWR)
-      // quando a aba abre, com refetch em background.
-      API.db.read('compras').catch(() => null),
-      API.db.read('lista_compras').catch(() => null),
-      API.db.read('estoque_movimentacoes').catch(() => null),
-      API.db.read('fiado_mov').catch(() => null),
-      API.db.read('fiado').catch(() => null),
-      API.db.read('compromissos').catch(() => null),
     ]);
     allClientes   = (cliRes?.data  || []).filter(c => c.ativo !== false && c.ativo !== 'false')
                                           .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
