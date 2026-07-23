@@ -584,9 +584,9 @@ const Financeiro = (() => {
     `;
   }
 
-  function tapParcela(id) {
-    const p = allParcelas.find(x => x.id === id);
-    if (!p) return;
+  async function tapParcela(id) {
+    const p = await _getParcela(id);
+    if (!p) { Toast.warning('Parcela não encontrada'); return; }
     const actions = [];
     if (p.status === 'pendente') {
       actions.push({ icon: '💰', label: 'Registrar Pagamento', fn: () => openPagamento(id) });
@@ -876,10 +876,13 @@ const Financeiro = (() => {
   // Mantém o valor selecionado se já estava válido.
   function refreshManualSelects(curCliente = '', curCategoria = '') {
     const tipo = qs('#manual-tipo')?.value || 'pagar';
-    const tipoCliente   = tipo === 'receber' ? 'cliente'  : 'fornecedor';
+    // Despesa aceita fornecedor E equipe (pagar alguém da equipe é despesa).
+    const tipoCliente   = tipo === 'receber' ? 'cliente'  : ['fornecedor', 'equipe'];
     const tipoCategoria = tipo === 'receber' ? 'entrada'  : 'saida';
     qs('#manual-cliente').innerHTML   = App.clienteOptions(tipoCliente, curCliente);
     qs('#manual-categoria').innerHTML = App.categoriaOptions(tipoCategoria, curCategoria);
+    const lbl = qs('#manual-cliente-label');
+    if (lbl) lbl.textContent = tipo === 'receber' ? 'Cliente' : 'Fornecedor / Equipe';
   }
 
   // Quick add do lançamento: cadastra como CLIENTE se for receita, FORNECEDOR se for despesa
@@ -1006,7 +1009,9 @@ const Financeiro = (() => {
     calcNetValor();
   }
 
-  function openManual() {
+  // tipoForcado ('pagar'|'receber') permite abrir o lançamento na hora, sem
+  // depender de já ter navegado pro Financeiro (usado pelo FAB da Home).
+  function openManual(tipoForcado) {
     _recEditId = null;
     _compTocada = false;
     qs('#manual-save-btn').onclick = () => saveManual();
@@ -1025,8 +1030,9 @@ const Financeiro = (() => {
     qs('#manual-pagto').value  = DateUtil.today();  // padrão: pago hoje
     qs('#manual-quempagou').value = '';
     qs('#manual-conta').innerHTML = App.contaOptions('', '— Selecione conta —');
-    // Tipo já vem certo pela aba (Receber → receita; Pagar/Resumo → despesa).
-    const tipoIni = currentTab === 'receber' ? 'receber' : 'pagar';
+    // Tipo já vem certo pela aba (Receber → receita; Pagar/Resumo → despesa),
+    // ou forçado por quem abriu (FAB da Home).
+    const tipoIni = tipoForcado || (currentTab === 'receber' ? 'receber' : 'pagar');
     setTipo(tipoIni);       // repinta segmento + refresh selects/quempagou
     // Status por tipo: despesa normalmente já foi paga; receita normalmente é a receber.
     setStatus(tipoIni === 'receber' ? 'pendente' : 'pago');
@@ -1254,9 +1260,21 @@ const Financeiro = (() => {
     } else Toast.error('Erro: ' + res?.error);
   }
 
-  function openPagamento(id) {
-    const p = allParcelas.find(x => x.id === id);
-    if (!p) return;
+  // Acha a parcela no cache; se veio de FORA (ex.: botão Pagar na tela da
+  // Compra) antes do loadData do Financeiro, busca direto em vez de falhar
+  // em silêncio — era o bug do "clico em Pagar e não abre nada".
+  async function _getParcela(id) {
+    let p = allParcelas.find(x => x.id === id);
+    if (p) return p;
+    const res = await API.db.read('parcelas', id);
+    p = (res?.data || [])[0];
+    if (p && !allParcelas.some(x => x.id === p.id)) allParcelas.push(p);
+    return p || null;
+  }
+
+  async function openPagamento(id) {
+    const p = await _getParcela(id);
+    if (!p) { Toast.warning('Parcela não encontrada'); return; }
     qs('#pag-parcela-id').value  = id;
     qs('#pag-valor').textContent = Fmt.currency(p.valor);
     qs('#pag-data').value        = DateUtil.today();
@@ -1327,8 +1345,8 @@ const Financeiro = (() => {
   }
 
   async function editarParcela(id) {
-    const p = allParcelas.find(x => x.id === id);
-    if (!p) return;
+    const p = await _getParcela(id);
+    if (!p) { Toast.warning('Parcela não encontrada'); return; }
 
     // Parcelas do modelo antigo de fiado (reembolso pendente) entram na ficha
     // do sócio como "saldo anterior" — são resolvidas por um Acerto, não

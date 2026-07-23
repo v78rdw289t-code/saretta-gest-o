@@ -154,10 +154,13 @@ const Home = (() => {
   }
   function fabAction(k) {
     if (_fabOpen) toggleFab();
+    // OS/Orçamento renderizam uma PÁGINA → precisam navegar antes.
     if (k === 'os')        App.navigate('os').then(() => OS.openForm(null));
     else if (k === 'orcamento') App.navigate('os').then(() => OS.openForm(null, 'orcamento'));
-    else if (k === 'despesa')   App.navigate('financeiro', { tab: 'pagar' }).then(() => Financeiro.openManual());
-    else if (k === 'compra')    App.navigate('compras').then(() => Compras.openForm());
+    // Despesa/Compra são MODAIS globais → abrem na hora; a página carrega atrás
+    // (antes, esperava o render da página inteira antes de aparecer o formulário).
+    else if (k === 'despesa') { Financeiro.openManual('pagar'); App.navigate('financeiro', { tab: 'pagar' }); }
+    else if (k === 'compra')  { Compras.openForm(); App.navigate('compras'); }
   }
 
   // ─── Resumo financeiro (A receber / A pagar) ─────────────────

@@ -165,6 +165,11 @@ const Compras = (() => {
     const titulo = qs('#modal-compra .modal-header h3');
     if (titulo) titulo.textContent = id ? 'Editar Compra' : 'Nova Compra';
 
+    // Abre o modal NA HORA: o estoque (busca de item) carrega logo atrás.
+    // Antes, o await abaixo segurava a abertura por 1 ida à rede (2-5s no Apps Script).
+    renderItensForm();
+    Modal.open('modal-compra');
+
     await loadEstoque();
 
     // Editando: recarrega itens + parcelas (nº, 1º vencimento, competência).

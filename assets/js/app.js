@@ -133,9 +133,14 @@ const App = (() => {
     return c ? c.nome : '—';
   }
 
+  // tipo aceita uma string ('cliente') ou uma lista (['fornecedor','equipe']).
+  // 'ambos' sempre entra. Despesa usa fornecedor+equipe (pagamento a alguém da equipe).
   function clienteOptions(tipo = null, selected = '') {
     let list = allClientes;
-    if (tipo) list = list.filter(c => c.tipo === tipo || c.tipo === 'ambos');
+    if (tipo) {
+      const tipos = Array.isArray(tipo) ? tipo : [tipo];
+      list = list.filter(c => tipos.includes(c.tipo) || c.tipo === 'ambos');
+    }
     return '<option value="">Selecione...</option>' +
       list.map(c => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.nome}</option>`).join('');
   }
