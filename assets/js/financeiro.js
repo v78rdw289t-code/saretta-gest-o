@@ -1337,6 +1337,11 @@ const Financeiro = (() => {
     const res = await API.db.pagarParcela({ parcela_id: id, data_pagamento: data, conta_id: conta });
     Loading.hide();
     if (res?.success) {
+      // Marco de pagamento na OS de origem (parcela avulsa de OS).
+      const pg = allParcelas.find(x => x.id === id);
+      if (pg && pg.origem === 'os' && pg.origem_id) {
+        Eventos.marco(pg.origem_id, 'pagamento', { obs: Fmt.currency(pg.valor) });
+      }
       Toast.success('Pagamento registrado!');
       Modal.close('modal-pagamento');
       await loadData();

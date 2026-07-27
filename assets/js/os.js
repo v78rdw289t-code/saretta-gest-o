@@ -1015,11 +1015,16 @@ const OS = (() => {
 
     if (res?.success) {
       const nome = isOrc ? 'Orçamento' : 'OS';
+      const newId = id || res.data?.id;
+      if (!id && newId) {
+        // Marco de criação: alimenta a linha do tempo e o "criada há N dias".
+        Eventos.marco({ id: newId, registro: data.registro || 'os' }, 'criada',
+          { origem: data.origem || '' });
+      }
       Toast.success(id ? `${nome} atualizado!` : `${nome} criado!`);
       await loadData();
       if (id) openDetail(id);
       else {
-        const newId = res.data?.id;
         if (newId) openDetail(newId);
         else renderList();
       }
@@ -1725,6 +1730,11 @@ const OS = (() => {
     Loading.hide();
 
     if (res?.success) {
+      if (!itemId) {
+        // Marco de item lançado (alimenta a linha do tempo / "movimento" da OS).
+        Eventos.marco({ id: osId, registro: currentOS?.registro || 'os' }, 'item_add',
+          { obs: `${tipo}: ${finalDesc || desc}` });
+      }
       const msg = (!itemId && quemPagou)
         ? `Item adicionado! Fiado de reembolso gerado para ${quemPagou.charAt(0).toUpperCase() + quemPagou.slice(1)}.`
         : (itemId ? 'Item atualizado!' : 'Item adicionado!');
@@ -2433,6 +2443,7 @@ const OS = (() => {
       data_atualizacao: new Date().toISOString(),
     };
 
+    const statusAntesFech = currentOS?.status || '';
     // Atualiza localmente na hora — independe do retorno do fecharOS
     if (currentOS) {
       currentOS.status          = 'fechado';
@@ -2455,6 +2466,11 @@ const OS = (() => {
       await API.db.update('os', osId, patch);
       Toast.warning('OS marcada como fechada, mas houve erro ao gerar parcela: ' + (res?.error || ''));
     }
+
+    // Eventos: transição de status (fechamento não passa por mudarStatus) + marco.
+    const osRef = { id: osId, registro: currentOS?.registro || 'os' };
+    if (statusAntesFech !== 'fechado') Eventos.statusChange(osRef, 'fechado', statusAntesFech);
+    Eventos.marco(osRef, 'fechamento', { obs: `Líquido ${Fmt.currency(liquido)}` });
 
     await loadData();
     openDetail(osId);
@@ -2736,6 +2752,7 @@ const OS = (() => {
 
   async function mudarStatus(novoStatus) {
     if (!currentOS || !novoStatus) return;
+    const statusAnterior = currentOS.status || '';
     Loading.show();
     const patch = {
       status: novoStatus,
@@ -2751,6 +2768,7 @@ const OS = (() => {
     const res = await API.db.update('os', currentOS.id, patch);
     Loading.hide();
     if (res?.success) {
+      Eventos.statusChange(currentOS, novoStatus, statusAnterior);
       currentOS.status = novoStatus;
       if (patch.data_fim)    currentOS.data_fim = patch.data_fim;
       if (patch.data_acerto) currentOS.data_acerto = patch.data_acerto;

@@ -39,8 +39,22 @@ const SHEET_HEADERS = {
   // registro: 'os' | 'orcamento' (default 'os'). Orçamento reusa a MESMA planilha.
   // prazo_dias: estimativa de dias. Na OS gerada de um orçamento: orcamento_id
   // (origem) + snapshots orcado_valor / orcado_data para exibir "Orçado em ...".
-  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao','registro','prazo_dias','orcamento_id','orcado_valor','orcado_data','data_acerto'],
-  os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total'],
+  // origem: 'normal' | 'urgencia' | 'orcamento' (como a OS nasceu; nem toda OS
+  //   vem de orçamento). prioridade: 'normal' | 'alta' | 'urgente'.
+  // retorno_de: id da OS original quando esta é um retrabalho (Declarar retorno).
+  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao','registro','prazo_dias','orcamento_id','orcado_valor','orcado_data','data_acerto','origem','prioridade','retorno_de'],
+  // pagador: 'empresa' | 'cliente' (material pago pelo cliente NÃO soma no valor
+  //   a cobrar). no_pdf: '1' | '0' (oculta o item no PDF de orçamento/lista).
+  os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total','pagador','no_pdf'],
+  // Log de eventos da OS/OR — fundação da linha do tempo, do histórico e da
+  // inteligência. Uma linha por evento (append-only). tipo: 'status' (transição
+  // de etapa) | 'apontamento' (diário: deslocamento/refeicao/aguardando_peca/
+  // generico, com duracao_min) | 'marco' (evento automático: criada, item_add,
+  // sessao_inicio, sessao_fim, pdf_gerado, fechamento, pagamento, retorno, edicao).
+  // de/para: status antigo→novo (só em tipo='status'). ts: ISO. responsavel: opc.
+  os_eventos:     ['id','os_id','registro','tipo','de','para','categoria','responsavel','ts','duracao_min','origem','obs'],
+  // Catálogo de serviços pré-cadastrados p/ "serviço rápido" (1 toque na OS).
+  servicos_catalogo: ['id','nome','valor','unidade','categoria_id','ativo'],
   diarias:        ['id','os_id','categoria_id','data','manha_inicio','manha_fim','tarde_inicio','tarde_fim','horas_totais','valor_calculado','valor_manual','observacoes','reajuste_json','blocos_json'],
   fechamentos:    ['id','os_id','data','valor_bruto','desconto','valor_liquido','observacoes'],
   fechamento_dias:['id','fechamento_id','diaria_id'],
@@ -51,7 +65,8 @@ const SHEET_HEADERS = {
   parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
   contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
-  estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo','categoria_id','estoque_minimo','grupo'],
+  // codigo_barras: EAN/SKU lido pela câmera p/ achar o item e dar baixa na OS.
+  estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo','categoria_id','estoque_minimo','grupo','codigo_barras'],
   compras:        ['id','fornecedor_id','data','valor_total','valor_bruto','desconto','parcela_id','observacoes'],
   compras_itens:  ['id','compra_id','descricao','estoque_id','categoria_id','quantidade','valor_unit','valor_liq','valor_total'],
   lista_compras:  ['id','cliente_id','descricao','quantidade','unidade','estoque_id','status','data_criacao'],
@@ -1324,6 +1339,13 @@ function initializeSheets() {
     { chave: 'simples_aliquota',       valor: '0',    descricao: 'Alíquota Simples Nacional (%)' },
     { chave: 'fatores_json',           valor: fatoresDefault, descricao: 'Fatores de ajuste (JSON)' },
     { chave: 'empresa_nome',           valor: 'Saretta Serviços', descricao: 'Nome da empresa' },
+    // Limiares da inteligência (dias). Editáveis na tela de Config.
+    { chave: 'sla_aguardando_peca_dias',    valor: '3',  descricao: 'Alerta: OS parada em "aguardando peça" há mais de X dias' },
+    { chave: 'sla_aguardando_cliente_dias', valor: '5',  descricao: 'Alerta: OS parada em "aguardando cliente" há mais de X dias' },
+    { chave: 'sla_visita_dias',             valor: '3',  descricao: 'Alerta: visita de orçamento agendada e não realizada há mais de X dias' },
+    { chave: 'sla_orcamento_resposta_dias', valor: '7',  descricao: 'Alerta: orçamento enviado sem resposta do cliente há mais de X dias' },
+    { chave: 'os_parada_dias',              valor: '10', descricao: 'Alerta: OS em andamento parada (sem movimento) há mais de X dias' },
+    { chave: 'sla_ciclo_os_dias',           valor: '15', descricao: 'Referência: tempo de ciclo alvo de uma OS (abertura → entrega), em dias' },
   ];
   defaults.forEach(d => {
     if (!existingConfig.find(c => c.chave === d.chave)) {

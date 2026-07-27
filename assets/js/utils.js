@@ -789,3 +789,52 @@ const Guard = (() => {
   }
   return { run, isRunning: (key) => running.has(key) };
 })();
+
+// ─── Eventos: log append-only da OS/OR ───────────────────────
+// Fundação da linha do tempo, do histórico e da inteligência. Grava uma linha
+// na sheet `os_eventos` por acontecimento. É BEST-EFFORT e NÃO-BLOQUEANTE: o
+// fluxo principal (fechar OS, lançar item…) nunca deve quebrar nem esperar por
+// causa de um evento. Offline, o create entra na caderneta (os_eventos está na
+// whitelist do outbox) e sobe depois.
+//   tipo='status'      → transição de etapa (usa `de`/`para`).
+//   tipo='marco'       → evento automático (usa `categoria`: criada|item_add|
+//                        sessao_inicio|sessao_fim|pdf_gerado|fechamento|
+//                        pagamento|retorno|edicao).
+//   tipo='apontamento' → diário manual (usa `categoria`: deslocamento|refeicao|
+//                        aguardando_peca|generico… e `duracao_min`).
+const Eventos = {
+  // Grava um evento cru. `campos` precisa de ao menos { tipo }. ts é carimbado
+  // aqui se não vier. Engole qualquer erro (evento é secundário).
+  log(osId, campos) {
+    try {
+      if (!osId || !campos || !campos.tipo) return;
+      const rec = {
+        os_id: osId,
+        registro: campos.registro || 'os',
+        ts: campos.ts || new Date().toISOString(),
+        ...campos,
+      };
+      Promise.resolve(API.db.create('os_eventos', rec)).catch(() => {});
+    } catch (_) { /* nunca propaga */ }
+  },
+  // Atalho: transição de status. `de` explícito ou o status atual da OS.
+  statusChange(os, para, de) {
+    if (!os || !os.id) return;
+    this.log(os.id, {
+      tipo: 'status',
+      registro: os.registro || 'os',
+      de: (de != null ? de : (os.status || '')),
+      para: para || '',
+    });
+  },
+  // Atalho: marco automático. `os` pode ser o objeto OS ou só o id.
+  marco(os, categoria, extra) {
+    const osId = (os && os.id) || os;
+    this.log(osId, {
+      tipo: 'marco',
+      registro: (os && os.registro) || 'os',
+      categoria: categoria || '',
+      ...(extra || {}),
+    });
+  },
+};

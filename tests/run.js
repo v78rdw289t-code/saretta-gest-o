@@ -345,6 +345,29 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Fase 0: os_eventos + colunas novas (inteligência OS) —');
+  {
+    const g = makeGsSandbox();
+    test('SHEET_HEADERS ganha os_eventos, servicos_catalogo e as colunas novas', () => {
+      assert.ok(vm.runInContext(`!!SHEET_HEADERS.os_eventos`, g), 'os_eventos existe');
+      assert.ok(vm.runInContext(`!!SHEET_HEADERS.servicos_catalogo`, g), 'servicos_catalogo existe');
+      const osH = vm.runInContext(`SHEET_HEADERS.os`, g);
+      ['origem', 'prioridade', 'retorno_de'].forEach(c => assert.ok(osH.includes(c), 'os.' + c));
+      const itH = vm.runInContext(`SHEET_HEADERS.os_itens`, g);
+      ['pagador', 'no_pdf'].forEach(c => assert.ok(itH.includes(c), 'os_itens.' + c));
+      assert.ok(vm.runInContext(`SHEET_HEADERS.estoque`, g).includes('codigo_barras'), 'estoque.codigo_barras');
+    });
+    test('append em os_eventos: create/read preserva os campos do evento', () => {
+      const r = vm.runInContext(`create('os_eventos', { os_id: 'OS9', registro: 'os',
+        tipo: 'status', de: 'andamento', para: 'aguardando_peca', ts: '2026-07-27T10:00:00.000Z' })`, g);
+      const ev = vm.runInContext(`read('os_eventos', '${r.data.id}').data[0]`, g);
+      assert.equal(ev.os_id, 'OS9');
+      assert.equal(ev.tipo, 'status');
+      assert.equal(ev.de, 'andamento');
+      assert.equal(ev.para, 'aguardando_peca');
+    });
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem
