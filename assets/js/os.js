@@ -1630,12 +1630,17 @@ const OS = (() => {
 
   // ─── ITENS ──────────────────────────────────────────────
   let _itemEstoque = []; // itens do estoque em cache p/ a busca do modal-item
+  let _servicosCatalogo = []; // catálogo de serviço rápido em cache
 
   async function openItemForm(itemId = null) {
     if (!currentOS) return;
     const item   = itemId ? allItens.find(i => i.id === itemId) : null;
-    const estRes = await API.db.read('estoque');
+    const [estRes, srvRes] = await Promise.all([
+      API.db.read('estoque'),
+      API.db.read('servicos_catalogo'),
+    ]);
     _itemEstoque = (estRes?.data || []).filter(e => e.ativo !== false && e.ativo !== 'false');
+    _servicosCatalogo = (srvRes?.data || []).filter(s => s.ativo !== false && s.ativo !== 'false');
 
     qs('#modal-item-id').value    = itemId || '';
     qs('#modal-item-os-id').value = currentOS.id;
@@ -1717,7 +1722,8 @@ const OS = (() => {
     renderItemResultados([e], jaSel ? '' : id);
   }
 
-  // Mostra/oculta campo "quem pagou" conforme o tipo do item
+  // Mostra/oculta campo "quem pagou" conforme o tipo do item, e alterna
+  // busca no estoque (material) × serviço rápido (serviço).
   function onItemTipoChange() {
     const tipo = qs('#modal-item-tipo')?.value;
     const wrap = qs('#item-quempagou-wrap');
@@ -1725,6 +1731,50 @@ const OS = (() => {
     if (tipo !== 'material' && qs('#modal-item-quempagou')) {
       qs('#modal-item-quempagou').value = '';
     }
+    const isServico = tipo === 'servico';
+    qs('#item-estoque-wrap')?.classList.toggle('hidden', isServico);
+    qs('#item-servico-rapido-wrap')?.classList.toggle('hidden', !isServico);
+    qs('#modal-item-salvar-srv')?.classList.toggle('hidden', !isServico);
+    if (isServico) _renderServicoRapido();
+  }
+
+  // ─── SERVIÇO RÁPIDO (catálogo servicos_catalogo) ─────────────
+  function _renderServicoRapido() {
+    const box = qs('#modal-item-servico-chips');
+    if (!box) return;
+    if (!_servicosCatalogo.length) {
+      box.innerHTML = '<div class="item-busca-hint">Sem serviços no catálogo. Preencha a descrição/valor e toque em 💾 pra salvar.</div>';
+      return;
+    }
+    box.innerHTML = _servicosCatalogo.map(s => `
+      <button type="button" class="badge badge-info" style="cursor:pointer;border:none;font-size:.8rem;padding:6px 10px"
+        onclick="OS.escolherServicoRapido('${s.id}')">${Fmt.esc(s.nome)}${Number(s.valor) > 0 ? ` · ${Fmt.currency(s.valor)}` : ''}</button>`).join('');
+  }
+
+  function escolherServicoRapido(id) {
+    const s = _servicosCatalogo.find(x => String(x.id) === String(id));
+    if (!s) return;
+    qs('#modal-item-desc').value = s.nome || '';
+    if (Number(s.valor) > 0) {
+      qs('#modal-item-unit').value = s.valor;
+      const q = Number(qs('#modal-item-qtd').value) || 1;
+      qs('#modal-item-total').value = (q * Number(s.valor)).toFixed(2);
+    }
+  }
+
+  function salvarServicoRapido() { return Guard.run('srv-catalogo', () => _salvarServicoRapido()); }
+  async function _salvarServicoRapido() {
+    const nome = qs('#modal-item-desc').value.trim();
+    if (!nome) { Toast.warning('Preencha a descrição do serviço primeiro'); return; }
+    if (_servicosCatalogo.some(s => (s.nome || '').toLowerCase() === nome.toLowerCase())) {
+      Toast.info('Esse serviço já está no catálogo.'); return;
+    }
+    const valor = Number(qs('#modal-item-unit').value) || 0;
+    const res = await API.db.create('servicos_catalogo', { nome, valor, unidade: 'un', ativo: true });
+    if (!res?.success) { Toast.error('Erro ao salvar no catálogo'); return; }
+    _servicosCatalogo.push(res.data && res.data.id ? res.data : { id: 'tmp', nome, valor, ativo: true });
+    _renderServicoRapido();
+    Toast.success(res.queued ? '📮 Salvo no catálogo (offline).' : 'Salvo no catálogo de serviço rápido.');
   }
 
   // Limpa o form do item pro próximo (mantém o tipo escolhido), foca a busca.
@@ -3170,6 +3220,7 @@ const OS = (() => {
     openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, excluirDiariaAtual, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque, scanItemEstoque,
+    escolherServicoRapido, salvarServicoRapido,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     addGrupoServico, parseGrupo, encodeGrupo,
     openFaltouMaterial, saveFaltouMaterial,
