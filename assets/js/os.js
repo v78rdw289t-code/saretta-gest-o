@@ -75,7 +75,12 @@ const OS = (() => {
   let _verMais = false;
   const _VER_MAIS_LIMITE = 10;
 
-  const _statusAv = s => s === 'fechado' ? 'av-green' : s === 'andamento' ? 'av-blue' : s === 'acerto' ? 'av-orange' : 'av-navy';
+  const _statusAv = s => s === 'fechado' ? 'av-green'
+    : s === 'acerto' ? 'av-orange'
+    : (s === 'aguardando_peca' || s === 'aguardando_cliente') ? 'av-red'
+    : s === 'agendada' ? 'av-teal'
+    : s === 'andamento' ? 'av-blue'
+    : 'av-navy';
 
   function _filtroCampos(isOrcView) {
     const cats = (App.getCategorias ? App.getCategorias() : []).map(c => ({ v: c.id, label: c.nome }));
@@ -85,7 +90,7 @@ const OS = (() => {
     ];
     return [
       { tipo:'chips', key:'tipo', label:'Tipo', full:true, opcoes:[{v:'horas',label:'Por horas'},{v:'valor',label:'Valor fechado'}] },
-      { tipo:'chips', key:'status', label:'Status', full:true, opcoes:[{v:'andamento',label:'Andamento'},{v:'acerto',label:'Acerto'},{v:'fechado',label:'Fechada'}] },
+      { tipo:'chips', key:'status', label:'Status', full:true, opcoes:[{v:'andamento',label:'Andamento'},{v:'aguardando_peca',label:'Aguard. peça'},{v:'aguardando_cliente',label:'Aguard. cliente'},{v:'acerto',label:'Acerto'},{v:'fechado',label:'Fechada'}] },
       { tipo:'select', key:'categoria', label:'Categoria', opcoes: cats },
       { tipo:'periodo', key:'periodo' },
     ];
@@ -175,15 +180,18 @@ const OS = (() => {
         ${oculto > 0 ? `<button class="btn btn-outline btn-sm os-vermais" onclick="OS.verMais()">Ver mais (${oculto})</button>` : ''}
         ${_grupo('Viraram OS', vir, true)}`;
     }
-    const andamento = filtrados.filter(o => o.status === 'andamento');
+    // "Em aberto" = tudo que não está em acerto nem fechado — inclui os estados
+    // novos (agendada, aguardando_peca, aguardando_cliente). Sem esse macro, uma
+    // OS nesses estados sumiria da lista.
+    const abertas = filtrados.filter(o => o.status !== 'acerto' && o.status !== 'fechado');
     const acerto    = filtrados.filter(o => o.status === 'acerto');
     const fechado   = filtrados.filter(o => o.status === 'fechado');
-    const usados = andamento.length + acerto.length;
+    const usados = abertas.length + acerto.length;
     const mostraFech = _verMais ? fechado : fechado.slice(0, Math.max(0, _VER_MAIS_LIMITE - usados));
     const oculto = fechado.length - mostraFech.length;
     if (!filtrados.length) return `<div class="entity-empty">Nenhuma OS encontrada</div>`;
     return `
-      ${_grupo('Em andamento', andamento, false)}
+      ${_grupo('Em aberto', abertas, false)}
       ${_grupo('Em acerto', acerto, false)}
       ${fechado.length ? `${_grupo('Encerrados', mostraFech, false)}${oculto > 0 ? `<div class="os-vermais-info">mostrando ${mostraFech.length} de ${fechado.length}</div><button class="btn btn-outline btn-sm os-vermais" onclick="OS.verMais()">Ver mais encerradas (${oculto})</button>` : ''}` : ''}`;
   }
@@ -265,9 +273,14 @@ const OS = (() => {
       { icon: '📊', label: 'Análise / Insights', fn: () => openInsightsOS(id) },
       { icon: '✏️', label: 'Editar OS', fn: () => openForm(id) },
       { icon: '🔄', label: 'Alterar status', fn: () => _menuStatus() },
-      { icon: '📋', label: 'Gerar OS (PDF)',       fn: () => Doc.gerar(id, 'os') },
-      { icon: '💰', label: 'Gerar Orçamento (PDF)', fn: () => Doc.gerar(id, 'orcamento') },
     ];
+    if ((o?.registro || 'os') !== 'orcamento') {
+      actions.push({ icon: '🔁', label: (o?.retorno_de ? 'Retorno ✓ (editar)' : 'Declarar retorno'), fn: () => declararRetorno(id) });
+    }
+    actions.push(
+      { icon: '📋', label: 'Gerar OS (PDF)',       fn: () => Doc.gerar(id, 'os') },
+      { icon: '💰', label: 'Gerar Orçamento (PDF)', fn: () => gerarOrcamentoDoc(id) },
+    );
     if (o && o.status !== 'fechado') {
       actions.push({ icon: '✓', label: 'Fechar OS', fn: () => openFechamento() });
     }
@@ -275,15 +288,12 @@ const OS = (() => {
     ActionSheet.open(o ? o.numero : 'OS', actions);
   }
 
-  // Submenu de status (aberto pelo "Alterar status" no menu ⋯) — só os diferentes do atual
+  // Submenu de status (aberto pelo "Alterar status" no menu ⋯) — o pipeline
+  // certo conforme registro (OS ou orçamento), só os diferentes do atual.
   function _menuStatus() {
     if (!currentOS) return;
-    const opts = [
-      { v: 'andamento', icon: '🔧', label: 'Em Andamento' },
-      { v: 'acerto',    icon: '🤝', label: 'Em Acerto' },
-      { v: 'fechado',   icon: '✓',  label: 'Fechado (sem gerar conta)' },
-    ].filter(o => o.v !== currentOS.status);
-    ActionSheet.open('Alterar status', opts.map(o => ({
+    const opts = StatusFlow.list(currentOS.registro).filter(o => o.v !== currentOS.status);
+    ActionSheet.open('Alterar etapa', opts.map(o => ({
       icon: o.icon, label: o.label, fn: () => mudarStatus(o.v),
     })));
   }
@@ -385,7 +395,7 @@ const OS = (() => {
           <!-- Status (alterar via menu ⋯ no topo) -->
           <div style="grid-column:1/-1">
             <div class="info-label">Status</div>
-            ${statusBadge(currentOS.status)} ${osTipoBadge(currentOS)}
+            ${statusBadge(currentOS.status)} ${osTipoBadge(currentOS)}${currentOS.origem === 'urgencia' ? ' <span class="badge badge-danger">⚡ Urgência</span>' : ''}${currentOS.retorno_de ? ` <span class="badge badge-warning">🔁 Retorno${currentOS.retorno_de !== 'sim' ? ' de ' + ((allOS.find(o => o.id === currentOS.retorno_de) || {}).numero || '') : ''}</span>` : ''}
           </div>
           ${osTipo(currentOS) === 'valor' && !currentOS.orcamento_id && Number(currentOS.orcado_valor) > 0 ? `
           <div style="grid-column:1/-1">
@@ -951,14 +961,19 @@ const OS = (() => {
                   <input type="date" name="data_fim" class="input" value="${Fmt.dateInput(os?.data_fim)}">
                 </div>
               </div>
-              <div class="form-group">
-                <label>Status</label>
-                <select name="status" class="input">
-                  <option value="andamento" ${(!os||os.status==='andamento')?'selected':''}>Em Andamento</option>
-                  <option value="rascunho"  ${os?.status==='rascunho' ?'selected':''}>Rascunho</option>
-                  <option value="acerto"    ${os?.status==='acerto'   ?'selected':''}>Em Acerto</option>
-                  <option value="fechado"   ${os?.status==='fechado'  ?'selected':''}>Fechado</option>
-                </select>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Etapa</label>
+                  <select name="status" class="input">
+                    ${StatusFlow.os.map(s => `<option value="${s.v}" ${((os?.status || 'andamento') === s.v) ? 'selected' : ''}>${s.icon} ${s.label}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Origem</label>
+                  <select name="origem" class="input">
+                    ${[['normal', 'Normal'], ['urgencia', '⚡ Urgência'], ['orcamento', 'De orçamento']].map(([v, l]) => `<option value="${v}" ${((os?.origem || 'normal') === v) ? 'selected' : ''}>${l}</option>`).join('')}
+                  </select>
+                </div>
               </div>
             `}
             <div class="form-group">
@@ -2037,6 +2052,23 @@ const OS = (() => {
     });
   }
 
+  // Gera o PDF do orçamento e, se for um registro de orçamento ainda antes de
+  // "enviado", avança a etapa automaticamente (nunca retrocede aprovado/recusado).
+  function gerarOrcamentoDoc(id) {
+    Doc.gerar(id, 'orcamento');
+    const o = allOS.find(x => x.id === id) || currentOS;
+    if (!o || (o.registro || 'os') !== 'orcamento') return;
+    if (StatusFlow.index('orcamento', o.status) < StatusFlow.index('orcamento', 'enviado')) {
+      const de = o.status;
+      Eventos.statusChange(o, 'enviado', de);
+      o.status = 'enviado';
+      const li = allOS.find(x => x.id === id); if (li) li.status = 'enviado';
+      API.db.update('os', id, { status: 'enviado', data_atualizacao: new Date().toISOString() });
+      if (currentOS && currentOS.id === id) currentOS.status = 'enviado';
+      Toast.info('Orçamento marcado como enviado.');
+    }
+  }
+
   // Gera uma OS nova a partir do orçamento: só cliente + categoria + referência.
   function gerarOSdeOrcamento(orcId) { return Guard.run('orc-gerar', () => _gerarOSdeOrcamento(orcId)); }
   async function _gerarOSdeOrcamento(orcId) {
@@ -2055,6 +2087,7 @@ const OS = (() => {
         registro:     'os',
         tipo:         'valor',
         status:       'andamento',
+        origem:       'orcamento',
         data_inicio:  DateUtil.today(),
         orcamento_id: orcId,
         orcado_valor: valor,
@@ -2064,11 +2097,51 @@ const OS = (() => {
       });
       Loading.hide();
       if (res?.success && res.data?.id) {
+        // Marco de criação + origem da OS nova.
+        Eventos.marco({ id: res.data.id, registro: 'os' }, 'criada', { origem: 'orcamento' });
+        // Auto-transição: o orçamento passou a "aprovado" (virou OS).
+        if (orc.status !== 'aprovado') {
+          Eventos.statusChange(orc, 'aprovado', orc.status);
+          await API.db.update('os', orcId, { status: 'aprovado', data_atualizacao: new Date().toISOString() });
+        }
         Toast.success('OS gerada a partir do orçamento!');
         await loadData();
         openDetail(res.data.id);
       } else Toast.error('Erro: ' + (res?.error || ''));
     });
+  }
+
+  // ─── DECLARAR RETORNO (retrabalho) ───────────────────────────
+  // Marca a OS como retorno de um atendimento anterior que não resolveu.
+  // retorno_de = id da OS original (ou 'sim' quando não se quer vincular a uma).
+  function declararRetorno(id) {
+    const os = allOS.find(o => o.id === id) || currentOS;
+    if (!os) return;
+    const anteriores = allOS
+      .filter(o => (o.registro || 'os') !== 'orcamento' && o.id !== id
+        && String(o.cliente_id || '') === String(os.cliente_id || ''))
+      .sort((a, b) => (a.data_criacao > b.data_criacao ? -1 : 1))
+      .slice(0, 8);
+    const opts = anteriores.map(o => ({
+      icon: '🔗', label: `${o.numero || 'OS'} · ${Fmt.date(o.data_inicio || o.data_criacao)}`,
+      fn: () => marcarRetorno(id, o.id),
+    }));
+    opts.push({ icon: '🔁', label: 'Só marcar como retorno (sem vincular OS)', fn: () => marcarRetorno(id, 'sim') });
+    if (os.retorno_de) opts.push({ icon: '✕', label: 'Remover marca de retorno', danger: true, fn: () => marcarRetorno(id, '') });
+    ActionSheet.open('Declarar retorno (retrabalho)', opts);
+  }
+
+  async function marcarRetorno(id, retornoDe) {
+    Loading.show();
+    const res = await API.db.update('os', id, { retorno_de: retornoDe, data_atualizacao: new Date().toISOString() });
+    Loading.hide();
+    if (!res?.success) { Toast.error('Erro ao marcar retorno'); return; }
+    const li = allOS.find(o => o.id === id); if (li) li.retorno_de = retornoDe;
+    if (currentOS && currentOS.id === id) currentOS.retorno_de = retornoDe;
+    if (retornoDe) Eventos.marco({ id, registro: 'os' }, 'retorno',
+      { obs: retornoDe === 'sim' ? 'retrabalho' : ('retrabalho de ' + retornoDe) });
+    Toast.success(retornoDe ? 'OS marcada como retorno.' : 'Marca de retorno removida.');
+    openDetail(id);
   }
 
   // ─── FALTOU MATERIAL ─────────────────────────────────────────

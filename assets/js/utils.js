@@ -514,9 +514,21 @@ function origemForaResultado(origem) {
 function statusBadge(status) {
   const map = {
     rascunho:  ['badge-secondary', 'Rascunho'],
-    andamento: ['badge-info',      'Em Andamento'],
-    acerto:    ['badge-warning',   'Em Acerto'],
-    fechado:   ['badge-success',   'Fechado'],
+    // OS
+    agendada:            ['badge-info',      'Agendada'],
+    andamento:           ['badge-info',      'Em Andamento'],
+    aguardando_peca:     ['badge-warning',   'Aguardando peça'],
+    aguardando_cliente:  ['badge-warning',   'Aguardando cliente'],
+    acerto:              ['badge-warning',   'Em Acerto'],
+    fechado:             ['badge-success',   'Fechado'],
+    // Orçamento (registro='orcamento'). 'orcamento' = legado/1ª etapa.
+    orcamento:           ['badge-secondary', 'Solicitado'],
+    visita_agendada:     ['badge-info',      'Visita agendada'],
+    levantamento:        ['badge-info',      'Em levantamento'],
+    enviado:             ['badge-warning',   'Enviado'],
+    aprovado:            ['badge-success',   'Aprovado'],
+    recusado:            ['badge-danger',    'Recusado'],
+    // Parcelas / genéricos
     pendente:  ['badge-warning',   'Pendente'],
     pago:      ['badge-success',   'Pago'],
     cancelado: ['badge-danger',    'Cancelado'],
@@ -524,6 +536,37 @@ function statusBadge(status) {
   const [cls, label] = map[status] || ['badge-secondary', status];
   return `<span class="badge ${cls}">${label}</span>`;
 }
+
+// ─── StatusFlow: pipeline de etapas (fonte única p/ menu e form) ──
+// Ordem = progressão da etapa. Preserva os valores legados (andamento/acerto/
+// fechado e orcamento) que já existem em produção e no fecharOS/filtros.
+const StatusFlow = {
+  os: [
+    { v: 'agendada',           icon: '📅', label: 'Agendada' },
+    { v: 'andamento',          icon: '🔧', label: 'Em andamento' },
+    { v: 'aguardando_peca',    icon: '📦', label: 'Aguardando peça' },
+    { v: 'aguardando_cliente', icon: '⏳', label: 'Aguardando cliente' },
+    { v: 'acerto',             icon: '🤝', label: 'Em acerto' },
+    { v: 'fechado',            icon: '✓',  label: 'Fechada' },
+  ],
+  orcamento: [
+    { v: 'orcamento',       icon: '📝', label: 'Solicitado' },
+    { v: 'visita_agendada', icon: '📅', label: 'Visita agendada' },
+    { v: 'levantamento',    icon: '📐', label: 'Em levantamento' },
+    { v: 'enviado',         icon: '📤', label: 'Enviado (aguardando OK)' },
+    { v: 'aprovado',        icon: '✅', label: 'Aprovado' },
+    { v: 'recusado',        icon: '🚫', label: 'Recusado' },
+  ],
+  // Índice ordinal da etapa (−1 se desconhecida). Usado p/ só avançar, nunca
+  // retroceder, nas auto-transições.
+  index(registro, status) {
+    const arr = this[registro === 'orcamento' ? 'orcamento' : 'os'];
+    return arr.findIndex(o => o.v === status);
+  },
+  list(registro) {
+    return this[registro === 'orcamento' ? 'orcamento' : 'os'];
+  },
+};
 
 function tipoBadge(tipo) {
   return tipo === 'diaria'

@@ -368,6 +368,28 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Fase 1: StatusFlow + statusBadge (pipeline OS/OR) —');
+  {
+    const s = makeFrontSandbox();
+    test('StatusFlow.list traz o pipeline certo por registro', () => {
+      assert.deepEqual(vm.runInContext(`StatusFlow.list('os').map(x=>x.v)`, s),
+        ['agendada', 'andamento', 'aguardando_peca', 'aguardando_cliente', 'acerto', 'fechado']);
+      assert.deepEqual(vm.runInContext(`StatusFlow.list('orcamento').map(x=>x.v)`, s),
+        ['orcamento', 'visita_agendada', 'levantamento', 'enviado', 'aprovado', 'recusado']);
+    });
+    test('StatusFlow.index ordena etapas (auto-transição só avança)', () => {
+      assert.ok(vm.runInContext(`StatusFlow.index('orcamento','orcamento') < StatusFlow.index('orcamento','enviado')`, s));
+      assert.equal(vm.runInContext(`StatusFlow.index('orcamento','xpto')`, s), -1);
+    });
+    test('statusBadge cobre os estados que travam a OS', () => {
+      assert.ok(vm.runInContext(`statusBadge('aguardando_peca')`, s).includes('Aguardando peça'));
+      assert.ok(vm.runInContext(`statusBadge('enviado')`, s).includes('Enviado'));
+    });
+    test('outbox: os_eventos é enfileirável (log offline-safe)', () => {
+      assert.ok(vm.runInContext(`Outbox.isQueueable('create',{sheet:'os_eventos',data:{}})`, s));
+    });
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem
