@@ -261,12 +261,12 @@ const Doc = (() => {
           <table class="doc-table">
             <thead><tr><th>Item</th><th class="r">Qtd</th>${opts.valores ? '<th class="r">Valor</th>' : ''}</tr></thead>
             <tbody>
-              ${simples.map(i => { const doCliente = i.pagador === 'cliente'; return `
+              ${simples.map(i => `
                 <tr>
-                  <td>${Fmt.esc(i.descricao || i.nome || 'Item')}${doCliente ? ' <em style="color:#666">(por conta do cliente)</em>' : ''}</td>
+                  <td>${Fmt.esc(i.descricao || i.nome || 'Item')}</td>
                   <td class="r">${i.quantidade || 1}</td>
-                  ${opts.valores ? `<td class="r">${doCliente ? '—' : Fmt.currency(i.valor_total || 0)}</td>` : ''}
-                </tr>`; }).join('')}
+                  ${opts.valores ? `<td class="r">${Fmt.currency(i.valor_total || 0)}</td>` : ''}
+                </tr>`).join('')}
             </tbody>
           </table>
         </section>` : ''}

@@ -942,16 +942,15 @@ const OS = (() => {
       <thead><tr><th>Tipo</th><th>Descrição</th><th>Qtd</th><th>Unit.</th><th>Total</th><th></th></tr></thead>
       <tbody>
         ${itens.map(i => {
-          const doCliente = i.pagador === 'cliente';
-          const foraPdf   = String(i.no_pdf) === '1';
-          const badgesItem = `${doCliente ? ' <span class="badge badge-warning" style="font-size:.62rem">👤 cliente</span>' : ''}${foraPdf ? ' <span class="badge badge-secondary" style="font-size:.62rem">🙈 fora do PDF</span>' : ''}`;
+          const foraPdf = String(i.no_pdf) === '1';
+          const badgesItem = foraPdf ? ' <span class="badge badge-secondary" style="font-size:.62rem">🙈 fora do PDF</span>' : '';
           return `
           <tr>
             <td><span class="badge ${i.tipo === 'material' ? 'badge-info' : 'badge-secondary'}">${i.tipo}</span></td>
             <td>${i.descricao}${badgesItem}</td>
             <td>${i.quantidade}</td>
             <td>${Fmt.currency(i.valor_unit)}</td>
-            <td>${doCliente ? `<span style="color:var(--text-muted)" title="Pago pelo cliente — não entra no total">${Fmt.currency(i.valor_total)}</span>` : Fmt.currency(i.valor_total)}</td>
+            <td>${Fmt.currency(i.valor_total)}</td>
             <td style="white-space:nowrap">
               <button class="btn btn-sm btn-outline" onclick="OS.openItemForm('${i.id}')">Editar</button>
               <button class="btn btn-sm btn-danger"  onclick="OS.deleteItem('${i.id}')">✕</button>
@@ -1655,7 +1654,6 @@ const OS = (() => {
     qs('#modal-item-unit').value  = item?.valor_unit || '';
     qs('#modal-item-total').value = item?.valor_total || '';
     if (qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
-    if (qs('#modal-item-pagador')) qs('#modal-item-pagador').value = item?.pagador || 'empresa';
     if (qs('#modal-item-nopdf'))   qs('#modal-item-nopdf').checked = String(item?.no_pdf) === '1';
     qs('#modal-item-estoque').value = item?.estoque_id || '';
     qs('#modal-item-busca').value   = '';
@@ -1733,33 +1731,18 @@ const OS = (() => {
     renderItemResultados([e], jaSel ? '' : id);
   }
 
-  // Ajusta o form do item conforme o tipo: material tem busca no estoque +
-  // "pago por"; serviço tem serviço rápido. "Quem pagou?" (reembolso do sócio)
-  // só faz sentido em material pago pela EMPRESA.
+  // Ajusta o form do item conforme o tipo: material tem busca no estoque;
+  // serviço tem serviço rápido. "Quem pagou?" (reembolso do sócio) só em material.
   function onItemTipoChange() {
     const tipo = qs('#modal-item-tipo')?.value;
-    const isServico  = tipo === 'servico';
-    const isMaterial = tipo === 'material';
+    const isServico = tipo === 'servico';
     qs('#item-estoque-wrap')?.classList.toggle('hidden', isServico);
     qs('#item-servico-rapido-wrap')?.classList.toggle('hidden', !isServico);
     qs('#modal-item-salvar-srv')?.classList.toggle('hidden', !isServico);
-    qs('#item-pagador-wrap')?.classList.toggle('hidden', !isMaterial);
     if (isServico) _renderServicoRapido();
-    _syncQuemPagou();
-  }
-
-  // "Material pago por" mudou (empresa/cliente).
-  function onPagadorChange() { _syncQuemPagou(); }
-
-  // Reembolso ao sócio ("quem pagou") só quando é material pago pela EMPRESA;
-  // se o cliente pagou o material, não há reembolso a lançar.
-  function _syncQuemPagou() {
-    const tipo    = qs('#modal-item-tipo')?.value;
-    const pagador = qs('#modal-item-pagador')?.value || 'empresa';
-    const mostra  = tipo === 'material' && pagador !== 'cliente';
     const wrap = qs('#item-quempagou-wrap');
-    if (wrap) wrap.style.display = mostra ? '' : 'none';
-    if (!mostra && qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
+    if (wrap) wrap.style.display = tipo === 'material' ? '' : 'none';
+    if (tipo !== 'material' && qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
   }
 
   // ─── SERVIÇO RÁPIDO (catálogo servicos_catalogo) ─────────────
@@ -1810,7 +1793,6 @@ const OS = (() => {
     qs('#modal-item-unit').value    = '';
     qs('#modal-item-total').value   = '';
     if (qs('#modal-item-quempagou')) qs('#modal-item-quempagou').value = '';
-    if (qs('#modal-item-pagador')) qs('#modal-item-pagador').value = 'empresa';
     if (qs('#modal-item-nopdf'))   qs('#modal-item-nopdf').checked = false;
     qs('#modal-item-busca').value   = '';
     renderItemResultados([], '');
@@ -1830,19 +1812,16 @@ const OS = (() => {
     const qtd       = Number(qs('#modal-item-qtd').value) || 1;
     const unit      = Number(qs('#modal-item-unit').value) || 0;
     const total     = Number(qs('#modal-item-total').value) || (qtd * unit);
-    const pagador   = (tipo === 'material' ? (qs('#modal-item-pagador')?.value || 'empresa') : 'empresa');
     const noPdf     = qs('#modal-item-nopdf')?.checked ? '1' : '0';
-    // Material pago pelo cliente: sem reembolso de sócio (o cliente pagou direto).
-    const quemPagou = (tipo === 'material' && pagador !== 'cliente' ? qs('#modal-item-quempagou')?.value : '') || '';
+    const quemPagou = (tipo === 'material' ? qs('#modal-item-quempagou')?.value : '') || '';
 
     if (!desc && !estId) { Toast.warning('Informe a descrição'); return; }
 
     let finalDesc  = desc;
     let finalEstId = estId;
 
-    if (!itemId && estId && pagador !== 'cliente') {
+    if (!itemId && estId) {
       // Novo item do estoque: baixa + movimentação rastreada (uso em OS).
-      // Se o CLIENTE pagou o material, NÃO dá baixa (não saiu do estoque da empresa).
       // Offline, a movimentação NÃO entra na caderneta (mexe em saldo de
       // estoque = check-then-write) — o item grava e a baixa fica pra depois.
       const estRes = await API.db.read('estoque', estId);
@@ -1877,7 +1856,7 @@ const OS = (() => {
       os_id: osId, tipo, descricao: finalDesc,
       estoque_id: finalEstId || '',
       quantidade: qtd, valor_unit: unit, valor_total: total,
-      pagador, no_pdf: noPdf,
+      no_pdf: noPdf,
     };
 
     Loading.show();
@@ -3263,7 +3242,7 @@ const OS = (() => {
     openInsightsOS,
     openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, excluirDiariaAtual, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
-    openItemForm, onItemTipoChange, onPagadorChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque, scanItemEstoque,
+    openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque, scanItemEstoque,
     escolherServicoRapido, salvarServicoRapido,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     addGrupoServico, parseGrupo, encodeGrupo,
