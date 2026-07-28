@@ -663,6 +663,8 @@ function registrarCompra(data) {
         estoque_minimo: 0,
         data_entrada:   data.data,
         ativo:          true,
+        // Item escaneado na compra já nasce com o código (EstCod-encoded no front).
+        codigo_barras:  item.codigo_barras || '',
       };
       novosEst.push(novo);
       byKey[_norm(item.descricao) + '|' + _norm(item.unidade)] = { kind: 'new', obj: novo };

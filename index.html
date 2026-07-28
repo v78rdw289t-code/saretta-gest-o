@@ -8,11 +8,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1D2B4F">
   <title>Saretta Gestão</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=3.12.4">
+  <link rel="stylesheet" href="assets/css/style.css?v=3.12.6">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.12.4">
+  <link rel="icon" type="image/png" href="assets/img/logo-app.png?v=3.12.6">
   <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
-  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.12.4">
+  <link rel="apple-touch-icon" href="assets/img/logo-app.png?v=3.12.6">
 </head>
 <body>
 
@@ -22,7 +22,7 @@
 <!-- Splash inicial — escondido por padrão; App.init() decide se exibe -->
 <div id="boot-splash" class="hidden">
   <div class="boot-splash-inner">
-    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.12.4" alt="Saretta"
+    <div class="boot-splash-logo"><img src="assets/img/logo-app.png?v=3.12.6" alt="Saretta"
       onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'"></div>
     <div class="boot-splash-title">Saretta Soluções</div>
     <div class="boot-splash-sub" id="boot-splash-status">Preparando o app…</div>
@@ -39,7 +39,7 @@
   <aside id="sidebar">
     <div id="sidebar-header">
       <div class="sidebar-logo-text">
-        <img src="assets/img/logo-app.png?v=3.12.4" alt="" class="sidebar-logo-img"
+        <img src="assets/img/logo-app.png?v=3.12.6" alt="" class="sidebar-logo-img"
           onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">SARETTA
       </div>
       <div class="sidebar-logo-sub">Gestão de Serviços</div>
@@ -70,7 +70,7 @@
   <div id="main">
     <!-- HEADER -->
     <header id="top-header">
-      <img src="assets/img/logo-app.png?v=3.12.4" alt="Saretta" class="header-icon"
+      <img src="assets/img/logo-app.png?v=3.12.6" alt="Saretta" class="header-icon"
         onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'">
       <div style="flex:1">
         <div class="header-logo">Saretta</div>
@@ -769,33 +769,9 @@
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
       <div style="font-size:.88rem;font-weight:800;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Itens da Compra</div>
-      <div class="form-group">
-        <label>Item já no estoque (opcional)</label>
-        <select id="item-estoque" class="input" onchange="Compras.onSelectEstoque()"></select>
-      </div>
-      <div class="form-group">
-        <label>Categoria do item</label>
-        <select id="item-cat" class="input"></select>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Descrição</label>
-          <input type="text" id="item-desc" class="input" placeholder="Ex: Parafuso M8">
-        </div>
-        <div class="form-group">
-          <label>Qtd</label>
-          <input type="number" id="item-qtd" class="input" value="1" min="0.01" step="0.01">
-        </div>
-        <div class="form-group">
-          <label>Valor Unit. (R$)</label>
-          <input type="number" id="item-unit-val" class="input" step="0.01" min="0">
-        </div>
-        <div class="form-group">
-          <label>Unidade</label>
-          <input type="text" id="item-und" class="input" placeholder="un">
-        </div>
-      </div>
-      <button type="button" class="btn btn-outline btn-full mb-3" onclick="Compras.addItem()">+ Adicionar Item</button>
+      <button type="button" class="btn btn-primary btn-full mb-2" onclick="Compras.openItens()">
+        <span style="font-size:1.1rem;margin-right:6px">📷</span> Adicionar / ver itens
+      </button>
       <div id="compra-itens-list"></div>
       <div class="info-row mt-2">
         <span class="text-muted" style="font-size:.85rem">Subtotal dos itens:</span>
@@ -818,6 +794,82 @@
     <div class="modal-footer">
       <button class="btn btn-primary btn-lg" onclick="Compras.saveForm()">Registrar Compra</button>
       <button class="btn btn-outline"        onclick="Modal.close('modal-compra')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sub-tela cheia: entrada de itens da compra (escanear + buscar + 1 item por vez) -->
+<div id="modal-compra-itens" class="modal">
+  <div class="modal-box modal-box-full">
+    <div class="modal-header">
+      <button class="btn btn-outline btn-sm" onclick="Compras.concluirItens()">← Voltar</button>
+      <h3 style="flex:1;text-align:center">Itens da compra</h3>
+      <button class="modal-close" onclick="Compras.concluirItens()">✕</button>
+    </div>
+    <div class="modal-body">
+      <button type="button" class="btn btn-gold btn-full mb-2" style="font-size:1.05rem;padding:14px" onclick="Compras.scanItem()">
+        <span style="font-size:1.3rem;margin-right:8px">📷</span> Escanear código de barras
+      </button>
+      <div class="form-group">
+        <label>Ou buscar no estoque <small style="color:var(--text-muted);font-weight:400">— nome ou código</small></label>
+        <input type="text" id="ci-busca" class="input" autocomplete="off"
+          placeholder="🔍 Digite o nome ou código..." oninput="Compras.buscarItem(this.value)">
+        <div id="ci-resultados" class="item-busca-results"></div>
+      </div>
+
+      <div class="ci-edit-card">
+        <input type="hidden" id="ci-estoque-id">
+        <input type="hidden" id="ci-codigo">
+        <input type="hidden" id="ci-edit-index">
+        <div id="ci-badges" class="ci-badges"></div>
+        <div class="form-group">
+          <label>Descrição *</label>
+          <input type="text" id="ci-desc" class="input" placeholder="Ex: Cabo flex 2,5mm">
+        </div>
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="ci-cat" class="input"></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantidade</label>
+            <div class="qty-stepper">
+              <button type="button" aria-label="Diminuir" onclick="Compras.stepQtd(-1)">−</button>
+              <input type="number" id="ci-qtd" value="1" min="0.01" step="1" inputmode="decimal" oninput="Compras.calcEdit()">
+              <button type="button" aria-label="Aumentar" onclick="Compras.stepQtd(1)">+</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Unidade</label>
+            <input type="text" id="ci-und" class="input" placeholder="un">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor unit. (R$)</label>
+            <input type="number" id="ci-unit" class="input" step="0.01" min="0" inputmode="decimal" oninput="Compras.calcEdit()">
+          </div>
+          <div class="form-group" style="display:flex;flex-direction:column;justify-content:flex-end">
+            <label>Total do item</label>
+            <div id="ci-total-display" style="font-size:1.05rem;font-weight:800;color:var(--navy);padding:9px 0">R$ 0,00</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-full" style="padding:14px;margin-top:4px" onclick="Compras.salvarItem(true)">✓ Adicionar e escanear próximo</button>
+        <button type="button" class="btn btn-outline btn-full mt-1" onclick="Compras.salvarItem(false)">Só adicionar</button>
+        <button type="button" class="btn btn-outline btn-sm btn-full mt-1" id="ci-cancelar-edit" style="display:none" onclick="Compras.resetItemEdit()">Cancelar edição</button>
+      </div>
+
+      <div style="margin:18px 0 6px">
+        <span id="ci-count" style="font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted)">Nenhum item</span>
+      </div>
+      <div id="ci-lista"></div>
+    </div>
+    <div class="modal-footer" style="flex-direction:row;align-items:center">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+        <span style="font-size:.72rem;color:var(--text-muted)">Total parcial</span>
+        <strong id="ci-subtotal" style="font-size:1.2rem;color:var(--navy)">R$ 0,00</strong>
+      </div>
+      <button class="btn btn-primary" style="flex:1" onclick="Compras.concluirItens()">Concluir</button>
     </div>
   </div>
 </div>
@@ -1226,27 +1278,27 @@
 </div>
 
 <!-- ─── SCRIPTS ──────────────────────────────────────────── -->
-<script src="assets/js/api.js?v=3.12.4"></script>
-<script src="assets/js/utils.js?v=3.12.4"></script>
-<script src="assets/js/filtro.js?v=3.12.4"></script>
-<script src="assets/js/notif.js?v=3.12.4"></script>
-<script src="assets/js/outbox.js?v=3.12.4"></script>
+<script src="assets/js/api.js?v=3.12.6"></script>
+<script src="assets/js/utils.js?v=3.12.6"></script>
+<script src="assets/js/filtro.js?v=3.12.6"></script>
+<script src="assets/js/notif.js?v=3.12.6"></script>
+<script src="assets/js/outbox.js?v=3.12.6"></script>
 <script src="assets/js/lib/html5-qrcode.min.js"></script>
-<script src="assets/js/scanner.js?v=3.12.4"></script>
-<script src="assets/js/inteligencia-os.js?v=3.12.4"></script>
-<script src="assets/js/home.js?v=3.12.4"></script>
-<script src="assets/js/agenda.js?v=3.12.4"></script>
-<script src="assets/js/os.js?v=3.12.4"></script>
-<script src="assets/js/financeiro.js?v=3.12.4"></script>
-<script src="assets/js/clientes.js?v=3.12.4"></script>
-<script src="assets/js/estoque.js?v=3.12.4"></script>
-<script src="assets/js/compras.js?v=3.12.4"></script>
-<script src="assets/js/fiado.js?v=3.12.4"></script>
-<script src="assets/js/insights.js?v=3.12.4"></script>
-<script src="assets/js/config.js?v=3.12.4"></script>
+<script src="assets/js/scanner.js?v=3.12.6"></script>
+<script src="assets/js/inteligencia-os.js?v=3.12.6"></script>
+<script src="assets/js/home.js?v=3.12.6"></script>
+<script src="assets/js/agenda.js?v=3.12.6"></script>
+<script src="assets/js/os.js?v=3.12.6"></script>
+<script src="assets/js/financeiro.js?v=3.12.6"></script>
+<script src="assets/js/clientes.js?v=3.12.6"></script>
+<script src="assets/js/estoque.js?v=3.12.6"></script>
+<script src="assets/js/compras.js?v=3.12.6"></script>
+<script src="assets/js/fiado.js?v=3.12.6"></script>
+<script src="assets/js/insights.js?v=3.12.6"></script>
+<script src="assets/js/config.js?v=3.12.6"></script>
 <script src="assets/js/lib/html2pdf.bundle.min.js"></script>
-<script src="assets/js/pdf.js?v=3.12.4"></script>
-<script src="assets/js/app.js?v=3.12.4"></script>
+<script src="assets/js/pdf.js?v=3.12.6"></script>
+<script src="assets/js/app.js?v=3.12.6"></script>
 
 <script>
   if ('serviceWorker' in navigator) {

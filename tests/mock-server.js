@@ -20,14 +20,23 @@ function makeGsSandbox() {
     return {
       rows,
       getDataRange() { return { getValues: () => (rows.length ? rows.map(r => r.slice()) : [[]]) }; },
-      getRange(r, c) {
+      getRange(r, c, nr, nc) {
         return {
+          getValues() {
+            const out = [];
+            for (let i = 0; i < (nr || 1); i++) out.push((rows[r - 1 + i] || []).slice(c - 1, c - 1 + (nc || 1)));
+            return out;
+          },
           setValues(vals) { vals.forEach((rv, i) => { rows[r - 1 + i] = rv.slice(); }); return this; },
           setValue(v) { if (!rows[r - 1]) rows[r - 1] = []; rows[r - 1][c - 1] = v; return this; },
           setFontWeight() { return this; }, setBackground() { return this; }, setFontColor() { return this; },
         };
       },
       setFrozenRows() {},
+      // getLastRow/getLastColumn permitem ao _appendRows (batch) achar o fim da
+      // planilha e anexar de verdade; sem eles ele grava em índice NaN / estoura.
+      getLastRow() { return rows.length; },
+      getLastColumn() { return rows.length ? rows[0].length : 0; },
       appendRow(row) { rows.push(row.slice()); },
       deleteRow(i) { rows.splice(i - 1, 1); },
     };

@@ -268,7 +268,38 @@ const Agenda = (() => {
       ${secao('Hoje', g.hoje)}
       ${secao('Em breve', g.breve)}
       ${secao('Sem prazo', g.semData)}
-      ${secao('Concluídos', g.feito, 'is-feito')}`;
+      ${g.feito.length ? `<div class="afazer-group-head is-feito">Concluídos <span>${g.feito.length}</span>
+        <button type="button" class="afazer-limpar" onclick="Agenda.limparConcluidos()">🧹 Limpar</button></div>${g.feito.map(_htmlOf).join('')}` : ''}`;
+  }
+
+  // "Limpar" os concluídos: some da lista na hora (viram cancelado, ficam
+  // guardados na planilha), com opção de desfazer no próprio toast.
+  async function limparConcluidos() { return Guard.run('afazer-limpar', _limparConcluidos); }
+  async function _limparConcluidos() {
+    const feitos = (_compromissos || []).filter(c => c.status === 'feito');
+    if (!feitos.length) return;
+    const ids = feitos.map(c => c.id);
+    feitos.forEach(c => { c.status = 'cancelado'; });
+    if (typeof tapFeedback === 'function') tapFeedback();
+    rerender();
+    const t = Toast.progress(`Limpando ${ids.length}…`);
+    try {
+      await Promise.all(ids.map(id => API.db.update('compromissos', id, { status: 'cancelado' })));
+      t.done(`${ids.length} limpo${ids.length > 1 ? 's' : ''} ✓ · toque p/ desfazer`, () => _desfazerLimpeza(ids));
+    } catch (e) {
+      feitos.forEach(c => { c.status = 'feito'; });   // reverte o otimista
+      rerender();
+      t.fail('Não deu pra limpar — tente de novo');
+    }
+  }
+  async function _desfazerLimpeza(ids) {
+    (_compromissos || []).forEach(c => { if (ids.indexOf(c.id) !== -1) c.status = 'feito'; });
+    rerender();
+    const t = Toast.progress('Desfazendo…');
+    try {
+      await Promise.all(ids.map(id => API.db.update('compromissos', id, { status: 'feito' })));
+      t.done('Concluídos restaurados');
+    } catch (e) { t.fail('Erro ao desfazer'); }
   }
 
   // Marca/desmarca um lembrete como feito (otimista + persiste).
@@ -424,6 +455,6 @@ const Agenda = (() => {
   return {
     render, renderHomeSection, selectDay, homeWeek,
     openForm, saveForm, tapItem, moverPrompt, mover, concluir, excluir,
-    abrirParcela, abrirOS, toggleFeito, pendentesHojeAtrasados,
+    abrirParcela, abrirOS, toggleFeito, pendentesHojeAtrasados, limparConcluidos,
   };
 })();
