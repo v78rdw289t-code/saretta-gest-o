@@ -460,6 +460,35 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Fase 7: EstCod (código interno + marcas)  —');
+  {
+    const s = makeFrontSandbox();
+    test('parse: JSON novo, string legada e vazio', () => {
+      const novo = vm.runInContext(`EstCod.parse('{"sku":"SAR-0007","marcas":[{"m":"Pial","c":"789","p":3}]}')`, s);
+      assert.equal(novo.sku, 'SAR-0007');
+      assert.equal(novo.marcas[0].m, 'Pial');
+      assert.equal(novo.marcas[0].c, '789');
+      const legado = vm.runInContext(`EstCod.parse('7891234567890')`, s);
+      assert.equal(legado.sku, '');
+      assert.equal(legado.marcas[0].c, '7891234567890'); // vira 1 marca sem nome
+      assert.deepEqual(vm.runInContext(`EstCod.parse('')`, s), { sku: '', marcas: [] });
+    });
+    test('matchCode: reconhece pelo código interno OU por qualquer marca', () => {
+      const raw = `'{"sku":"SAR-0007","marcas":[{"m":"Pial","c":"789"},{"m":"Tramontina","c":"788"}]}'`;
+      assert.equal(vm.runInContext(`EstCod.matchCode(${raw}, 'SAR-0007')`, s), true); // interno
+      assert.equal(vm.runInContext(`EstCod.matchCode(${raw}, '788')`, s), true);       // marca 2
+      assert.equal(vm.runInContext(`EstCod.matchCode(${raw}, '000')`, s), false);
+      assert.equal(vm.runInContext(`EstCod.matchCode('7891234567890', '7891234567890')`, s), true); // legado
+    });
+    test('encode: round-trip e descarta marca vazia', () => {
+      const enc = vm.runInContext(`EstCod.encode({ sku:'SAR-1', marcas:[{m:'Pial',c:'789',p:3},{m:'',c:'',p:0}] })`, s);
+      const back = vm.runInContext(`EstCod.parse(${JSON.stringify(enc)})`, s);
+      assert.equal(back.sku, 'SAR-1');
+      assert.equal(back.marcas.length, 1); // a vazia sumiu
+      assert.equal(back.marcas[0].c, '789');
+    });
+  }
+
   console.log('\n— Fase 5b: fecharOS adiantamento (gs) —');
   {
     const g = makeGsSandbox();

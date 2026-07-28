@@ -1673,7 +1673,11 @@ const OS = (() => {
   function filtrarItemEstoque(q) {
     const termo = String(q || '').trim();
     if (!termo) { renderItemResultados([], qs('#modal-item-estoque').value); return; }
-    const achados = filterRecords(_itemEstoque, termo, ['descricao', 'grupo', 'unidade', 'codigo_barras']).slice(0, 30);
+    const t = termo.toLowerCase();
+    const achados = _itemEstoque.filter(e =>
+      filterRecords([e], termo, ['descricao', 'grupo', 'unidade']).length ||
+      EstCod.searchText(e.codigo_barras).toLowerCase().includes(t)
+    ).slice(0, 30);
     renderItemResultados(achados, qs('#modal-item-estoque').value);
   }
 
@@ -1682,7 +1686,7 @@ const OS = (() => {
   async function scanItemEstoque() {
     const code = await Scanner.scan();
     if (!code) return;
-    const achado = _itemEstoque.find(e => String(e.codigo_barras || '').trim() === String(code).trim());
+    const achado = _itemEstoque.find(e => EstCod.matchCode(e.codigo_barras, code));
     const busca = qs('#modal-item-busca');
     if (achado) {
       if (busca) busca.value = achado.descricao || code;
@@ -1691,7 +1695,7 @@ const OS = (() => {
     } else {
       if (busca) busca.value = code;
       filtrarItemEstoque(code);
-      Toast.warning('Nenhum item com esse código. Cadastre o código no estoque.');
+      Toast.warning('Nenhum item com esse código. Cadastre a marca no estoque.');
     }
   }
 

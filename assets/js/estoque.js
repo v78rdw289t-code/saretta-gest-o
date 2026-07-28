@@ -125,7 +125,12 @@ const Estoque = (() => {
   function renderItens() {
     if (_catFiltro === null) _catFiltro = catMaterialId();
     let items = allEstoque;
-    if (_q) items = filterRecords(items, _q, ['descricao', 'unidade', 'codigo_barras', 'grupo']);
+    if (_q) {
+      const t = _q.toLowerCase();
+      items = items.filter(x =>
+        filterRecords([x], _q, ['descricao', 'unidade', 'grupo']).length ||
+        EstCod.searchText(x.codigo_barras).toLowerCase().includes(t));
+    }
     if (_catFiltro) items = items.filter(e => String(e.categoria_id || '') === String(_catFiltro));
 
     const baixos     = allEstoque.filter(isBaixo);
@@ -308,7 +313,16 @@ const Estoque = (() => {
     }
     const novoG = qs('#est-form-grupo-novo');
     if (novoG) { novoG.value = ''; novoG.classList.add('hidden'); }
-    if (qs('#est-form-codbarras')) qs('#est-form-codbarras').value = e?.codigo_barras || '';
+    // Código interno (estável) + marcas/códigos de fábrica.
+    const cod = EstCod.parse(e?.codigo_barras);
+    const sku = cod.sku || _nextSku();  // item antigo sem sku → gera um agora (salva no save)
+    if (qs('#est-form-sku')) qs('#est-form-sku').value = sku;
+    const marcasBox = qs('#est-form-marcas');
+    if (marcasBox) {
+      marcasBox.innerHTML = '';
+      const marcas = cod.marcas.length ? cod.marcas : [{ m: '', c: '', p: 0 }];
+      marcas.forEach(m => addMarca(m));
+    }
     qs('#est-form-qtd').value  = e?.quantidade ?? '0';
     qs('#est-form-unit').value = e?.valor_unit ?? '0';
     qs('#est-form-und').value  = e?.unidade || 'un';
@@ -321,14 +335,48 @@ const Estoque = (() => {
     Modal.open('modal-estoque');
   }
 
-  // Lê um código de barras pela câmera e preenche o campo do form.
-  async function scanCodBarras() {
+  // Próximo código interno estável (SAR-000N) — maior número em uso + 1.
+  function _nextSku() {
+    let max = 0;
+    (allEstoque || []).forEach(e => {
+      const m = /(\d+)\s*$/.exec(EstCod.parse(e.codigo_barras).sku || '');
+      if (m) max = Math.max(max, Number(m[1]));
+    });
+    return 'SAR-' + String(max + 1).padStart(4, '0');
+  }
+
+  // Uma linha de marca no form: marca + código de fábrica (+📷) + último preço.
+  function _marcaRowHtml(m) {
+    m = m || { m: '', c: '', p: 0 };
+    return `<div class="est-marca-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
+      <input type="text" class="input est-marca-nome" style="flex:1;min-width:80px" placeholder="Marca" value="${Fmt.esc(m.m || '')}">
+      <input type="text" class="input est-marca-cod" style="flex:1.4;min-width:120px" placeholder="Código de barras" inputmode="numeric" value="${Fmt.esc(m.c || '')}">
+      <button type="button" class="btn btn-sm btn-outline" title="Escanear" onclick="Estoque.scanMarca(this)">📷</button>
+      <input type="number" class="input est-marca-preco" style="width:88px" step="0.01" min="0" placeholder="Últ. R$" value="${Number(m.p) > 0 ? Number(m.p).toFixed(2) : ''}">
+      <button type="button" class="btn btn-sm btn-danger" title="Remover" onclick="this.closest('.est-marca-row').remove()">✕</button>
+    </div>`;
+  }
+
+  function addMarca(m) {
+    qs('#est-form-marcas')?.insertAdjacentHTML('beforeend', _marcaRowHtml(m));
+  }
+
+  // 📷 de uma linha: lê o código pela câmera e joga no campo daquela marca.
+  async function scanMarca(btn) {
     const code = await Scanner.scan();
-    if (code) {
-      const inp = qs('#est-form-codbarras');
-      if (inp) inp.value = code;
-      Toast.success('Código lido: ' + code);
-    }
+    if (!code) return;
+    const inp = btn.closest('.est-marca-row')?.querySelector('.est-marca-cod');
+    if (inp) inp.value = code;
+    Toast.success('Código lido: ' + code);
+  }
+
+  // Lê as linhas de marca do form → [{m,c,p}] (só as com código ou marca).
+  function _marcasFromForm() {
+    return [...document.querySelectorAll('#est-form-marcas .est-marca-row')].map(r => ({
+      m: r.querySelector('.est-marca-nome')?.value || '',
+      c: r.querySelector('.est-marca-cod')?.value || '',
+      p: Number(r.querySelector('.est-marca-preco')?.value || 0),
+    })).filter(x => x.c.trim() || x.m.trim());
   }
 
   // Mostra o campo "novo grupo" quando o usuário escolhe "＋ Novo grupo…".
@@ -363,7 +411,7 @@ const Estoque = (() => {
     const novoUnit = Number(qs('#est-form-unit').value) || 0;
     const dadosBase = {
       descricao:      desc,
-      codigo_barras:  (qs('#est-form-codbarras')?.value || '').trim(),
+      codigo_barras:  EstCod.encode({ sku: (qs('#est-form-sku')?.value || '').trim(), marcas: _marcasFromForm() }),
       grupo:          _grupoEscolhido(),
       unidade:        qs('#est-form-und').value.trim() || 'un',
       estoque_minimo: Number(qs('#est-form-min').value) || 0,
@@ -824,7 +872,7 @@ const Estoque = (() => {
   return {
     render, goTab, switchTab, tabsHTML, abrirMais,
     onSearch, onCatFiltro, onRelCat, toggleGrupo, openDetail, voltarLista,
-    openForm, saveForm, onGrupoChange, scanCodBarras, openBaixa, saveBaixa, confirmDelete,
+    openForm, saveForm, onGrupoChange, scanMarca, addMarca, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
     onMovSearch, onMovMotivo, onContagem, onInvSearch, finalizarContagem,
     // lista

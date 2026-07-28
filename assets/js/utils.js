@@ -894,3 +894,58 @@ const Eventos = {
     });
   },
 };
+
+// ─── EstCod: identidade de um item de estoque ────────────────
+// Um item = 1 CÓDIGO INTERNO (sku, estável, você controla) + N CÓDIGOS DE
+// FÁBRICA (um por marca, cada um com o último preço). Tudo cabe no campo
+// `codigo_barras` que já existe (guardado como JSON) — sem coluna/sheet nova.
+// Escanear QUALQUER código (interno ou de fábrica) resolve pro mesmo item.
+// Compat: um codigo_barras antigo (string simples) vira "1 marca sem nome".
+const EstCod = {
+  // raw (JSON novo | string antiga | vazio) → { sku, marcas:[{m,c,p}] }
+  parse(raw) {
+    const out = { sku: '', marcas: [] };
+    const s = String(raw == null ? '' : raw).trim();
+    if (!s) return out;
+    if (s.charAt(0) === '{') {
+      try {
+        const o = JSON.parse(s);
+        out.sku = String(o.sku || '');
+        out.marcas = Array.isArray(o.marcas) ? o.marcas.map(m => ({
+          m: String(m.m || ''), c: String(m.c || ''), p: Number(m.p || 0),
+        })) : [];
+        return out;
+      } catch (_) { /* não é JSON válido → trata como legado abaixo */ }
+    }
+    out.marcas = [{ m: '', c: s, p: 0 }]; // legado: código único, sem marca
+    return out;
+  },
+  // { sku, marcas } → JSON p/ gravar em codigo_barras (descarta marca vazia).
+  encode(obj) {
+    return JSON.stringify({
+      sku: String((obj && obj.sku) || ''),
+      marcas: (((obj && obj.marcas) || [])
+        .map(m => ({ m: String(m.m || '').trim(), c: String(m.c || '').trim(), p: Number(m.p || 0) }))
+        .filter(m => m.c || m.m)),
+    });
+  },
+  // Todos os códigos escaneáveis do item (interno + de fábrica).
+  codigos(raw) {
+    const o = this.parse(raw);
+    const arr = [];
+    if (o.sku) arr.push(o.sku);
+    o.marcas.forEach(m => { if (m.c) arr.push(m.c); });
+    return arr;
+  },
+  // Esse item (pelo raw) reconhece esse código? (interno OU de fábrica)
+  matchCode(raw, code) {
+    const c = String(code || '').trim();
+    if (!c) return false;
+    return this.codigos(raw).some(x => String(x).trim() === c);
+  },
+  // Texto pesquisável do item (sku + marcas + códigos).
+  searchText(raw) {
+    const o = this.parse(raw);
+    return [o.sku].concat(o.marcas.map(m => (m.m + ' ' + m.c))).join(' ');
+  },
+};
