@@ -432,6 +432,21 @@ function makeGsSandbox() {
       assert.equal(parc.conta_id || '', '');
       assert.equal(vm.runInContext(`read('pagamentos', null, { parcela_id:'${id}' }).data.length`, g), 2);
     });
+    test('fecharOS com adiantamento: parcela nasce "parcial" + pagamento da entrada', () => {
+      const osId = vm.runInContext(`create('os', { numero:'9', cliente_id:'c1', status:'andamento', registro:'os', valor_calculado:1000 }).data.id`, g);
+      const r = vm.runInContext(`fecharOS({ os_id:'${osId}', valor_bruto:1000, valor_liquido:1000,
+        data_competencia:'2026-07-01', data_vencimento:'2026-07-30',
+        entrada_valor:300, entrada_conta:'cx' })`, g);
+      assert.ok(r.success, 'fecharOS ok');
+      const parc = vm.runInContext(`read('parcelas', '${r.parcela_id}').data[0]`, g);
+      assert.equal(parc.status, 'parcial');
+      assert.equal(Number(parc.valor), 1000);
+      const pgs = vm.runInContext(`read('pagamentos', null, { parcela_id:'${r.parcela_id}' }).data`, g);
+      assert.equal(pgs.length, 1);
+      assert.equal(Number(pgs[0].valor), 300);
+      assert.equal(pgs[0].conta_id, 'cx');
+      assert.equal(vm.runInContext(`read('os', '${osId}').data[0].status`, g), 'fechado');
+    });
   }
 
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');

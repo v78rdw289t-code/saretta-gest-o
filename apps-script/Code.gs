@@ -426,6 +426,18 @@ function fecharOS(data) {
   };
   const parcela = create('parcelas', parcelaData);
 
+  // Adiantamento (entrada) recebido no fechamento: registra um pagamento parcial
+  // já no razão. A parcela vira 'parcial' (ou 'pago' se a entrada cobrir tudo) e
+  // o saldo fica pendente. Reusa registrarPagamento.
+  if (Number(data.entrada_valor) > 0) {
+    registrarPagamento({
+      parcela_id:  parcela.data.id,
+      itens:       [{ conta_id: data.entrada_conta || '', valor: Number(data.entrada_valor) }],
+      data:        data.entrada_data || fechamentoData.data,
+      observacoes: 'Adiantamento no fechamento',
+    });
+  }
+
   // Atualizar status da OS
   update('os', data.os_id, { status: 'fechado', valor_fechamento: data.valor_liquido, data_fim: new Date().toISOString().substring(0,10), data_atualizacao: new Date().toISOString() });
 

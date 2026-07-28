@@ -2574,6 +2574,14 @@ const OS = (() => {
               </div>
             </div>
 
+            <div class="form-group">
+              <label>Entrada / adiantamento já recebido <small style="color:var(--text-muted);font-weight:400">— opcional; deixa o saldo pendente</small></label>
+              <div style="display:flex;gap:8px">
+                <input type="number" id="fech-entrada-valor" class="input" style="flex:1" step="0.01" min="0" placeholder="R$ recebido agora">
+                <select id="fech-entrada-conta" class="input" style="flex:1">${App.contaOptions('', 'Conta da entrada…')}</select>
+              </div>
+            </div>
+
             ${currentOS.categoria_id ? `
             <div class="form-group">
               <label>Categoria</label>
@@ -2690,11 +2698,15 @@ const OS = (() => {
     const venc    = qs('#fech-vencimento').value;
     const catId   = currentOS.categoria_id || '';
     const obs     = qs('#fech-obs').value;
+    const entradaValor = Number(qs('#fech-entrada-valor')?.value) || 0;
+    const entradaConta = qs('#fech-entrada-conta')?.value || '';
 
     // Vincula todas as sessões da OS ao fechamento (registro em fechamento_dias).
     const diariaIds = allDiarias.filter(d => d.os_id === osId).map(d => d.id);
 
     if (liquido <= 0) { Toast.warning('Valor final precisa ser maior que zero'); return; }
+    if (entradaValor > 0 && !entradaConta) { Toast.warning('Selecione a conta da entrada'); return; }
+    if (entradaValor > liquido + 0.005) { Toast.warning('A entrada não pode ser maior que o valor final'); return; }
 
     Loading.show();
 
@@ -2713,6 +2725,7 @@ const OS = (() => {
       os_id: osId, valor_bruto: base, desconto: descontoAbs, valor_liquido: liquido,
       data_competencia: comp, data_vencimento: venc, categoria_id: catId,
       diaria_ids: diariaIds, observacoes: obs,
+      entrada_valor: entradaValor, entrada_conta: entradaConta, entrada_data: DateUtil.today(),
     });
     Loading.hide();
 
