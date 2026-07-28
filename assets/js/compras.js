@@ -35,15 +35,17 @@ const Compras = (() => {
           ? '<div class="entity-empty">Nenhuma compra registrada</div>'
           : allCompras.map(c => {
             const forn = App.clienteNome(c.fornecedor_id);
+            const emNome = !!c.cliente_id;
+            const cliNome = emNome ? App.clienteNome(c.cliente_id) : '';
             return `
               <div class="entity-item" onclick="Compras.tapCard('${c.id}')">
-                <div class="avatar ${avatarColor(forn)} avatar-icon">🛒</div>
+                <div class="avatar ${emNome ? 'av-teal' : avatarColor(forn)} avatar-icon">${emNome ? '🧾' : '🛒'}</div>
                 <div class="entity-info">
-                  <div class="entity-name">${forn || 'Fornecedor não informado'}</div>
+                  <div class="entity-name">${forn || 'Fornecedor não informado'}${emNome ? ` <span class="badge badge-info" style="font-size:.62rem">em nome de ${Fmt.esc(cliNome)}</span>` : ''}</div>
                   <div class="entity-sub">${Fmt.date(c.data)}${c.observacoes ? ' · ' + c.observacoes : ''}</div>
                 </div>
                 <div class="entity-right">
-                  <span class="entity-value text-red">${Fmt.currency(c.valor_total)}</span>
+                  <span class="entity-value ${emNome ? '' : 'text-red'}"${emNome ? ' style="color:var(--text-muted)"' : ''}>${Fmt.currency(c.valor_total)}</span>
                   <span class="entity-chevron">›</span>
                 </div>
               </div>
@@ -162,6 +164,15 @@ const Compras = (() => {
     const qp = qs('#compra-quempagou');
     if (qp) qp.value = '';
     qs('#compra-quempagou-hint')?.classList.add('hidden');
+    // Cliente (para "em nome do cliente")
+    if (qs('#compra-cliente')) qs('#compra-cliente').innerHTML = App.clienteOptions('cliente', compra?.cliente_id || '');
+    if (qs('#compra-em-nome')) {
+      qs('#compra-em-nome').checked  = !!(compra && compra.cliente_id);
+      // Na edição o tipo é fixo (converter normal↔registro deixaria parcela/estoque
+      // órfãos) — pra mudar, exclua e recrie.
+      qs('#compra-em-nome').disabled = !!id;
+    }
+    onNomeClienteChange();
     const titulo = qs('#modal-compra .modal-header h3');
     if (titulo) titulo.textContent = id ? 'Editar Compra' : 'Nova Compra';
 
@@ -228,6 +239,16 @@ const Compras = (() => {
     qs('#compra-quempagou-hint')?.classList.toggle('hidden', !v);
   }
 
+  // "Compra em nome do cliente": só registro. Some os campos de despesa (venc,
+  // parcelas, competência, quem pagou) e mostra o seletor de cliente.
+  function onNomeClienteChange() {
+    const on = !!qs('#compra-em-nome')?.checked;
+    qs('#compra-cliente-wrap')?.classList.toggle('hidden', !on);
+    qs('#compra-parc-row')?.classList.toggle('hidden', on);
+    qs('#compra-comp-wrap')?.classList.toggle('hidden', on);
+    qs('#compra-quempagou-wrap')?.classList.toggle('hidden', on);
+  }
+
   function renderItensForm() {
     const container = qs('#compra-itens-list');
     if (!container) return;
@@ -282,9 +303,13 @@ const Compras = (() => {
     const obs       = qs('#compra-obs').value;
     const quemPagou = qs('#compra-quempagou')?.value || '';
     const desconto  = Number(qs('#compra-desconto')?.value) || 0;
-    const total     = Math.max(0, itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0) - desconto);
+    const subtotal  = itensForm.reduce((s, i) => s + Number(i.valor_total || 0), 0);
+    const total     = Math.max(0, subtotal - desconto);
+    const emNome    = !!qs('#compra-em-nome')?.checked;
+    const clienteId = emNome ? (qs('#compra-cliente')?.value || '') : '';
 
     if (itensForm.length === 0) { Toast.warning('Adicione ao menos um item'); return; }
+    if (emNome && !clienteId) { Toast.warning('Escolha o cliente'); return; }
 
     const payload = {
       idempotency_id: idemId,
@@ -296,19 +321,42 @@ const Compras = (() => {
     };
 
     Loading.show();
-    const res = editId
-      ? await API.db.editarCompra({ ...payload, compra_id: editId })
-      : await API.db.registrarCompra(payload);
+    let res;
+    if (clienteId) {
+      // Registro em nome do cliente: sem despesa, sem estoque.
+      if (editId) {
+        // Atualiza direto (editarCompra recalcularia estoque/financeiro — não é o caso).
+        await API.db.update('compras', editId, {
+          cliente_id: clienteId, fornecedor_id: fornId, data,
+          valor_total: total, valor_bruto: subtotal, desconto, observacoes: obs, parcela_id: '',
+        });
+        const old = await API.db.read('compras_itens', null, { compra_id: editId });
+        await Promise.all((old?.data || []).map(it => API.db.delete('compras_itens', it.id)));
+        await Promise.all(itensForm.map(it => API.db.create('compras_itens', {
+          compra_id: editId, descricao: it.descricao, estoque_id: '', categoria_id: it.categoria_id || '',
+          quantidade: it.quantidade, valor_unit: it.valor_unit, valor_liq: it.valor_total, valor_total: it.valor_total,
+        })));
+        res = { success: true };
+      } else {
+        res = await API.db.registrarCompra({ ...payload, cliente_id: clienteId });
+      }
+    } else {
+      res = editId
+        ? await API.db.editarCompra({ ...payload, compra_id: editId })
+        : await API.db.registrarCompra(payload);
+    }
     Loading.hide();
 
     if (res?.success) {
-      const msg = editId
-        ? 'Compra atualizada! Estoque e financeiro recalculados.'
-        : (res.jaRegistrada
-            ? 'Compra já estava registrada — nada foi duplicado.'
-            : (quemPagou
-                ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
-                : 'Compra registrada! Estoque e financeiro atualizados.'));
+      const msg = clienteId
+        ? 'Registro em nome do cliente salvo — não é despesa nem estoque.'
+        : (editId
+            ? 'Compra atualizada! Estoque e financeiro recalculados.'
+            : (res.jaRegistrada
+                ? 'Compra já estava registrada — nada foi duplicado.'
+                : (quemPagou
+                    ? `Compra registrada! Foi pra ficha de ${quemPagou}.`
+                    : 'Compra registrada! Estoque e financeiro atualizados.')));
       Toast.success(msg);
       Modal.close('modal-compra');
       editId = '';
@@ -321,5 +369,5 @@ const Compras = (() => {
     openDetail(id);
   }
 
-  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, onSelectEstoque, onQuemPagouChange, addItem, removeItem, saveForm };
+  return { render, renderList, tapCard, openDetail, confirmDelete, openForm, onSelectEstoque, onQuemPagouChange, onNomeClienteChange, addItem, removeItem, saveForm };
 })();

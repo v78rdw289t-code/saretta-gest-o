@@ -72,7 +72,9 @@ const SHEET_HEADERS = {
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
   // codigo_barras: EAN/SKU lido pela câmera p/ achar o item e dar baixa na OS.
   estoque:        ['id','descricao','quantidade','valor_unit','fornecedor_id','unidade','observacoes','data_entrada','ativo','categoria_id','estoque_minimo','grupo','codigo_barras'],
-  compras:        ['id','fornecedor_id','data','valor_total','valor_bruto','desconto','parcela_id','observacoes'],
+  // cliente_id preenchido = compra "em nome do cliente" (só registro de controle:
+  // não vira despesa nem entra no estoque). Vazio = compra normal da empresa.
+  compras:        ['id','fornecedor_id','data','valor_total','valor_bruto','desconto','parcela_id','observacoes','cliente_id'],
   compras_itens:  ['id','compra_id','descricao','estoque_id','categoria_id','quantidade','valor_unit','valor_liq','valor_total'],
   lista_compras:  ['id','cliente_id','descricao','quantidade','unidade','estoque_id','status','data_criacao'],
   // Razão (extrato) do estoque: toda entrada/saída/ajuste vira uma linha aqui.
@@ -549,6 +551,34 @@ function registrarCompra(data) {
     : Math.max(0, bruto - desconto);
   // Fator de rateio: cada item carrega sua fatia proporcional do desconto.
   const ratio = bruto > 0 ? (liquido / bruto) : 1;
+
+  // ── COMPRA EM NOME DO CLIENTE = só registro de controle ──────
+  // Não é despesa sua nem entra no seu estoque. Grava a compra (com cliente_id)
+  // + os itens (sem vínculo de estoque) e retorna — sem parcela, sem movimentação.
+  if (data.cliente_id) {
+    const cr = create('compras', {
+      id:            idem || undefined,
+      fornecedor_id: data.fornecedor_id || '',
+      cliente_id:    data.cliente_id,
+      data:          data.data,
+      valor_total:   liquido,
+      valor_bruto:   bruto,
+      desconto:      desconto,
+      observacoes:   data.observacoes || '',
+    });
+    const cid = cr.data.id;
+    itens.forEach(it => create('compras_itens', {
+      compra_id:   cid,
+      descricao:   it.descricao || '',
+      estoque_id:  '',
+      categoria_id:it.categoria_id || '',
+      quantidade:  it.quantidade || 0,
+      valor_unit:  it.valor_unit || 0,
+      valor_liq:   it.valor_total || 0,
+      valor_total: it.valor_total || 0,
+    }));
+    return { success: true, compra_id: cid, emNomeCliente: true };
+  }
 
   const compra = create('compras', {
     id:            idem || undefined,   // usa o id do cliente → create() dedupa por id

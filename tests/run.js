@@ -509,6 +509,23 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Compras: em nome do cliente (só registro) —');
+  {
+    const g = makeGsSandbox();
+    test('registrarCompra com cliente_id: registro, sem parcela e sem estoque', () => {
+      const r = vm.runInContext(`registrarCompra({ fornecedor_id:'f1', cliente_id:'cli1', data:'2026-07-28',
+        itens:[{ descricao:'Cabo', quantidade:2, valor_unit:10, valor_total:20, categoria_id:'' }] })`, g);
+      assert.ok(r.success);
+      assert.equal(r.emNomeCliente, true);
+      assert.equal(vm.runInContext(`read('compras', '${r.compra_id}').data[0].cliente_id`, g), 'cli1');
+      assert.equal(vm.runInContext(`read('compras_itens', null, { compra_id:'${r.compra_id}' }).data.length`, g), 1);
+      assert.equal(vm.runInContext(`read('parcelas').data.filter(p=>p.origem_id==='${r.compra_id}').length`, g), 0);
+      assert.equal(vm.runInContext(`read('estoque').data.length`, g), 0); // não mexeu no estoque
+    });
+    // (o caminho normal usa sh.getLastColumn no buffer de estoque, que a fake
+    //  sheet do mock não implementa — testado no app, não aqui.)
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem
