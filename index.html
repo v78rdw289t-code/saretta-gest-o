@@ -431,6 +431,19 @@
         <label>Valor Total</label>
         <input type="number" id="modal-item-total" class="input" step="0.01">
       </div>
+      <div class="form-group hidden" id="item-pagador-wrap">
+        <label>Material pago por</label>
+        <select id="modal-item-pagador" class="input" onchange="OS.onPagadorChange()">
+          <option value="empresa">🏢 Empresa (entra no total a cobrar)</option>
+          <option value="cliente">👤 Cliente (comprou direto — não entra no total)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="modal-item-nopdf" style="width:auto;margin:0">
+          <span>Ocultar este item no PDF (orçamento/lista)</span>
+        </label>
+      </div>
       <div class="form-group" id="item-quempagou-wrap" style="display:none">
         <label>Quem pagou? <small style="color:var(--text-muted);font-weight:400">(opcional — gera fiado de reembolso)</small></label>
         <select id="modal-item-quempagou" class="input">

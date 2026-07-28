@@ -190,11 +190,14 @@ const Doc = (() => {
     const cliente  = (cliRes?.data || []).find(c => c.id === os.cliente_id) || {};
     const diarias  = (diaRes?.data || []).filter(d => d.os_id === osId);
     const itens    = (itRes?.data  || []).filter(i => i.os_id === osId);
-    const grupos   = itens.filter(i => i.tipo === 'grupo');   // blocos "serviço + valor"
-    const simples  = itens.filter(i => i.tipo !== 'grupo');   // material/serviço avulso
+    // no_pdf='1' → item não aparece no PDF (mas ainda pode contar no total se for da empresa).
+    const visiveis = itens.filter(i => String(i.no_pdf) !== '1');
+    const grupos   = visiveis.filter(i => i.tipo === 'grupo');   // blocos "serviço + valor"
+    const simples  = visiveis.filter(i => i.tipo !== 'grupo');   // material/serviço avulso
     const emp      = _empresa(cfg);
 
-    const totalItens = itens.reduce((s, i) => s + Number(i.valor_total || 0), 0);   // grupos + avulsos
+    // Total dos itens = só o faturável: material pago pelo cliente NÃO entra.
+    const totalItens = Calculator.somaItensFatura(itens);   // grupos + avulsos, exclui do-cliente
     const maoObra    = diarias.reduce((s, d) => s + Number(d.valor_manual || d.valor_calculado || 0), 0);
     const totalHoras = diarias.reduce((s, d) => s + Number(d.horas_totais || 0), 0);
     // Orçamento: valor total manual (se informado) OU soma dos itens/grupos — igual à tela.
@@ -258,12 +261,12 @@ const Doc = (() => {
           <table class="doc-table">
             <thead><tr><th>Item</th><th class="r">Qtd</th>${opts.valores ? '<th class="r">Valor</th>' : ''}</tr></thead>
             <tbody>
-              ${simples.map(i => `
+              ${simples.map(i => { const doCliente = i.pagador === 'cliente'; return `
                 <tr>
-                  <td>${Fmt.esc(i.descricao || i.nome || 'Item')}</td>
+                  <td>${Fmt.esc(i.descricao || i.nome || 'Item')}${doCliente ? ' <em style="color:#666">(por conta do cliente)</em>' : ''}</td>
                   <td class="r">${i.quantidade || 1}</td>
-                  ${opts.valores ? `<td class="r">${Fmt.currency(i.valor_total || 0)}</td>` : ''}
-                </tr>`).join('')}
+                  ${opts.valores ? `<td class="r">${doCliente ? '—' : Fmt.currency(i.valor_total || 0)}</td>` : ''}
+                </tr>`; }).join('')}
             </tbody>
           </table>
         </section>` : ''}

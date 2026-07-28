@@ -390,6 +390,24 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Fase 4: faturável (material do cliente não conta) —');
+  {
+    const s = makeFrontSandbox();
+    test('Calculator.itemFatura: material do cliente = 0; empresa/serviço = valor', () => {
+      assert.equal(vm.runInContext(`Calculator.itemFatura({ pagador:'cliente', valor_total: 100 })`, s), 0);
+      assert.equal(vm.runInContext(`Calculator.itemFatura({ pagador:'empresa', valor_total: 100 })`, s), 100);
+      assert.equal(vm.runInContext(`Calculator.itemFatura({ valor_total: 40 })`, s), 40); // sem pagador = empresa
+    });
+    test('Calculator.somaItensFatura soma só o que a empresa cobra', () => {
+      const soma = vm.runInContext(`Calculator.somaItensFatura([
+        { pagador:'empresa', valor_total: 100 },
+        { pagador:'cliente', valor_total: 250 },
+        { tipo:'servico', valor_total: 50 },
+      ])`, s);
+      assert.equal(soma, 150);
+    });
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem

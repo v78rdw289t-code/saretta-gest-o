@@ -330,6 +330,18 @@ function el(tag, attrs = {}, ...children) {
 const Calculator = {
   _config: null,
 
+  // Valor FATURÁVEL de um item de OS: material pago pelo CLIENTE (pagador==='cliente')
+  // não entra no total a cobrar — o cliente comprou/paga direto. Serviço e material
+  // pago pela empresa entram normalmente. Fonte única desta regra.
+  itemFatura(i) {
+    if (i && i.pagador === 'cliente') return 0;
+    return Number((i && i.valor_total) || 0);
+  },
+  // Soma faturável de uma lista de itens.
+  somaItensFatura(itens) {
+    return (itens || []).reduce((s, i) => s + this.itemFatura(i), 0);
+  },
+
   // Fatores padrão (mesmos da calculadora JSX original)
   FATORES_DEFAULT: [
     { id: 1, label: 'Risco (altura, elétrica, confinado)',          percentual: 30 },
