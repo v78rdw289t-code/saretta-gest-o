@@ -504,11 +504,92 @@ const OS = (() => {
       <!-- Parcelas geradas por esta OS — clicáveis, levam para editar no Financeiro.
            Preenchida em _preencheParcelas (não bloqueia o detalhe). -->
       <div class="card mb-3" id="os-parcelas-card">${_parcelasCardInner(null, currentOS.status)}</div>
+
+      <!-- Linha do tempo / Histórico — lê os_eventos (async, não bloqueia). -->
+      <div class="card mb-3" id="os-timeline-card">${_timelineCardInner(null)}</div>
     `;
 
     // Carrega as parcelas SEM bloquear: com cache é instantâneo, em rede lenta a
     // seção fica "Carregando…" e atualiza quando responder — o detalhe já está na tela.
     _preencheParcelas(id);
+    // Linha do tempo: mesmo padrão (placeholder + preenche async).
+    _preencheTimeline(id);
+  }
+
+  // ─── LINHA DO TEMPO / HISTÓRICO (os_eventos) ─────────────────
+  // Rótulo curto de um evento do log, conforme tipo/categoria.
+  function _eventoLabel(ev) {
+    const reg = ev.registro || 'os';
+    if (ev.tipo === 'status') {
+      return `🔄 Etapa: ${statusBadge(ev.de || '—')} → ${statusBadge(ev.para || '—')}`;
+    }
+    if (ev.tipo === 'marco') {
+      const map = {
+        criada:     '🆕 Criada',
+        item_add:   '➕ Item lançado',
+        fechamento: '✓ Fechada',
+        pagamento:  '💰 Pagamento',
+        retorno:    '🔁 Retorno declarado',
+        pdf_gerado: '📄 PDF gerado',
+        edicao:     '✏️ Editada',
+      };
+      const base = map[ev.categoria] || `• ${ev.categoria || 'evento'}`;
+      return ev.obs ? `${base} <span style="color:var(--text-muted)">· ${Fmt.esc(ev.obs)}</span>` : base;
+    }
+    if (ev.tipo === 'apontamento') {
+      const cat = {
+        deslocamento:     '🚗 Deslocamento',
+        refeicao:         '🍽️ Refeição',
+        aguardando_peca:  '📦 Aguardando peça',
+        aguardando_cliente: '⏳ Aguardando cliente',
+        reuniao:          '👥 Reunião',
+        treinamento:      '🎓 Treinamento',
+        generico:         '📝 Apontamento',
+      }[ev.categoria] || `📝 ${ev.categoria || 'Apontamento'}`;
+      const dur = Number(ev.duracao_min) > 0 ? ` <span class="badge badge-info" style="font-size:.65rem">${Fmt.hours(Number(ev.duracao_min) / 60)}</span>` : '';
+      const obs = ev.obs ? ` <span style="color:var(--text-muted)">· ${Fmt.esc(ev.obs)}</span>` : '';
+      return `${cat}${dur}${obs}`;
+    }
+    return '• evento';
+  }
+
+  // Conteúdo do card. eventos=null → "Carregando…"; [] → vazio; senão a lista
+  // (mais recente primeiro).
+  function _timelineCardInner(eventos) {
+    let corpo;
+    if (eventos === null) {
+      corpo = `<div class="entity-empty loading-pulse">Carregando…</div>`;
+    } else if (eventos.length === 0) {
+      corpo = `<div class="entity-empty">Sem eventos ainda. Trocar etapa, lançar item ou apontar já registra aqui.</div>`;
+    } else {
+      corpo = `<div class="os-timeline">${eventos.map(ev => `
+        <div class="os-timeline-item" style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="min-width:96px;font-size:.72rem;color:var(--text-muted)">${Fmt.dateTime(ev.ts)}</div>
+          <div style="flex:1;font-size:.85rem">${_eventoLabel(ev)}</div>
+        </div>`).join('')}</div>`;
+    }
+    return `
+      <div class="card-header">
+        <h3>Linha do tempo</h3>
+        <button class="btn btn-sm btn-outline" onclick="OS.openApontamento()">＋ Apontar</button>
+      </div>
+      <div class="card-body" style="padding-top:6px">${corpo}</div>`;
+  }
+
+  async function _preencheTimeline(osId) {
+    try {
+      const res = await API.db.read('os_eventos', null, { os_id: osId });
+      // Guard: se o usuário já trocou de OS, não pinta o card da OS anterior.
+      if (!currentOS || currentOS.id !== osId) return;
+      const eventos = (res?.data || [])
+        .filter(e => String(e.os_id) === String(osId))
+        .sort((a, b) => String(a.ts || '') > String(b.ts || '') ? -1 : 1);
+      const card = qs('#os-timeline-card');
+      if (card) card.innerHTML = _timelineCardInner(eventos);
+    } catch (_) {
+      const card = qs('#os-timeline-card');
+      if (card && currentOS && currentOS.id === osId) card.innerHTML = _timelineCardInner([]);
+    }
   }
 
   // Filtra as parcelas desta OS: origem direta ('os') ou via fechamento em lote
@@ -2144,6 +2225,38 @@ const OS = (() => {
     openDetail(id);
   }
 
+  // ─── APONTAMENTO (diário de bordo genérico → os_eventos) ─────
+  function openApontamento() {
+    if (!currentOS) return;
+    qs('#modal-apont-sub').textContent = `Diário da ${currentOS.numero || 'OS'}`;
+    qs('#modal-apont-cat').value = 'deslocamento';
+    qs('#modal-apont-min').value = '';
+    qs('#modal-apont-obs').value = '';
+    Modal.open('modal-apontamento');
+    setTimeout(() => qs('#modal-apont-min')?.focus(), 80);
+  }
+
+  function saveApontamento() { return Guard.run('os-apontar', () => _saveApontamento()); }
+  async function _saveApontamento() {
+    if (!currentOS) return;
+    const osId = currentOS.id;
+    const min  = Number(qs('#modal-apont-min').value) || 0;
+    const rec  = {
+      os_id: osId, registro: currentOS.registro || 'os', tipo: 'apontamento',
+      categoria: qs('#modal-apont-cat').value,
+      duracao_min: min > 0 ? min : '',
+      obs: qs('#modal-apont-obs').value.trim(),
+      ts: new Date().toISOString(),
+    };
+    Loading.show();
+    const res = await API.db.create('os_eventos', rec);   // awaited: refetch enxerga
+    Loading.hide();
+    Modal.close('modal-apontamento');
+    if (!res?.success) { Toast.error('Erro ao apontar'); return; }
+    Toast.success(res.queued ? '📮 Apontamento salvo (offline).' : 'Apontamento registrado.');
+    if (currentOS && currentOS.id === osId) _preencheTimeline(osId);
+  }
+
   // ─── FALTOU MATERIAL ─────────────────────────────────────────
   // Atalho de campo: percebeu na obra que falta material → anota direto na
   // lista de compras DO CLIENTE da OS, sem sair da tela (antes: OS → Estoque
@@ -3042,6 +3155,7 @@ const OS = (() => {
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     addGrupoServico, parseGrupo, encodeGrupo,
     openFaltouMaterial, saveFaltouMaterial,
+    declararRetorno, openApontamento, saveApontamento,
     // Calculadora no detalhe + Fechamento simplificado
     renderCalculadora, calcDiariaUpdate, calcNormalUpdate, toggleCalc, salvarCalculo,
     openFechamento, atualizarFechamento, recalcBaseFechamento, toggleHoraBase, toggleDescontoTipo, saveFechamento, confirmarFechamento, toggleFechIncluir, mudarStatus,
