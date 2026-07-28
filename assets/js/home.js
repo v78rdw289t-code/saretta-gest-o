@@ -62,6 +62,9 @@ const Home = (() => {
         </div>
       </div>
 
+      <!-- Inteligência da operação (alertas de SLA + gargalo) — preenchida async -->
+      <div id="home-intel"></div>
+
       <!-- Estoque — card-hub do módulo (acesso + lançar compra + lista + resumo) -->
       <div class="card estq-card">
         <div class="estq-head" onclick="App.navigate('estoque')">
@@ -119,10 +122,58 @@ const Home = (() => {
 
     // Dispara em paralelo, SEM await — cada bloco se preenche sozinho.
     loadOSAndamento();
+    loadIntelHome();
     loadEstoqueCard();
     loadFinanceiroHome();
     loadAfazerHome();
     loadLembrete();
+  }
+
+  // Inteligência da operação na Home: top alertas de SLA (aguardando peça/cliente,
+  // OS parada, orçamento sem resposta) + etapa mais lenta. Regras em IntelOS.
+  async function loadIntelHome() {
+    const el = qs('#home-intel');
+    if (!el) return;
+    const [osRes, evRes] = await Promise.all([
+      API.db.read('os').catch(() => null),
+      API.db.read('os_eventos').catch(() => null),
+    ]);
+    const cfg = await Calculator.getConfig().catch(() => ({}));
+    const osList = (osRes?.data || []);
+    const eventos = (evRes?.data || []);
+    const { alertas, gargalo, calibrando } = IntelOS.computar(osList, eventos, cfg, new Date());
+
+    // Etapa mais lenta (gargalo) — só quando há base suficiente.
+    const gargaloHtml = (!calibrando && gargalo && gargalo.mediaHoras >= 1)
+      ? `<div style="margin-top:10px;font-size:.82rem">🐢 Etapa mais lenta: ${statusBadge(gargalo.etapa)} <span style="color:var(--text-muted)">~${Fmt.hours(gargalo.mediaHoras)} em média</span></div>`
+      : '';
+
+    const vazio = t => `<div style="color:var(--text-muted);font-size:.86rem;padding:4px 0">${t}</div>`;
+    let corpo;
+    if (alertas.length) {
+      corpo = alertas.slice(0, 3).map((a, i, arr) => `
+        <div onclick="App.navigate('os').then(() => OS.openDetail('${a.os_id}'))"
+          style="display:flex;gap:10px;align-items:center;padding:10px 0;cursor:pointer${i < arr.length - 1 ? ';border-bottom:1px solid var(--border)' : ''}">
+          <span style="font-size:1.3rem">${a.icone}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.9rem">${Fmt.esc(a.titulo)}</div>
+            <div style="font-size:.78rem;color:var(--text-muted)">${Fmt.esc(a.texto)}</div>
+          </div>
+          <span class="entity-chevron">›</span>
+        </div>`).join('') + gargaloHtml;
+    } else if (calibrando) {
+      corpo = vazio('Coletando dados da operação. Conforme as OS passam pelas etapas, os alertas aparecem aqui.') + gargaloHtml;
+    } else {
+      corpo = vazio('✓ Fila saudável — nada parado além do previsto.') + gargaloHtml;
+    }
+
+    el.innerHTML = `
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3>🧠 Inteligência da operação${alertas.length ? ` <span class="badge badge-warning">${alertas.length}</span>` : ''}</h3>
+        </div>
+        <div class="card-body" style="padding-top:6px">${corpo}</div>
+      </div>`;
   }
 
   // Contador de "A fazer" (atrasados + hoje) no atalho da Home.

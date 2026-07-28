@@ -81,6 +81,7 @@ function makeFrontSandbox(seedLS) {
   vm.runInContext(src('assets/js/utils.js'), sandbox, { filename: 'utils.js' });
   vm.runInContext(src('assets/js/api.js'), sandbox, { filename: 'api.js' });
   vm.runInContext(src('assets/js/outbox.js'), sandbox, { filename: 'outbox.js' });
+  vm.runInContext(src('assets/js/inteligencia-os.js'), sandbox, { filename: 'inteligencia-os.js' });
   vm.runInContext('window.APPS_SCRIPT_URL = "http://fake.test/exec";', sandbox);
   return sandbox;
 }
@@ -432,6 +433,36 @@ function makeGsSandbox() {
       assert.equal(parc.conta_id || '', '');
       assert.equal(vm.runInContext(`read('pagamentos', null, { parcela_id:'${id}' }).data.length`, g), 2);
     });
+  }
+
+  console.log('\n— Fase 6: IntelOS (alertas de SLA + gargalo) —');
+  {
+    const s = makeFrontSandbox();
+    test('IntelOS: alerta de "aguardando peça" acima do SLA', () => {
+      const os = [
+        { id: 'A', numero: '1', registro: 'os', status: 'aguardando_peca' },
+        { id: 'B', numero: '2', registro: 'os', status: 'andamento', data_atualizacao: '2026-07-27T12:00:00Z' },
+      ];
+      const ev = [{ os_id: 'A', tipo: 'status', para: 'aguardando_peca', ts: '2026-07-20T12:00:00Z' }];
+      const r = vm.runInContext(`IntelOS.computar(${JSON.stringify(os)}, ${JSON.stringify(ev)}, { sla_aguardando_peca_dias:'3' }, new Date('2026-07-28T12:00:00Z'))`, s);
+      assert.equal(r.alertas.length, 1);
+      assert.equal(r.alertas[0].os_id, 'A');
+      assert.ok(r.alertas[0].dias >= 7, 'dias >= 7');
+    });
+    test('IntelOS._gargalo: etapa com maior tempo médio entre transições', () => {
+      const ev = [
+        { os_id: 'A', tipo: 'status', para: 'andamento',      ts: '2026-07-01T00:00:00Z' },
+        { os_id: 'A', tipo: 'status', para: 'aguardando_peca', ts: '2026-07-02T00:00:00Z' },
+        { os_id: 'A', tipo: 'status', para: 'fechado',         ts: '2026-07-07T00:00:00Z' },
+      ];
+      const gg = vm.runInContext(`IntelOS._gargalo(${JSON.stringify(ev)})`, s);
+      assert.equal(gg.etapa, 'aguardando_peca');
+    });
+  }
+
+  console.log('\n— Fase 5b: fecharOS adiantamento (gs) —');
+  {
+    const g = makeGsSandbox();
     test('fecharOS com adiantamento: parcela nasce "parcial" + pagamento da entrada', () => {
       const osId = vm.runInContext(`create('os', { numero:'9', cliente_id:'c1', status:'andamento', registro:'os', valor_calculado:1000 }).data.id`, g);
       const r = vm.runInContext(`fecharOS({ os_id:'${osId}', valor_bruto:1000, valor_liquido:1000,
