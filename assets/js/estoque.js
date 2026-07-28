@@ -125,7 +125,7 @@ const Estoque = (() => {
   function renderItens() {
     if (_catFiltro === null) _catFiltro = catMaterialId();
     let items = allEstoque;
-    if (_q) items = filterRecords(items, _q, ['descricao', 'unidade']);
+    if (_q) items = filterRecords(items, _q, ['descricao', 'unidade', 'codigo_barras', 'grupo']);
     if (_catFiltro) items = items.filter(e => String(e.categoria_id || '') === String(_catFiltro));
 
     const baixos     = allEstoque.filter(isBaixo);
@@ -308,6 +308,7 @@ const Estoque = (() => {
     }
     const novoG = qs('#est-form-grupo-novo');
     if (novoG) { novoG.value = ''; novoG.classList.add('hidden'); }
+    if (qs('#est-form-codbarras')) qs('#est-form-codbarras').value = e?.codigo_barras || '';
     qs('#est-form-qtd').value  = e?.quantidade ?? '0';
     qs('#est-form-unit').value = e?.valor_unit ?? '0';
     qs('#est-form-und').value  = e?.unidade || 'un';
@@ -318,6 +319,16 @@ const Estoque = (() => {
     qs('#modal-est-title').textContent = id ? 'Editar / Ajustar Item' : 'Novo Item no Estoque';
     qs('#est-form-ajuste-hint')?.classList.toggle('hidden', !id);
     Modal.open('modal-estoque');
+  }
+
+  // Lê um código de barras pela câmera e preenche o campo do form.
+  async function scanCodBarras() {
+    const code = await Scanner.scan();
+    if (code) {
+      const inp = qs('#est-form-codbarras');
+      if (inp) inp.value = code;
+      Toast.success('Código lido: ' + code);
+    }
   }
 
   // Mostra o campo "novo grupo" quando o usuário escolhe "＋ Novo grupo…".
@@ -352,6 +363,7 @@ const Estoque = (() => {
     const novoUnit = Number(qs('#est-form-unit').value) || 0;
     const dadosBase = {
       descricao:      desc,
+      codigo_barras:  (qs('#est-form-codbarras')?.value || '').trim(),
       grupo:          _grupoEscolhido(),
       unidade:        qs('#est-form-und').value.trim() || 'un',
       estoque_minimo: Number(qs('#est-form-min').value) || 0,
@@ -812,7 +824,7 @@ const Estoque = (() => {
   return {
     render, goTab, switchTab, tabsHTML, abrirMais,
     onSearch, onCatFiltro, onRelCat, toggleGrupo, openDetail, voltarLista,
-    openForm, saveForm, onGrupoChange, openBaixa, saveBaixa, confirmDelete,
+    openForm, saveForm, onGrupoChange, scanCodBarras, openBaixa, saveBaixa, confirmDelete,
     // movimentações + inventário
     onMovSearch, onMovMotivo, onContagem, onInvSearch, finalizarContagem,
     // lista

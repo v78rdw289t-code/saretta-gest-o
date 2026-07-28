@@ -1661,8 +1661,26 @@ const OS = (() => {
   function filtrarItemEstoque(q) {
     const termo = String(q || '').trim();
     if (!termo) { renderItemResultados([], qs('#modal-item-estoque').value); return; }
-    const achados = filterRecords(_itemEstoque, termo, ['descricao', 'grupo', 'unidade']).slice(0, 30);
+    const achados = filterRecords(_itemEstoque, termo, ['descricao', 'grupo', 'unidade', 'codigo_barras']).slice(0, 30);
     renderItemResultados(achados, qs('#modal-item-estoque').value);
+  }
+
+  // Lê um código de barras pela câmera: se casar com um item do estoque, já
+  // seleciona; senão, joga o código na busca (achando por descrição/código).
+  async function scanItemEstoque() {
+    const code = await Scanner.scan();
+    if (!code) return;
+    const achado = _itemEstoque.find(e => String(e.codigo_barras || '').trim() === String(code).trim());
+    const busca = qs('#modal-item-busca');
+    if (achado) {
+      if (busca) busca.value = achado.descricao || code;
+      escolherItemEstoque(achado.id);
+      Toast.success('Item encontrado: ' + (achado.descricao || code));
+    } else {
+      if (busca) busca.value = code;
+      filtrarItemEstoque(code);
+      Toast.warning('Nenhum item com esse código. Cadastre o código no estoque.');
+    }
   }
 
   function renderItemResultados(lista, selId) {
@@ -3151,7 +3169,7 @@ const OS = (() => {
     openInsightsOS,
     openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, excluirDiariaAtual, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
-    openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque,
+    openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque, scanItemEstoque,
     openOrcItemForm, onOrcItemTipoChange, saveOrcItem, deleteOrcItem, gerarOSdeOrcamento,
     addGrupoServico, parseGrupo, encodeGrupo,
     openFaltouMaterial, saveFaltouMaterial,

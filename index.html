@@ -395,10 +395,13 @@
         </select>
       </div>
       <div class="form-group">
-        <label>Do Estoque (opcional)</label>
+        <label>Do Estoque (opcional) <small style="color:var(--text-muted);font-weight:400">— nome ou código de barras</small></label>
         <input type="hidden" id="modal-item-estoque">
-        <input type="text" id="modal-item-busca" class="input" autocomplete="off"
-          placeholder="🔍 Buscar item do estoque..." oninput="OS.filtrarItemEstoque(this.value)">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="modal-item-busca" class="input" style="flex:1" autocomplete="off"
+            placeholder="🔍 Buscar por nome ou código..." oninput="OS.filtrarItemEstoque(this.value)">
+          <button type="button" class="btn btn-outline" onclick="OS.scanItemEstoque()" title="Ler código de barras">📷</button>
+        </div>
         <div id="modal-item-resultados" class="item-busca-results"></div>
       </div>
       <div class="form-group">
@@ -560,6 +563,24 @@
   </div>
 </div>
 
+<!-- Leitor de código de barras (câmera) -->
+<div id="modal-scanner" class="modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>📷 Ler código de barras</h3>
+      <button class="modal-close" onclick="Scanner.cancel()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="scanner-view" style="width:100%;border-radius:12px;overflow:hidden"></div>
+      <p style="font-size:.78rem;color:var(--text-muted);text-align:center;margin-top:10px">Aponte a câmera para o código de barras do produto.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline btn-lg" onclick="Scanner.cancel()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Estoque -->
 <div id="modal-estoque" class="modal">
   <div class="modal-box">
@@ -573,6 +594,13 @@
       <div class="form-group">
         <label>Descrição *</label>
         <input type="text" id="est-form-desc" class="input" placeholder="Ex: Parafuso M8, Cabo elétrico 2,5mm...">
+      </div>
+      <div class="form-group">
+        <label>Código de barras <small style="color:var(--text-muted);font-weight:400">(opcional — digite ou escaneie)</small></label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="est-form-codbarras" class="input" style="flex:1" placeholder="Ex: 7891234567890" inputmode="numeric">
+          <button type="button" class="btn btn-outline" onclick="Estoque.scanCodBarras()" title="Ler pela câmera">📷</button>
+        </div>
       </div>
       <div class="form-group">
         <label>Grupo <small style="color:var(--text-muted);font-weight:400">(opcional — junta itens parecidos numa pasta)</small></label>
@@ -1174,6 +1202,8 @@
 <script src="assets/js/filtro.js?v=3.11.0"></script>
 <script src="assets/js/notif.js?v=3.11.0"></script>
 <script src="assets/js/outbox.js?v=3.11.0"></script>
+<script src="assets/js/lib/html5-qrcode.min.js"></script>
+<script src="assets/js/scanner.js?v=3.11.0"></script>
 <script src="assets/js/home.js?v=3.11.0"></script>
 <script src="assets/js/agenda.js?v=3.11.0"></script>
 <script src="assets/js/os.js?v=3.11.0"></script>

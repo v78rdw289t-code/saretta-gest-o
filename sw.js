@@ -22,6 +22,8 @@ const SHELL = [
   'assets/js/filtro.js?v=3.10.3',
   'assets/js/notif.js?v=3.10.3',
   'assets/js/outbox.js?v=3.10.3',
+  'assets/js/lib/html5-qrcode.min.js',
+  'assets/js/scanner.js?v=3.11.0',
   'assets/js/home.js?v=3.10.3',
   'assets/js/agenda.js?v=3.10.3',
   'assets/js/os.js?v=3.10.3',
