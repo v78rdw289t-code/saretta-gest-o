@@ -4,6 +4,7 @@
 
 const Financeiro = (() => {
   let allParcelas = [];
+  let allPagamentos = [];
   let allOS = [], allDiarias = []; // p/ resolver a categoria efetiva das parcelas de OS
   let comprasItensByCompra = {};   // p/ ratear a despesa da compra pelas categorias dos itens
   let fechamentoOsByFech   = {};   // p/ ratear a parcela de lote de OS pelas categorias das OS
@@ -62,21 +63,51 @@ const Financeiro = (() => {
   async function loadData() {
     const shown = Loading.maybeShow('parcelas');
     // OS + sessões são usadas só p/ resolver a categoria efetiva das parcelas de OS
-    const [res, osRes, diRes, ciRes, foRes, recRes] = await Promise.all([
+    const [res, osRes, diRes, ciRes, foRes, recRes, pgRes] = await Promise.all([
       API.db.read('parcelas'),
       API.db.read('os'),
       API.db.read('diarias'),
       API.db.read('compras_itens'),
       API.db.read('fechamento_os'),
       API.db.read('recorrentes'), // pré-initDB volta [] (readMany) ou erro gracioso
+      API.db.read('pagamentos'),  // razão de pagamentos (multi-conta/parcial); [] antes do Lote 2
     ]);
     if (shown) Loading.hide();
     allParcelas = res?.data || [];
+    allPagamentos = pgRes?.data || [];
     allOS       = osRes?.data || [];
     allDiarias  = diRes?.data || [];
     comprasItensByCompra = agruparComprasItens(ciRes?.data || []);
     fechamentoOsByFech   = agruparFechamentoOs(foRes?.data || []);
     allRecorrentes = recRes?.data || [];
+  }
+
+  // Movimento real de dinheiro por conta. Fonte da verdade = razão 'pagamentos'
+  // (permite parcial e multi-conta); parcelas pagas SEM razão (dados antigos)
+  // caem no legado (parcela.conta_id + valor cheio). Direção pela parcela
+  // (receber = entra na conta; pagar = sai). Devolve { contaId: {ent, sai} }.
+  function _movsPorConta() {
+    const parcById = {};
+    allParcelas.forEach(p => { parcById[String(p.id)] = p; });
+    const comPag = new Set(allPagamentos.map(pg => String(pg.parcela_id)));
+    const acc = {};
+    const bump = (contaId, tipo, valor) => {
+      const k = contaId || '';
+      if (!acc[k]) acc[k] = { ent: 0, sai: 0 };
+      if (tipo === 'receber')    acc[k].ent += Number(valor || 0);
+      else if (tipo === 'pagar') acc[k].sai += Number(valor || 0);
+    };
+    // 1) Razão de pagamentos (conta o dinheiro que de fato entrou/saiu, inclusive
+    //    de parcelas ainda 'parcial').
+    allPagamentos.forEach(pg => {
+      const parc = parcById[String(pg.parcela_id)];
+      if (parc) bump(pg.conta_id, parc.tipo, pg.valor);
+    });
+    // 2) Legado: parcelas pagas sem nenhum pagamento no razão.
+    allParcelas.forEach(p => {
+      if (p.status === 'pago' && !comPag.has(String(p.id))) bump(p.conta_id, p.tipo, p.valor);
+    });
+    return acc;
   }
 
   // Categoria efetiva de uma parcela (sessões → OS → parcela; lote → predominante) — utils.js
@@ -644,13 +675,16 @@ const Financeiro = (() => {
 
     const contas = App.getContas();
     const todasPagas = allParcelas.filter(p => p.status === 'pago');
+    const movs = _movsPorConta();
     const saldosContas = contas.map(c => {
       const ini = Number(c.saldo_inicial || 0);
-      const ent = todasPagas.filter(p => p.tipo === 'receber' && p.conta_id === c.id).reduce((s, p) => s + Number(p.valor || 0), 0);
-      const sai = todasPagas.filter(p => p.tipo === 'pagar'   && p.conta_id === c.id).reduce((s, p) => s + Number(p.valor || 0), 0);
-      return { conta: c, inicial: ini, entradas: ent, saidas: sai, saldo: ini + ent - sai };
+      const m   = movs[c.id] || { ent: 0, sai: 0 };
+      return { conta: c, inicial: ini, entradas: m.ent, saidas: m.sai, saldo: ini + m.ent - m.sai };
     });
-    const semConta   = todasPagas.filter(p => !p.conta_id).length;
+    // "Sem conta" (aviso) = paga, sem conta E sem razão de pagamentos. Multi-conta
+    // (conta_id vazio mas com pagamentos) NÃO é sem-conta.
+    const _comPag  = new Set(allPagamentos.map(pg => String(pg.parcela_id)));
+    const semConta = todasPagas.filter(p => !p.conta_id && !_comPag.has(String(p.id))).length;
     const saldoTotal = saldosContas.reduce((s, x) => s + x.saldo, 0);
 
     const byCategoria = (arr) => {
@@ -1272,20 +1306,63 @@ const Financeiro = (() => {
     return p || null;
   }
 
+  let _pagValor = 0;   // valor cheio da parcela sendo paga (p/ o resumo da divisão)
+
+  // Uma linha da divisão: conta + valor. `podeRemover` mostra o ✕.
+  function _pagContaRow(valorSugerido, podeRemover) {
+    const v = Number(valorSugerido) > 0 ? Number(valorSugerido).toFixed(2) : '';
+    return `<div class="pag-conta-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+      <select class="input pag-conta-sel" style="flex:1" onchange="Financeiro.atualizarPagResumo()">${App.contaOptions('', 'Selecione conta...')}</select>
+      <input type="number" class="input pag-conta-val" style="width:120px" step="0.01" min="0" value="${v}" placeholder="Valor" oninput="Financeiro.atualizarPagResumo()">
+      ${podeRemover
+        ? `<button type="button" class="btn btn-sm btn-danger" title="Remover" onclick="this.closest('.pag-conta-row').remove();Financeiro.atualizarPagResumo()">✕</button>`
+        : `<span style="width:38px;display:inline-block"></span>`}
+    </div>`;
+  }
+
   async function openPagamento(id) {
     const p = await _getParcela(id);
     if (!p) { Toast.warning('Parcela não encontrada'); return; }
+    _pagValor = Number(p.valor || 0);
+    // Se já houve pagamento parcial, sugere o que falta.
+    const jaPago    = allPagamentos.filter(pg => String(pg.parcela_id) === String(id))
+                                   .reduce((s, pg) => s + Number(pg.valor || 0), 0);
+    const restante  = Math.max(0, _pagValor - jaPago);
     qs('#pag-parcela-id').value  = id;
-    qs('#pag-valor').textContent = Fmt.currency(p.valor);
+    qs('#pag-valor').textContent = Fmt.currency(_pagValor) + (jaPago > 0 ? ` · já pago ${Fmt.currency(jaPago)}` : '');
     qs('#pag-data').value        = DateUtil.today();
-    qs('#pag-conta').innerHTML   = App.contaOptions(p.conta_id || '', 'Selecione conta...');
+    qs('#pag-contas-lista').innerHTML = _pagContaRow(restante > 0 ? restante : _pagValor, false);
     // Fiado só faz sentido para despesas (tipo=pagar)
     const quemWrap = qs('#pag-quempagou-wrap');
     if (quemWrap) quemWrap.style.display = p.tipo === 'pagar' ? '' : 'none';
     if (qs('#pag-quempagou')) qs('#pag-quempagou').value = '';
     if (qs('#pag-conta-wrap')) qs('#pag-conta-wrap').style.display = '';
     if (qs('#pag-fiado-hint')) qs('#pag-fiado-hint').style.display = 'none';
+    atualizarPagResumo();
     Modal.open('modal-pagamento');
+  }
+
+  function addPagConta() {
+    qs('#pag-contas-lista')?.insertAdjacentHTML('beforeend', _pagContaRow(0, true));
+    atualizarPagResumo();
+  }
+
+  // Linhas da divisão → [{conta_id, valor}] (só valores > 0).
+  function _pagContasItens() {
+    return [...document.querySelectorAll('#pag-contas-lista .pag-conta-row')].map(row => ({
+      conta_id: row.querySelector('.pag-conta-sel')?.value || '',
+      valor:    Number(row.querySelector('.pag-conta-val')?.value || 0),
+    })).filter(it => it.valor > 0);
+  }
+
+  function atualizarPagResumo() {
+    const soma = _pagContasItens().reduce((s, it) => s + it.valor, 0);
+    const dif  = Math.round((_pagValor - soma) * 100) / 100;
+    const el   = qs('#pag-contas-resumo');
+    if (!el) return;
+    if (dif > 0)      el.innerHTML = `Somando <strong>${Fmt.currency(soma)}</strong> — falta <strong style="color:var(--warning,#b8860b)">${Fmt.currency(dif)}</strong> (fica parcial)`;
+    else if (dif < 0) el.innerHTML = `Somando <strong>${Fmt.currency(soma)}</strong> — <strong style="color:var(--danger)">passou ${Fmt.currency(-dif)}</strong> do valor`;
+    else              el.innerHTML = `Somando <strong style="color:var(--success)">${Fmt.currency(soma)}</strong> — quita a parcela ✓`;
   }
 
   function refreshPagQuemPagouVisibility() {
@@ -1301,11 +1378,14 @@ const Financeiro = (() => {
   async function _confirmarPagamento() {
     const id        = qs('#pag-parcela-id').value;
     const data      = qs('#pag-data').value;
-    const conta     = qs('#pag-conta').value;
     const quemPagou = qs('#pag-quempagou')?.value || '';
+    const itens     = quemPagou ? [] : _pagContasItens();
 
     if (!data) { Toast.warning('Informe a data de pagamento'); return; }
-    if (!quemPagou && !conta) { Toast.warning('Selecione a conta'); return; }
+    if (!quemPagou) {
+      if (!itens.length) { Toast.warning('Informe conta e valor'); return; }
+      if (itens.some(it => !it.conta_id)) { Toast.warning('Selecione a conta de cada pagamento'); return; }
+    }
 
     // ── Caminho ficha: sócio pagou esta despesa do bolso ──────────
     // A despesa continua contando no resultado (vira paga, sem conta da
@@ -1332,17 +1412,17 @@ const Financeiro = (() => {
       return;
     }
 
-    // ── Caminho normal ──────────────────────────────────────────
+    // ── Caminho normal (empresa): razão de pagamentos (parcial/multi-conta) ──
     Loading.show();
-    const res = await API.db.pagarParcela({ parcela_id: id, data_pagamento: data, conta_id: conta });
+    const res = await API.db.registrarPagamento({ parcela_id: id, itens, data });
     Loading.hide();
     if (res?.success) {
       // Marco de pagamento na OS de origem (parcela avulsa de OS).
       const pg = allParcelas.find(x => x.id === id);
       if (pg && pg.origem === 'os' && pg.origem_id) {
-        Eventos.marco(pg.origem_id, 'pagamento', { obs: Fmt.currency(pg.valor) });
+        Eventos.marco(pg.origem_id, 'pagamento', { obs: Fmt.currency(itens.reduce((s, it) => s + it.valor, 0)) });
       }
-      Toast.success('Pagamento registrado!');
+      Toast.success(res.quitada === false ? 'Pagamento parcial registrado.' : 'Pagamento registrado!');
       Modal.close('modal-pagamento');
       await loadData();
       filtrar();
@@ -1529,15 +1609,24 @@ const Financeiro = (() => {
     if (!conta) { Toast.error('Conta não encontrada'); return; }
     _extInicial = Number(conta.saldo_inicial || 0);
 
-    const movs = allParcelas
-      .filter(p => p.status === 'pago' && p.conta_id === contaId)
-      .map(p => ({
-        p,
-        sign:  p.tipo === 'receber' ? 1 : -1,
-        valor: Number(p.valor || 0),
-        // data do caixa (quando foi pago); fallbacks só p/ ordenar
-        data:  String(p.data_pagamento || p.data_competencia || p.data_vencimento || '').substring(0, 10),
-      }));
+    // Extrato = razão de pagamentos nesta conta (parcial/multi-conta) + legado
+    // (parcelas pagas sem razão, com conta_id = esta). Bate com o saldo.
+    const parcById = {};
+    allParcelas.forEach(p => { parcById[String(p.id)] = p; });
+    const comPag = new Set(allPagamentos.map(pg => String(pg.parcela_id)));
+    const movs = [];
+    allPagamentos.filter(pg => String(pg.conta_id) === String(contaId)).forEach(pg => {
+      const p = parcById[String(pg.parcela_id)];
+      if (!p) return;
+      movs.push({ p, sign: p.tipo === 'receber' ? 1 : -1, valor: Number(pg.valor || 0),
+        data: String(pg.data || p.data_pagamento || p.data_competencia || '').substring(0, 10) });
+    });
+    allParcelas
+      .filter(p => p.status === 'pago' && p.conta_id === contaId && !comPag.has(String(p.id)))
+      .forEach(p => {
+        movs.push({ p, sign: p.tipo === 'receber' ? 1 : -1, valor: Number(p.valor || 0),
+          data: String(p.data_pagamento || p.data_competencia || p.data_vencimento || '').substring(0, 10) });
+      });
 
     // Acumula do mais antigo p/ o mais novo, depois inverte p/ exibir (extrato)
     movs.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
@@ -1643,6 +1732,7 @@ const Financeiro = (() => {
            exportarPDF,
            renderResumo, renderResumoMes,
            openManual, saveManual, openPagamento, confirmarPagamento, quickAddContato,
+           addPagConta, atualizarPagResumo,
            toggleRecorrente, editarRecorrente, excluirRecorrente,
            refreshPagQuemPagouVisibility,
            openTransferencia, salvarTransferencia,

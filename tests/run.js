@@ -408,6 +408,32 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Fase 5: registrarPagamento (parcial + multi-conta) —');
+  {
+    const g = makeGsSandbox();
+    test('parcial deixa a parcela "parcial"; ao completar vira "pago"', () => {
+      const id = vm.runInContext(`create('parcelas', { tipo:'receber', valor:1000, status:'pendente' }).data.id`, g);
+      let r = vm.runInContext(`registrarPagamento({ parcela_id:'${id}', itens:[{conta_id:'c1', valor:400}], data:'2026-07-28' })`, g);
+      assert.equal(r.quitada, false);
+      assert.equal(vm.runInContext(`read('parcelas','${id}').data[0].status`, g), 'parcial');
+      r = vm.runInContext(`registrarPagamento({ parcela_id:'${id}', itens:[{conta_id:'c1', valor:600}], data:'2026-07-29' })`, g);
+      assert.equal(r.quitada, true);
+      const parc = vm.runInContext(`read('parcelas','${id}').data[0]`, g);
+      assert.equal(parc.status, 'pago');
+      assert.equal(String(parc.data_pagamento).substring(0, 10), '2026-07-29');
+    });
+    test('multi-conta na mesma chamada: soma quita, conta_id fica vazio (várias)', () => {
+      const id = vm.runInContext(`create('parcelas', { tipo:'receber', valor:4000, status:'pendente' }).data.id`, g);
+      const r = vm.runInContext(`registrarPagamento({ parcela_id:'${id}', itens:[{conta_id:'dinheiro', valor:1500},{conta_id:'sicredi', valor:2500}], data:'2026-07-28' })`, g);
+      assert.equal(r.quitada, true);
+      assert.equal(r.totalPago, 4000);
+      const parc = vm.runInContext(`read('parcelas','${id}').data[0]`, g);
+      assert.equal(parc.status, 'pago');
+      assert.equal(parc.conta_id || '', '');
+      assert.equal(vm.runInContext(`read('pagamentos', null, { parcela_id:'${id}' }).data.length`, g), 2);
+    });
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem

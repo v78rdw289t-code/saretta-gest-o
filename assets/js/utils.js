@@ -542,6 +542,7 @@ function statusBadge(status) {
     recusado:            ['badge-danger',    'Recusado'],
     // Parcelas / genéricos
     pendente:  ['badge-warning',   'Pendente'],
+    parcial:   ['badge-info',      'Parcial'],
     pago:      ['badge-success',   'Pago'],
     cancelado: ['badge-danger',    'Cancelado'],
   };

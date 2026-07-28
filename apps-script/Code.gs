@@ -63,6 +63,11 @@ const SHEET_HEADERS = {
   // dinâmica por OS via categoriaEfetivaId no frontend (categoria segue a OS).
   fechamento_os:  ['id','fechamento_id','os_id','valor_liq'],
   parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
+  // Razão de PAGAMENTOS de uma parcela (Lote 2). Permite pagamento parcial e
+  // de VÁRIAS contas na mesma parcela (ex.: R$1500 dinheiro + R$2500 Sicredi).
+  // Fonte da verdade do dinheiro por conta (o saldo lê daqui). Parcela vira
+  // 'pago' quando soma(pagamentos) alcança o valor; 'parcial' enquanto falta.
+  pagamentos:     ['id','parcela_id','data','valor','conta_id','observacoes'],
   contas:         ['id','nome','saldo_inicial','ativo','ordem','observacoes'],
   fiado:          ['id','pessoa','descricao','valor','data','parcela_pagar_id','status','observacoes'],
   // codigo_barras: EAN/SKU lido pela câmera p/ achar o item e dar baixa na OS.
@@ -139,6 +144,7 @@ function doPost(e) {
       case 'registrarFiadoMovManual':  result = registrarFiadoMovManual(data); break;
       case 'acertarFiado':    result = acertarFiado(data); break;
       case 'pagarParcela':      result = pagarParcela(data); break;
+      case 'registrarPagamento': result = registrarPagamento(data); break;
       case 'excluirLancamento': result = excluirLancamento(data.parcela_id); break;
       case 'excluirOS':         result = excluirOS(data.id); break;
       case 'gerarRecorrentes':  result = gerarRecorrentes(data); break;
@@ -1010,6 +1016,45 @@ function registrarMovEstoque(data) {
     observacoes: data.observacoes || (data.tipo === 'ajuste' ? 'Ajuste de inventário' : ''),
   });
   return { success: true, quantidade: qNew };
+}
+
+// Registra pagamento(s) de uma parcela — parcial e/ou de várias contas.
+// data: { parcela_id, itens: [{conta_id, valor}], data, observacoes }
+// A parcela vira 'pago' quando a soma de TODOS os pagamentos alcança o valor,
+// 'parcial' enquanto falta. data_pagamento é gravada só na quitação.
+function registrarPagamento(data) {
+  const parc = read('parcelas', data.parcela_id).data[0];
+  if (!parc) return { success: false, error: 'Parcela não encontrada' };
+  const itens = (data.itens || []).filter(it => Number(it.valor) > 0);
+  if (!itens.length) return { success: false, error: 'Informe ao menos um pagamento com valor' };
+  const dataPg = data.data || new Date().toISOString().substring(0, 10);
+  itens.forEach(it => {
+    create('pagamentos', {
+      parcela_id:  data.parcela_id,
+      data:        dataPg,
+      valor:       Number(it.valor),
+      conta_id:    it.conta_id || '',
+      observacoes: data.observacoes || '',
+    });
+  });
+  // Recalcula o total pago (todos os pagamentos desta parcela).
+  const pagos = read('pagamentos', null, { parcela_id: data.parcela_id }).data || [];
+  const totalPago = pagos.reduce((s, p) => s + Number(p.valor || 0), 0);
+  const valor = Number(parc.valor || 0);
+  const quitada = totalPago + 0.005 >= valor;   // tolerância de centavo
+  const contas = pagos.map(p => String(p.conta_id || '')).filter(Boolean);
+  const contasDistintas = contas.filter((v, i) => contas.indexOf(v) === i);
+  update('parcelas', data.parcela_id, {
+    status:         quitada ? 'pago' : (totalPago > 0 ? 'parcial' : 'pendente'),
+    data_pagamento: quitada ? dataPg : '',
+    // conta_id só como dica de legado: 1 conta = ela; várias = vazio (o saldo
+    // real vem do razão 'pagamentos').
+    conta_id:       contasDistintas.length === 1 ? contasDistintas[0] : '',
+  });
+  if (quitada && parc.origem === 'fiado' && parc.origem_id) {
+    update('fiado', parc.origem_id, { status: 'quitado' });
+  }
+  return { success: true, totalPago: totalPago, quitada: quitada };
 }
 
 function pagarParcela(data) {
