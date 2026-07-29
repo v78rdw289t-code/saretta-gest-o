@@ -136,25 +136,51 @@ const Agenda = (() => {
     </div>`;
   }
 
-  function contaHTML(p) {
+  // naPagina=true (só na tela "A fazer"): vira uma linha de checklist com um
+  // botão de ação (↑/↓). Tocar abre o pagamento — a conta só sai da lista
+  // quando é PAGA de verdade (não tem "marcar feito" fantasma). Na home segue
+  // como card read-only.
+  function contaHTML(p, naPagina) {
     const rec = p.tipo === 'receber';
+    const titulo = `${esc(p.descricao || '—')} <span class="ag-tag">${rec ? 'a receber' : 'a pagar'}</span>`;
+    const sub = `${Fmt.currency(p.valor)} · vence ${Fmt.dataRelativa(p.data_vencimento)}`;
+    if (naPagina) {
+      return `<div class="afazer-item is-conta ${rec ? 'is-rec' : 'is-pag'}">
+        <button class="afazer-check is-acao" onclick="Agenda.concluirConta('${p.id}')" aria-label="${rec ? 'Registrar recebimento' : 'Registrar pagamento'}">${rec ? '↑' : '↓'}</button>
+        <div class="afazer-body" onclick="Agenda.abrirParcela('${p.id}')">
+          <div class="ag-title">${titulo}</div>
+          <div class="ag-sub">${sub}</div>
+        </div>
+      </div>`;
+    }
     return `<div class="ag-item is-conta ${rec ? 'is-rec' : 'is-pag'}" onclick="Agenda.abrirParcela('${p.id}')">
       <div class="ag-ico">${rec ? '↑' : '↓'}</div>
       <div class="ag-body">
-        <div class="ag-title">${esc(p.descricao || '—')} <span class="ag-tag">${rec ? 'a receber' : 'a pagar'}</span></div>
-        <div class="ag-sub">${Fmt.currency(p.valor)} · vence ${Fmt.dataRelativa(p.data_vencimento)}</div>
+        <div class="ag-title">${titulo}</div>
+        <div class="ag-sub">${sub}</div>
       </div>
       <span class="ag-more">›</span>
     </div>`;
   }
 
-  function osHTML(o) {
+  function osHTML(o, naPagina) {
     const cli = App.clienteNome(o.cliente_id);
+    const titulo = esc(o.nome || ('OS ' + o.numero));
+    const sub = `OS ${osNumCurto(o)} · início${cli ? ' · ' + esc(cli) : ''}`;
+    if (naPagina) {
+      return `<div class="afazer-item is-os">
+        <button class="afazer-check is-acao" onclick="Agenda.abrirOS('${o.id}')" aria-label="Abrir OS">🔧</button>
+        <div class="afazer-body" onclick="Agenda.abrirOS('${o.id}')">
+          <div class="ag-title">${titulo}</div>
+          <div class="ag-sub">${sub}</div>
+        </div>
+      </div>`;
+    }
     return `<div class="ag-item is-os" onclick="Agenda.abrirOS('${o.id}')">
       <div class="ag-ico">🔧</div>
       <div class="ag-body">
-        <div class="ag-title">${esc(o.nome || ('OS ' + o.numero))}</div>
-        <div class="ag-sub">OS ${osNumCurto(o)} · início${cli ? ' · ' + esc(cli) : ''}</div>
+        <div class="ag-title">${titulo}</div>
+        <div class="ag-sub">${sub}</div>
       </div>
       <span class="ag-more">›</span>
     </div>`;
@@ -220,8 +246,8 @@ const Agenda = (() => {
   }
   function _htmlOf(it) {
     if (it.kind === 'lembrete') return lembreteHTML(it.obj);
-    if (it.kind === 'conta')    return contaHTML(it.obj);
-    return osHTML(it.obj);
+    if (it.kind === 'conta')    return contaHTML(it.obj, true);
+    return osHTML(it.obj, true);
   }
 
   // Contagem p/ o atalho da Home (atrasados + hoje, só o que exige ação).
@@ -346,6 +372,14 @@ const Agenda = (() => {
     await App.navigate('os');
     if (typeof OS !== 'undefined') OS.openDetail(id);
   }
+  // "Concluir" uma conta no A fazer = pagá-la. Abre o pagamento no Financeiro
+  // (ela sai da lista quando quita; se cancelar, continua ali).
+  async function concluirConta(id) {
+    if (typeof tapFeedback === 'function') tapFeedback();
+    history.replaceState(null, '', '#financeiro');
+    await App.navigate('financeiro');
+    if (typeof Financeiro !== 'undefined' && Financeiro.openPagamento) await Financeiro.openPagamento(id);
+  }
 
   // ─── ações do compromisso ─────────────────────────────────
   function tapItem(id) {
@@ -455,6 +489,6 @@ const Agenda = (() => {
   return {
     render, renderHomeSection, selectDay, homeWeek,
     openForm, saveForm, tapItem, moverPrompt, mover, concluir, excluir,
-    abrirParcela, abrirOS, toggleFeito, pendentesHojeAtrasados, limparConcluidos,
+    abrirParcela, abrirOS, concluirConta, toggleFeito, pendentesHojeAtrasados, limparConcluidos,
   };
 })();

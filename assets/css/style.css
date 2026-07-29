@@ -1953,6 +1953,12 @@ textarea.input { resize: vertical; min-height: 80px; }
 .afazer-item.is-feito .ag-title { text-decoration: line-through; color: var(--text-muted); }
 .afazer-check { width: 24px; height: 24px; flex: 0 0 auto; border-radius: 7px; border: 2px solid #C7D0E0; background: var(--card); color: #fff; font-size: 14px; font-weight: 800; line-height: 1; }
 .afazer-check.on { background: var(--success); border-color: var(--success); }
+/* Check de AÇÃO (conta/OS no A fazer): mostra o glifo em cor, tocar executa
+   a ação (pagar / abrir OS) em vez de marcar feito. */
+.afazer-check.is-acao { color: var(--navy); border-color: #C7D0E0; background: var(--card); font-size: 15px; }
+.afazer-item.is-pag .afazer-check.is-acao { color: var(--danger); border-color: var(--danger); }
+.afazer-item.is-rec .afazer-check.is-acao { color: var(--success); border-color: var(--success); }
+.afazer-check.is-acao:active { background: var(--gold-lt); }
 .afazer-body { flex: 1; min-width: 0; cursor: pointer; }
 .afazer-body .ag-title { font-weight: 700; font-size: .92rem; }
 .afazer-body .ag-sub { font-size: .74rem; color: var(--text-muted); margin-top: 2px; }
