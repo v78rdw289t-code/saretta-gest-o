@@ -23,6 +23,11 @@ const Agenda = (() => {
   let _parcelas     = [];
   let _os           = [];
   let _loaded       = false;
+  // Modo "selecionar pra limpar" (só na página A fazer). _sel guarda chaves
+  // "lembrete:<id>" | "conta:<id>" dos itens marcados.
+  let _selMode = false;
+  const _sel   = new Set();
+  const _oculto = p => String(p.oculto_afazer || '') === '1';   // conta escondida do A fazer
 
   // ─── helpers ──────────────────────────────────────────────
   const curta = (d) => {
@@ -71,7 +76,7 @@ const Agenda = (() => {
     const contas = _parcelas.filter(p =>
       Fmt.dateInput(p.data_vencimento) === data &&
       p.status !== 'pago' && p.status !== 'cancelado' &&
-      !origemForaResultado(p.origem));
+      !origemForaResultado(p.origem) && !_oculto(p));
     const os = _os.filter(o => o.status === 'andamento' && Fmt.dateInput(o.data_inicio) === data);
     return { compromissos, contas, os };
   }
@@ -144,6 +149,7 @@ const Agenda = (() => {
     const rec = p.tipo === 'receber';
     const titulo = `${esc(p.descricao || '—')} <span class="ag-tag">${rec ? 'a receber' : 'a pagar'}</span>`;
     const sub = `${Fmt.currency(p.valor)} · vence ${Fmt.dataRelativa(p.data_vencimento)}`;
+    if (_selMode && naPagina) return _selRow('conta', p.id, titulo, sub, true, rec ? 'is-rec' : 'is-pag');
     if (naPagina) {
       return `<div class="afazer-item is-conta ${rec ? 'is-rec' : 'is-pag'}">
         <button class="afazer-check is-acao" onclick="Agenda.concluirConta('${p.id}')" aria-label="${rec ? 'Registrar recebimento' : 'Registrar pagamento'}">${rec ? '↑' : '↓'}</button>
@@ -167,6 +173,7 @@ const Agenda = (() => {
     const cli = App.clienteNome(o.cliente_id);
     const titulo = esc(o.nome || ('OS ' + o.numero));
     const sub = `OS ${osNumCurto(o)} · início${cli ? ' · ' + esc(cli) : ''}`;
+    if (_selMode && naPagina) return _selRow('os', o.id, titulo, sub, false, 'is-os');
     if (naPagina) {
       return `<div class="afazer-item is-os">
         <button class="afazer-check is-acao" onclick="Agenda.abrirOS('${o.id}')" aria-label="Abrir OS">🔧</button>
@@ -220,6 +227,22 @@ const Agenda = (() => {
   // ─── PÁGINA: "A fazer" (checklist agrupado por prazo) ─────────
   // Lembrete manual (compromisso) com checkbox; contas a vencer e OS iniciando
   // entram como itens automáticos (read-only), encaixados nos grupos por data.
+  // Linha no MODO SELEÇÃO: checkbox de seleção + corpo (tocar marca/desmarca).
+  // selectable=false → item não pode ser limpo (OS), fica esmaecido sem check.
+  function _selRow(kind, id, titulo, subHtml, selectable, extraCls) {
+    if (!selectable) {
+      return `<div class="afazer-item is-naosel ${extraCls || ''}">
+        <span class="afazer-check afazer-sel is-off" aria-hidden="true"></span>
+        <div class="afazer-body"><div class="ag-title">${titulo}</div>${subHtml ? `<div class="ag-sub">${subHtml}</div>` : ''}</div>
+      </div>`;
+    }
+    const on = _sel.has(kind + ':' + id);
+    return `<div class="afazer-item is-selectable${on ? ' is-sel-on' : ''} ${extraCls || ''}" onclick="Agenda.toggleSel('${kind}','${id}')">
+      <span class="afazer-check afazer-sel${on ? ' on' : ''}" aria-label="Selecionar">${on ? '✓' : ''}</span>
+      <div class="afazer-body"><div class="ag-title">${titulo}</div>${subHtml ? `<div class="ag-sub">${subHtml}</div>` : ''}</div>
+    </div>`;
+  }
+
   function lembreteHTML(c) {
     const t = TIPOS[c.tipo] || TIPOS.compromisso;
     const cli = c.cliente_id ? App.clienteNome(c.cliente_id) : '';
@@ -230,6 +253,7 @@ const Agenda = (() => {
     if (hora) sub.push(`🕐 ${hora}`);
     if (cli && c.titulo) sub.push(esc(cli));
     if (c.os_id) sub.push(osChip(c.os_id));
+    if (_selMode) return _selRow('lembrete', c.id, esc(titulo), sub.join(' · '), true, feito ? 'is-feito' : '');
     return `<div class="afazer-item${feito ? ' is-feito' : ''}">
       <button class="afazer-check${feito ? ' on' : ''}" onclick="Agenda.toggleFeito('${c.id}')" aria-label="Concluir">${feito ? '✓' : ''}</button>
       <div class="afazer-body" onclick="Agenda.tapItem('${c.id}')">
@@ -255,7 +279,7 @@ const Agenda = (() => {
     const hoje = DateUtil.today();
     let n = 0;
     (_compromissos || []).forEach(c => { if (c.status !== 'cancelado' && c.status !== 'feito' && c.data && Fmt.dateInput(c.data) <= hoje) n++; });
-    (_parcelas || []).forEach(p => { if (p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem) && Fmt.dateInput(p.data_vencimento) <= hoje) n++; });
+    (_parcelas || []).forEach(p => { if (p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem) && !_oculto(p) && Fmt.dateInput(p.data_vencimento) <= hoje) n++; });
     return n;
   }
 
@@ -265,7 +289,7 @@ const Agenda = (() => {
     const hoje = DateUtil.today();
     const itens = [];
     (_compromissos || []).filter(c => c.status !== 'cancelado').forEach(c => itens.push({ kind: 'lembrete', obj: c }));
-    (_parcelas || []).filter(p => p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem)).forEach(p => itens.push({ kind: 'conta', obj: p }));
+    (_parcelas || []).filter(p => p.status !== 'pago' && p.status !== 'cancelado' && !origemForaResultado(p.origem) && !_oculto(p)).forEach(p => itens.push({ kind: 'conta', obj: p }));
     (_os || []).filter(o => o.status === 'andamento' && o.data_inicio).forEach(o => itens.push({ kind: 'os', obj: o }));
 
     const g = { atrasado: [], hoje: [], breve: [], semData: [], feito: [] };
@@ -284,18 +308,32 @@ const Agenda = (() => {
       ? `<div class="afazer-group-head ${cls}">${titulo} <span>${arr.length}</span></div>${arr.map(_htmlOf).join('')}`
       : '';
 
+    // Contas na Concluídos? Não — só lembretes feitos. No modo seleção não
+    // mostra os concluídos (a faxina é do que está pendente/atrasado).
+    const podeSelecionar = itens.some(it => it.kind !== 'os');
     el.innerHTML = `
       <div class="page-header">
         <h1>✓ A fazer</h1>
-        <button class="btn btn-primary" onclick="Agenda.openForm()">＋ Novo</button>
+        ${_selMode
+          ? `<button class="btn btn-outline" onclick="Agenda.selMode(false)">Cancelar</button>`
+          : `<div style="display:flex;gap:8px">
+              ${podeSelecionar ? `<button class="btn btn-outline" onclick="Agenda.selMode(true)">☑︎ Selecionar</button>` : ''}
+              <button class="btn btn-primary" onclick="Agenda.openForm()">＋ Novo</button>
+            </div>`}
       </div>
+      ${_selMode ? '<div class="afazer-selhint">Toque nos itens que quer tirar da lista. Conta some do "A fazer" mas continua no Financeiro. A OS não entra.</div>' : ''}
       ${itens.length === 0 ? '<div class="ag-empty">Nada por aqui. Toque em <strong>＋ Novo</strong> pra anotar um lembrete.</div>' : ''}
       ${secao('⚠ Atrasados', g.atrasado, 'is-atrasado')}
       ${secao('Hoje', g.hoje)}
       ${secao('Em breve', g.breve)}
       ${secao('Sem prazo', g.semData)}
-      ${g.feito.length ? `<div class="afazer-group-head is-feito">Concluídos <span>${g.feito.length}</span>
-        <button type="button" class="afazer-limpar" onclick="Agenda.limparConcluidos()">🧹 Limpar</button></div>${g.feito.map(_htmlOf).join('')}` : ''}`;
+      ${!_selMode && g.feito.length ? `<div class="afazer-group-head is-feito">Concluídos <span>${g.feito.length}</span>
+        <button type="button" class="afazer-limpar" onclick="Agenda.limparConcluidos()">🧹 Limpar</button></div>${g.feito.map(_htmlOf).join('')}` : ''}
+      ${_selMode ? `<div style="height:76px"></div>
+        <div class="afazer-selbar">
+          <span class="afazer-selbar-count">${_sel.size} selecionado${_sel.size !== 1 ? 's' : ''}</span>
+          <button class="btn btn-danger" onclick="Agenda.limparSelecionados()"${_sel.size ? '' : ' disabled'}>Limpar da lista</button>
+        </div>` : ''}`;
   }
 
   // "Limpar" os concluídos: some da lista na hora (viram cancelado, ficam
@@ -325,6 +363,61 @@ const Agenda = (() => {
     try {
       await Promise.all(ids.map(id => API.db.update('compromissos', id, { status: 'feito' })));
       t.done('Concluídos restaurados');
+    } catch (e) { t.fail('Erro ao desfazer'); }
+  }
+
+  // ─── Selecionar vários e limpar (faxina do Atrasados) ─────────
+  function selMode(on) {
+    _selMode = !!on;
+    _sel.clear();
+    fillPage();
+  }
+  function toggleSel(kind, id) {
+    const key = kind + ':' + id;
+    if (_sel.has(key)) _sel.delete(key); else _sel.add(key);
+    if (typeof tapFeedback === 'function') tapFeedback();
+    fillPage();
+  }
+
+  // Limpa os selecionados: lembrete → cancelado (arquiva); conta → oculto_afazer
+  // (some do A fazer mas SEGUE pendente no Financeiro). Otimista + desfazer.
+  async function limparSelecionados() { return Guard.run('afazer-limpar-sel', _limparSelecionados); }
+  async function _limparSelecionados() {
+    if (!_sel.size) return;
+    const undo = [];   // { sheet, id, field, prev }
+    [..._sel].forEach(key => {
+      const sep = key.indexOf(':');
+      const kind = key.slice(0, sep), id = key.slice(sep + 1);
+      if (kind === 'lembrete') {
+        const c = (_compromissos || []).find(x => String(x.id) === id);
+        if (c) { undo.push({ sheet: 'compromissos', id: c.id, field: 'status', prev: c.status, novo: 'cancelado' }); c.status = 'cancelado'; }
+      } else if (kind === 'conta') {
+        const p = (_parcelas || []).find(x => String(x.id) === id);
+        if (p) { undo.push({ sheet: 'parcelas', id: p.id, field: 'oculto_afazer', prev: p.oculto_afazer || '', novo: '1' }); p.oculto_afazer = '1'; }
+      }
+    });
+    const n = undo.length;
+    if (!n) return;
+    _sel.clear(); _selMode = false;
+    if (typeof tapFeedback === 'function') tapFeedback();
+    rerender();
+    const t = Toast.progress(`Limpando ${n}…`);
+    try {
+      await Promise.all(undo.map(u => API.db.update(u.sheet, u.id, { [u.field]: u.novo })));
+      t.done(`${n} tirado${n > 1 ? 's' : ''} da lista ✓ · toque p/ desfazer`, () => _desfazerLimparSel(undo));
+    } catch (e) {
+      undo.forEach(u => { const arr = u.sheet === 'parcelas' ? _parcelas : _compromissos; const r = (arr || []).find(x => String(x.id) === String(u.id)); if (r) r[u.field] = u.prev; });
+      rerender();
+      t.fail('Não deu pra limpar — tente de novo');
+    }
+  }
+  async function _desfazerLimparSel(undo) {
+    undo.forEach(u => { const arr = u.sheet === 'parcelas' ? _parcelas : _compromissos; const r = (arr || []).find(x => String(x.id) === String(u.id)); if (r) r[u.field] = u.prev; });
+    rerender();
+    const t = Toast.progress('Desfazendo…');
+    try {
+      await Promise.all(undo.map(u => API.db.update(u.sheet, u.id, { [u.field]: u.prev })));
+      t.done('Restaurado');
     } catch (e) { t.fail('Erro ao desfazer'); }
   }
 
@@ -490,5 +583,6 @@ const Agenda = (() => {
     render, renderHomeSection, selectDay, homeWeek,
     openForm, saveForm, tapItem, moverPrompt, mover, concluir, excluir,
     abrirParcela, abrirOS, concluirConta, toggleFeito, pendentesHojeAtrasados, limparConcluidos,
+    selMode, toggleSel, limparSelecionados,
   };
 })();

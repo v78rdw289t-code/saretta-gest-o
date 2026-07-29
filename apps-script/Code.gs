@@ -62,7 +62,9 @@ const SHEET_HEADERS = {
   // com o líquido (snapshot) daquela OS. Categoria NÃO é gravada — é resolvida
   // dinâmica por OS via categoriaEfetivaId no frontend (categoria segue a OS).
   fechamento_os:  ['id','fechamento_id','os_id','valor_liq'],
-  parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes'],
+  // oculto_afazer: '1' esconde a parcela do checklist "A fazer" SEM mexer no
+  // financeiro (ela segue pendente no Financeiro). Vazio = aparece normal.
+  parcelas:       ['id','tipo','origem','origem_id','grupo_id','cliente_id','descricao','valor','data_competencia','data_vencimento','data_pagamento','status','categoria_id','conta_id','observacoes','oculto_afazer'],
   // Razão de PAGAMENTOS de uma parcela (Lote 2). Permite pagamento parcial e
   // de VÁRIAS contas na mesma parcela (ex.: R$1500 dinheiro + R$2500 Sicredi).
   // Fonte da verdade do dinheiro por conta (o saldo lê daqui). Parcela vira

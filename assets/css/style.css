@@ -1959,6 +1959,23 @@ textarea.input { resize: vertical; min-height: 80px; }
 .afazer-item.is-pag .afazer-check.is-acao { color: var(--danger); border-color: var(--danger); }
 .afazer-item.is-rec .afazer-check.is-acao { color: var(--success); border-color: var(--success); }
 .afazer-check.is-acao:active { background: var(--gold-lt); }
+/* Modo seleção: caixa de marcar, linha marcada, barra de ação, dica */
+.afazer-check.afazer-sel { display: flex; align-items: center; justify-content: center; color: #fff; }
+.afazer-check.afazer-sel.on { background: var(--navy); border-color: var(--navy); }
+.afazer-check.afazer-sel.is-off { border-style: dashed; }
+.afazer-item.is-selectable { cursor: pointer; }
+.afazer-item.is-sel-on { border-color: var(--navy); background: var(--gold-lt); }
+.afazer-item.is-naosel { opacity: .5; }
+.afazer-selhint { font-size: .78rem; color: var(--text-muted); background: var(--gold-lt); border: 1px solid rgba(245,166,35,.3); border-radius: 10px; padding: 9px 12px; margin: 0 0 12px; }
+.afazer-selbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 350;
+  display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--card); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(20,32,60,.1);
+}
+.afazer-selbar-count { font-size: .9rem; font-weight: 700; color: var(--navy); }
+.afazer-selbar .btn { flex: 0 0 auto; }
+@media (min-width: 768px) { .afazer-selbar { left: var(--nav-w); } }
 .afazer-body { flex: 1; min-width: 0; cursor: pointer; }
 .afazer-body .ag-title { font-weight: 700; font-size: .92rem; }
 .afazer-body .ag-sub { font-size: .74rem; color: var(--text-muted); margin-top: 2px; }
