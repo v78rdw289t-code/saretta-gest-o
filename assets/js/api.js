@@ -544,6 +544,26 @@ const API = (() => {
     setTimeout(() => { _warnShown = false; }, 10000);
   }
 
+  // ─── Cache otimista da lista (mata a 2ª ida ao servidor no salvar) ────
+  // Sem isto, todo salvar custava 2 idas SERIAIS ao Apps Script (~4-10s): a
+  // gravação + o loadData() que relê — e relê da REDE porque a escrita acabou
+  // de invalidar o cache. Reconstruindo a lista da sheet com o próprio dado que
+  // gravamos, o loadData() pós-save vira um HIT de cache = 1 ida só, tela
+  // instantânea. O refetch em background (SWR, ~1min) reconcilia com o servidor.
+  // Só p/ escrita ONLINE com sucesso; offline segue pelo overlay da caderneta.
+  function _bareKey(sheet) { const u = buildUrl('read', { sheet }); return u ? cacheKey(u) : null; }
+  function _snapshotBare(sheet) {
+    const key = _bareKey(sheet);
+    const entry = key && cache.get(key);
+    return (entry && entry.data && Array.isArray(entry.data.data)) ? entry.data.data.slice() : null;
+  }
+  function _setBare(sheet, arr) {
+    const key = _bareKey(sheet);
+    if (!key) return;
+    cache.set(key, { data: { success: true, data: arr }, ts: Date.now() });
+    persistCache();
+  }
+
   const db = {
     read(sheet, id = null, filters = null) {
       const params = { sheet };
@@ -557,9 +577,29 @@ const API = (() => {
       if (filters) Object.assign(params, filters);
       return isCached('read', params);
     },
-    create(sheet, data) { return post('create', { sheet, data }); },
-    update(sheet, id, data) { return post('update', { sheet, id, data }); },
-    delete(sheet, id) { return post('delete', { sheet, id }); },
+    create(sheet, data) {
+      const prev = _snapshotBare(sheet);   // captura ANTES do post invalidar
+      return post('create', { sheet, data }).then(res => {
+        if (res && res.success && !res.queued && prev) _setBare(sheet, prev.concat([res.data || data]));
+        return res;
+      });
+    },
+    update(sheet, id, data) {
+      const prev = _snapshotBare(sheet);
+      return post('update', { sheet, id, data }).then(res => {
+        if (res && res.success && !res.queued && prev)
+          _setBare(sheet, prev.map(r => String(r.id) === String(id) ? { ...r, ...data } : r));
+        return res;
+      });
+    },
+    delete(sheet, id) {
+      const prev = _snapshotBare(sheet);
+      return post('delete', { sheet, id }).then(res => {
+        if (res && res.success && !res.queued && prev)
+          _setBare(sheet, prev.filter(r => String(r.id) !== String(id)));
+        return res;
+      });
+    },
     batch(operations) { return post('batch', { operations }); },
     // Cacheado agora — é invalidado pela invalidateSheets() em todo POST
     stats() { return get('stats', {}, true); },
