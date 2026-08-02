@@ -5,7 +5,7 @@
 // Atualizar CACHE_NAME a cada deploy para invalidar arquivos antigos.
 // ============================================================
 
-const CACHE_NAME = 'saretta-shell-v3.12.10';
+const CACHE_NAME = 'saretta-shell-v3.12.11';
 
 // Todos os arquivos que formam o "app shell" — carregados uma vez
 // e servidos do cache daí em diante, mesmo sem internet.
