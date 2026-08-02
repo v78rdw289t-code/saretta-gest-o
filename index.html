@@ -982,6 +982,35 @@
   </div>
 </div>
 
+<div id="modal-fiado-fechamento" class="modal-center">
+  <div class="modal-center-box">
+    <div class="modal-header">
+      <h3>Fechar o mês do sócio</h3>
+      <button class="modal-close" onclick="Modal.close('modal-fiado-fechamento')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ffe-pessoa">
+      <div class="form-group">
+        <label>Mês de referência</label>
+        <input type="month" id="ffe-mes" class="input" onchange="Fiado.onFechamentoMes()">
+      </div>
+      <div id="ffe-resumo" style="font-size:.9rem;margin:6px 0 14px"></div>
+      <div class="form-group">
+        <label>Conta do pagamento</label>
+        <select id="ffe-conta" class="input"></select>
+      </div>
+      <div class="form-group">
+        <label>Data</label>
+        <input type="date" id="ffe-data" class="input">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-lg" onclick="Fiado.confirmFechamento()">Fechar mês e pagar</button>
+      <button class="btn btn-outline" onclick="Modal.close('modal-fiado-fechamento')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Lançamento Manual Financeiro -->
 <div id="modal-manual-lancamento" class="modal">
   <div class="modal-box modal-box-lg">

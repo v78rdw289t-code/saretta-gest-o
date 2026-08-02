@@ -11,6 +11,7 @@ const Fiado = (() => {
   const PESSOAS = ['rodrigo', 'odinei'];
   let allMov      = [];  // fiado_mov (modelo novo)
   let allFiadoOld = [];  // sheet 'fiado' (modelo antigo — vira saldo inicial)
+  let allSocios   = [];  // sheet 'socios' (salário base p/ o fechamento do mês)
   let _pessoa     = 'rodrigo';
 
   async function render() {
@@ -20,14 +21,21 @@ const Fiado = (() => {
 
   async function loadData() {
     const shown = Loading.maybeShow('fiado_mov', 'fiado');
-    const [mRes, fRes] = await Promise.all([
+    const [mRes, fRes, sRes] = await Promise.all([
       API.db.read('fiado_mov'),
       API.db.read('fiado'),
+      API.db.read('socios'),
       App.loadGlobals(), // popula App.getContas() p/ os modais
     ]);
     if (shown) Loading.hide();
     allMov = (mRes?.data || []).map(m => ({ ...m, pessoa: (m.pessoa || '').toLowerCase() }));
     allFiadoOld = (fRes?.data || []).map(f => ({ ...f, pessoa: (f.pessoa || '').toLowerCase() }));
+    allSocios = (sRes?.data || []).map(s => ({ ...s, pessoa: (s.pessoa || '').toLowerCase() }));
+  }
+
+  function salarioBase(pessoa) {
+    const s = allSocios.find(x => x.pessoa === pessoa);
+    return s ? Number(s.salario_base || 0) : 0;
   }
 
   const cap = p => (p || '').charAt(0).toUpperCase() + (p || '').slice(1);
@@ -59,6 +67,9 @@ const Fiado = (() => {
     emprestimo:    { ico: '💵', label: 'Empréstimo' },
     acerto:        { ico: '✅', label: 'Acerto' },
     ajuste:        { ico: '✏️', label: 'Ajuste' },
+    alimentacao:   { ico: '🍽️', label: 'Alimentação em casa' },
+    recorrente:    { ico: '🔁', label: 'Fixo recorrente' },
+    salario:       { ico: '💰', label: 'Salário' },
   };
 
   // ─── View ────────────────────────────────────────────────────
@@ -106,6 +117,7 @@ const Fiado = (() => {
           <button class="btn btn-sm ficha-btn-emp" onclick="Fiado.openEmprestimo()">💵 Emprestar</button>
           <button class="btn btn-sm ficha-btn-aj" onclick="Fiado.openAjuste()">✏️ Ajuste</button>
           ${zerado ? '' : `<button class="btn btn-sm ficha-btn-ac" onclick="Fiado.openAcerto()">✅ Acerto</button>`}
+          <button class="btn btn-sm ficha-btn-fe" onclick="Fiado.openFechamento()">📅 Fechar mês</button>
         </div>
       </div>
 
@@ -251,6 +263,55 @@ const Fiado = (() => {
     } else Toast.error('Erro: ' + (res?.error || 'falha ao acertar'));
   }
 
+  // ─── Fechar o mês do sócio (salário + ficha num pagamento só) ─
+  function _fechamentoResumoHTML(pessoa) {
+    const sal = salarioBase(pessoa);
+    const fic = saldo(pessoa);                       // + empresa deve / − sócio deve
+    if (!(sal > 0)) {
+      return `<div class="alert alert-warning" style="font-size:.82rem">Cadastre o salário base de ${cap(pessoa)} no Config (card "Sócios") para fechar o mês.</div>`;
+    }
+    const total = Math.round((sal + fic) * 100) / 100;
+    const linha = (lbl, v, cls) => `<div style="display:flex;justify-content:space-between;padding:5px 0"><span>${lbl}</span><span class="${cls || ''}">${v}</span></div>`;
+    return `
+      ${linha('Salário base', Fmt.currency(sal))}
+      ${linha('Saldo da ficha', (fic >= 0 ? '+ ' : '− ') + Fmt.currency(Math.abs(fic)), fic >= 0 ? 'text-green' : 'text-red')}
+      <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:700">
+        <span>A pagar a ${cap(pessoa)}</span><span>${Fmt.currency(total)}</span></div>
+      <div class="text-muted" style="font-size:.72rem;margin-top:6px">Os fixos recorrentes do mês entram ao fechar; a ficha zera.</div>`;
+  }
+  function openFechamento() {
+    qs('#ffe-pessoa').value = _pessoa;
+    qs('#ffe-mes').value    = new Date().toISOString().substring(0, 7);
+    qs('#ffe-data').value   = DateUtil.today();
+    qs('#ffe-conta').innerHTML = App.contaOptions('', '— Selecione a conta —');
+    qs('#ffe-resumo').innerHTML = _fechamentoResumoHTML(_pessoa);
+    Modal.open('modal-fiado-fechamento');
+  }
+  function onFechamentoMes() {
+    const el = qs('#ffe-resumo'); if (el) el.innerHTML = _fechamentoResumoHTML(qs('#ffe-pessoa').value);
+  }
+  function confirmFechamento() { return Guard.run('fiado-fechamento', _confirmFechamento); }
+  async function _confirmFechamento() {
+    const pessoa  = qs('#ffe-pessoa').value;
+    const ano_mes = qs('#ffe-mes').value;
+    const conta   = qs('#ffe-conta').value;
+    const data    = qs('#ffe-data').value;
+    if (!(salarioBase(pessoa) > 0)) { Toast.warning('Cadastre o salário base no Config primeiro'); return; }
+    if (!ano_mes) { Toast.warning('Informe o mês'); return; }
+    if (!conta)   { Toast.warning('Selecione a conta do pagamento'); return; }
+    Loading.show();
+    const res = await API.db.fecharMesSocio({ pessoa, ano_mes, conta_id: conta, data, salario_base: salarioBase(pessoa) });
+    Loading.hide();
+    if (res?.success) {
+      Toast.success(`Mês fechado — ${Fmt.currency(res.total)} pagos a ${cap(pessoa)}. Ficha zerada.`);
+      Modal.close('modal-fiado-fechamento');
+      _pessoa = pessoa;
+      await loadData(); renderView();
+    } else if (res?.jaFechado) {
+      Toast.warning('Este mês já foi fechado para ' + cap(pessoa) + '.');
+    } else Toast.error('Erro: ' + (res?.error || 'falha ao fechar o mês'));
+  }
+
   // ─── Tap num movimento ───────────────────────────────────────
   function tapMov(id) {
     const m = allMov.find(x => x.id === id);
@@ -287,6 +348,7 @@ const Fiado = (() => {
     openEmprestimo, confirmEmprestimo,
     openAjuste, confirmAjuste,
     openAcerto, confirmAcerto,
+    openFechamento, onFechamentoMes, confirmFechamento,
     tapMov,
   };
 })();
