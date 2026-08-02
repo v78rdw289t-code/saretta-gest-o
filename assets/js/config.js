@@ -6,6 +6,9 @@ const Config = (() => {
   let allConfig = [];
   let allCategorias = [];
   let allContas = [];
+  let allSocios = [];      // sheet socios (salário base p/ o fechamento do mês)
+  let allSocioRec = [];    // sheet socio_recorrentes (fixos do cartão do sócio)
+  const SOCIOS_PADRAO = ['rodrigo', 'odinei'];
 
   async function render() {
     await loadData();
@@ -14,15 +17,19 @@ const Config = (() => {
 
   async function loadData() {
     Loading.show();
-    const [cfgRes, catRes, conRes] = await Promise.all([
+    const [cfgRes, catRes, conRes, socRes, srRes] = await Promise.all([
       API.db.read('config'),
       API.db.read('categorias'),
       API.db.read('contas'),
+      API.db.read('socios'),
+      API.db.read('socio_recorrentes'),
     ]);
     Loading.hide();
     allConfig     = cfgRes?.data || [];
     allCategorias = catRes?.data || [];
     allContas     = (conRes?.data || []).sort((a, b) => (Number(a.ordem)||0) - (Number(b.ordem)||0));
+    allSocios     = (socRes?.data || []).map(s => ({ ...s, pessoa: String(s.pessoa || '').toLowerCase() }));
+    allSocioRec   = srRes?.data || [];
   }
 
   function getCfg(chave, def = '') {
@@ -197,6 +204,41 @@ const Config = (() => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>👥 Sócios (salário e alimentação)</h3></div>
+          <div class="card-body">
+            <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:12px">
+              Salário base de cada sócio e o valor por dia da alimentação em casa —
+              usados no "Fechar o mês" do Fiado.
+            </p>
+            ${_sociosLista().map(s => `
+              <div class="form-group" style="display:flex;align-items:center;gap:10px">
+                <label style="flex:1;margin:0">${s.nome}</label>
+                <span class="text-muted">R$</span>
+                <input type="number" step="0.01" id="cfg-sal-${s.pessoa}" class="input" style="width:120px" value="${Number(s.salario_base || 0)}">
+              </div>`).join('')}
+            <div class="form-group" style="display:flex;align-items:center;gap:10px;margin-top:6px">
+              <label style="flex:1;margin:0">Valor por dia de alimentação em casa</label>
+              <span class="text-muted">R$</span>
+              <input type="number" step="0.01" id="cfg-ali-dia" class="input" style="width:120px" value="${getCfg('alimentacao_valor_dia', '25')}">
+            </div>
+            <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="Config.saveSocios()">Salvar sócios</button>
+
+            <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
+            <strong style="font-size:.9rem">Fixos recorrentes do cartão</strong>
+            <p style="font-size:.76rem;color:var(--text-muted);margin:6px 0 10px">
+              Itens que repetem todo mês (ex: parcela de ferramenta). Entram sozinhos na ficha ao fechar o mês.
+            </p>
+            <div class="entity-list">${_socioRecHTML()}</div>
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) 90px;gap:8px;margin-top:10px">
+              <select id="cfg-sr-pessoa" class="input">${_sociosLista().map(s => `<option value="${s.pessoa}">${s.nome}</option>`).join('')}</select>
+              <input id="cfg-sr-desc" class="input" placeholder="Ex: parcela furadeira">
+              <input id="cfg-sr-valor" type="number" step="0.01" class="input" placeholder="R$">
+            </div>
+            <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="Config.addSocioRec()">+ Adicionar recorrente</button>
           </div>
         </div>
 
@@ -527,7 +569,77 @@ const Config = (() => {
     if (eye) eye.textContent = oculto ? '🙈' : '👁️';
   }
 
-  return { render, saveUrl, testarConexao, toggleToken, saveHoras, saveFatores,
+  // ─── Sócios (salário + alimentação + recorrentes) ────────────
+  const _capS = p => String(p || '').charAt(0).toUpperCase() + String(p || '').slice(1);
+  function _sociosLista() {
+    const map = {};
+    SOCIOS_PADRAO.forEach(p => { map[p] = { pessoa: p, nome: _capS(p), salario_base: 0 }; });
+    allSocios.forEach(s => { map[s.pessoa] = { pessoa: s.pessoa, nome: s.nome || _capS(s.pessoa), salario_base: Number(s.salario_base || 0) }; });
+    return Object.values(map);
+  }
+  function _socioRecHTML() {
+    const ativos = allSocioRec.filter(r => r.ativo !== false && r.ativo !== 'false');
+    if (!ativos.length) return '<div class="entity-empty">Nenhum recorrente cadastrado</div>';
+    return ativos.map(r => `
+      <div class="entity-item" style="cursor:default">
+        <div class="entity-info" style="min-width:0">
+          <div class="entity-name">${r.descricao || ''}</div>
+          <div class="entity-sub">${_capS(String(r.pessoa || ''))} · ${Fmt.currency(Number(r.valor || 0))}/mês</div>
+        </div>
+        <div class="entity-right">
+          <button class="btn btn-sm btn-danger" onclick="Config.delSocioRec('${r.id}')">Remover</button>
+        </div>
+      </div>`).join('');
+  }
+  async function saveSocios() {
+    const ops = [];
+    _sociosLista().forEach(s => {
+      const el = qs('#cfg-sal-' + s.pessoa); if (!el) return;
+      const salario_base = Number(el.value) || 0;
+      const existing = allSocios.find(x => x.pessoa === s.pessoa);
+      ops.push(existing
+        ? { action: 'update', sheet: 'socios', id: existing.id, data: { salario_base } }
+        : { action: 'create', sheet: 'socios', data: { pessoa: s.pessoa, nome: s.nome, salario_base, ativo: true } });
+    });
+    const vd = qs('#cfg-ali-dia');
+    const valor = String(vd ? vd.value : '25');
+    const cfgEx = allConfig.find(c => c.chave === 'alimentacao_valor_dia');
+    ops.push(cfgEx
+      ? { action: 'update', sheet: 'config', id: cfgEx.id, data: { valor } }
+      : { action: 'create', sheet: 'config', data: { chave: 'alimentacao_valor_dia', valor, descricao: 'Valor por dia de alimentação em casa' } });
+    Loading.show();
+    await API.db.batch(ops);
+    await loadData();
+    Loading.hide();
+    renderView();
+    Toast.success('Sócios salvos!');
+  }
+  async function addSocioRec() {
+    const pessoa    = qs('#cfg-sr-pessoa').value;
+    const descricao = qs('#cfg-sr-desc').value.trim();
+    const valor     = Number(qs('#cfg-sr-valor').value) || 0;
+    if (!descricao) { Toast.warning('Informe a descrição'); return; }
+    if (!valor)     { Toast.warning('Informe o valor'); return; }
+    Loading.show();
+    await API.db.create('socio_recorrentes', { pessoa, descricao, valor, dia: 1, ativo: true, ultima_geracao: '' });
+    await loadData();
+    Loading.hide();
+    renderView();
+    Toast.success('Recorrente adicionado!');
+  }
+  function delSocioRec(id) {
+    Modal.confirm('Remover este item recorrente?', async () => {
+      Loading.show();
+      await API.db.delete('socio_recorrentes', id);
+      await loadData();
+      Loading.hide();
+      renderView();
+      Toast.success('Removido.');
+    });
+  }
+
+  return { render, saveUrl, testarConexao,
+    saveSocios, addSocioRec, delSocioRec, toggleToken, saveHoras, saveFatores,
            protegerArmazenamento,
            openCatForm, saveCat, toggleCat, toggleCatAtual,
            openContaForm, saveConta, toggleConta,
