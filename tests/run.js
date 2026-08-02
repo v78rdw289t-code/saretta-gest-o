@@ -560,6 +560,53 @@ function makeGsSandbox() {
     });
   }
 
+  console.log('\n— Code.gs: conta do sócio (alimentação + recorrentes + fechamento) —');
+  {
+    const g = makeGsSandbox();
+    vm.runInContext(`create('socios', { pessoa:'odinie', nome:'Odinie', salario_base:2000, ativo:true })`, g);
+    const saldo = () => vm.runInContext(`_fiadoSaldoPessoa('odinie')`, g);
+
+    test('alimentação: salvar gera 1 crédito na ficha; re-salvar EDITA (não duplica)', () => {
+      const r1 = vm.runInContext(`salvarAlimentacaoMes({ ano_mes:'2026-08', pessoa:'odinie', dias:8, valor_dia:25 })`, g);
+      assert.ok(r1.success); assert.equal(r1.valor, 200);
+      assert.equal(saldo(), 200);
+      assert.equal(vm.runInContext(`read('alimentacao_mes').data.length`, g), 1);
+      assert.equal(vm.runInContext(`read('fiado_mov').data.filter(m=>m.motivo==='alimentacao').length`, g), 1);
+      // re-salvar o mesmo mês com mais dias EDITA o mesmo crédito
+      const r2 = vm.runInContext(`salvarAlimentacaoMes({ ano_mes:'2026-08', pessoa:'odinie', dias:10, valor_dia:25 })`, g);
+      assert.equal(r2.valor, 250);
+      assert.equal(saldo(), 250);
+      assert.equal(vm.runInContext(`read('alimentacao_mes').data.length`, g), 1);              // não duplicou a linha
+      assert.equal(vm.runInContext(`read('fiado_mov').data.filter(m=>m.motivo==='alimentacao' && m.status==='ativo').length`, g), 1); // nem o crédito
+    });
+
+    test('recorrente fixo: gera 1×/mês na ficha (idempotente)', () => {
+      vm.runInContext(`create('socio_recorrentes', { pessoa:'odinie', descricao:'parcela furadeira', valor:150, ativo:true })`, g);
+      vm.runInContext(`gerarSocioRecorrentes({ mes:'2026-08' })`, g);
+      assert.equal(saldo(), 400);                                    // 250 alimentação + 150 recorrente
+      vm.runInContext(`gerarSocioRecorrentes({ mes:'2026-08' })`, g); // rodar de novo NÃO duplica
+      assert.equal(saldo(), 400);
+    });
+
+    test('fechar o mês: salário (resultado) + acerto da ficha (fora), ficha zera, idempotente', () => {
+      const r = vm.runInContext(`fecharMesSocio({ pessoa:'odinie', ano_mes:'2026-08', conta_id:'cx', data:'2026-08-31' })`, g);
+      assert.ok(r.success);
+      assert.equal(r.salario, 2000);
+      assert.equal(r.saldo_ficha, 400);
+      assert.equal(r.total, 2400);                                   // um pagamento = salário + ficha
+      // salário é despesa no resultado (origem 'salario', 1 parcela paga)
+      const sal = vm.runInContext(`read('parcelas').data.filter(p=>p.origem==='salario')`, g);
+      assert.equal(sal.length, 1); assert.equal(Number(sal[0].valor), 2000); assert.equal(sal[0].status, 'pago');
+      // a ficha zerou
+      assert.equal(saldo(), 0);
+      // o acerto da ficha é FORA do resultado (origem 'fiado_acerto')
+      assert.equal(vm.runInContext(`read('parcelas').data.filter(p=>p.origem==='fiado_acerto').length`, g), 1);
+      // fechar de novo é recusado
+      const r2 = vm.runInContext(`fecharMesSocio({ pessoa:'odinie', ano_mes:'2026-08', conta_id:'cx' })`, g);
+      assert.equal(r2.success, false); assert.equal(r2.jaFechado, true);
+    });
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem

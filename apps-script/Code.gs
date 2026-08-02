@@ -96,6 +96,16 @@ const SHEET_HEADERS = {
   // tipo: visita|orcamento|compromisso|lembrete · status: agendado|feito|cancelado
   // cliente_id/os_id opcionais (linka a um cliente e/ou OS). ordem: desempate no dia.
   compromissos:   ['id','data','hora_inicio','hora_fim','tipo','titulo','cliente_id','os_id','status','ordem','observacoes','data_criacao','data_atualizacao'],
+  // ── Conta do sócio (fiado + salário + alimentação) ──
+  // Cadastro-mestre do sócio. pessoa = chave minúscula (casa com fiado_mov.pessoa).
+  socios:         ['id','pessoa','nome','salario_base','ativo'],
+  // Contagem de dias de refeição na CASA de cada sócio, por mês. Ao salvar, gera/
+  // atualiza 1 crédito na ficha (fiado_mov empresa_deve, motivo alimentacao).
+  // 1 linha por (ano_mes, pessoa anfitrião). fiado_mov_id liga ao crédito gerado.
+  alimentacao_mes:['id','ano_mes','pessoa','dias','valor_dia','fiado_mov_id'],
+  // Itens fixos que repetem no cartão do sócio (o "não redigitar"). Geram 1 crédito
+  // na ficha por mês (motivo recorrente). ultima_geracao = 'yyyy-MM' já gerado.
+  socio_recorrentes:['id','pessoa','descricao','valor','dia','ativo','ultima_geracao'],
 };
 
 // ─── ROTEADOR ────────────────────────────────────────────────
@@ -147,6 +157,9 @@ function doPost(e) {
       case 'registrarEmprestimoSocio': result = registrarEmprestimoSocio(data); break;
       case 'registrarFiadoMovManual':  result = registrarFiadoMovManual(data); break;
       case 'acertarFiado':    result = acertarFiado(data); break;
+      case 'salvarAlimentacaoMes':   result = salvarAlimentacaoMes(data); break;
+      case 'gerarSocioRecorrentes':  result = gerarSocioRecorrentes(data); break;
+      case 'fecharMesSocio':         result = fecharMesSocio(data); break;
       case 'pagarParcela':      result = pagarParcela(data); break;
       case 'registrarPagamento': result = registrarPagamento(data); break;
       case 'excluirLancamento': result = excluirLancamento(data.parcela_id); break;
@@ -1008,6 +1021,130 @@ function acertarFiado(data) {
   });
 
   return { success: true, valor: valor, empresa_pagou: empresaDevia };
+}
+
+// ── Alimentação em casa: conta os dias do mês por sócio anfitrião e mantém 1
+//    crédito na ficha (fiado_mov empresa_deve, motivo alimentacao). Idempotente
+//    por (ano_mes, pessoa): re-salvar EDITA o mesmo crédito, não duplica.
+function salvarAlimentacaoMes(data) {
+  // data: { ano_mes, pessoa, dias, valor_dia }
+  var ano_mes = String(data.ano_mes || '');
+  if (!/^\d{4}-\d{2}$/.test(ano_mes)) return { success: false, error: 'Mês inválido (use yyyy-MM)' };
+  var pessoa = String(data.pessoa || '').toLowerCase();
+  if (!pessoa) return { success: false, error: 'Sócio não informado' };
+  var dias = Math.max(0, Number(data.dias || 0));
+  var valorDia = Number(data.valor_dia || 0);
+  var valor = Math.round(dias * valorDia * 100) / 100;
+  var desc = 'Alimentação em casa ' + ano_mes + ' (' + dias + ' dia' + (dias === 1 ? '' : 's') + ')';
+
+  var linha = read('alimentacao_mes').data.filter(function (r) {
+    return String(r.ano_mes) === ano_mes && String(r.pessoa || '').toLowerCase() === pessoa;
+  })[0];
+
+  // Resolve o crédito ativo na ficha (se houver e ainda não foi acertado).
+  var mov = null;
+  if (linha && linha.fiado_mov_id) {
+    var m = read('fiado_mov', linha.fiado_mov_id).data[0];
+    if (m && m.status === 'ativo') mov = m;
+  }
+
+  var movId = '';
+  if (valor > 0) {
+    if (mov) {
+      update('fiado_mov', mov.id, { valor: valor, descricao: desc, data: ano_mes + '-01' });
+      movId = mov.id;
+    } else {
+      movId = _fiadoMovCreate({
+        pessoa: pessoa, data: ano_mes + '-01', direcao: 'empresa_deve',
+        motivo: 'alimentacao', descricao: desc, valor: valor, status: 'ativo',
+      }).data.id;
+    }
+  } else if (mov) {
+    // dias zerados: remove o crédito ativo (nada a reembolsar neste mês).
+    try { remove('fiado_mov', mov.id); } catch (e) {}
+  }
+
+  if (linha) update('alimentacao_mes', linha.id, { dias: dias, valor_dia: valorDia, fiado_mov_id: movId });
+  else linha = create('alimentacao_mes', { ano_mes: ano_mes, pessoa: pessoa, dias: dias, valor_dia: valorDia, fiado_mov_id: movId }).data;
+
+  return { success: true, valor: valor, fiado_mov_id: movId };
+}
+
+// ── Itens fixos recorrentes do cartão do sócio: geram 1 crédito na ficha por mês
+//    (motivo recorrente), sem redigitar. Espelha gerarRecorrentes das contas fixas.
+function gerarSocioRecorrentes(data) {
+  var mesAtual = /^\d{4}-\d{2}$/.test(String(data && data.mes || ''))
+    ? String(data.mes)
+    : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  var geradas = 0;
+  read('socio_recorrentes').data.forEach(function (rec) {
+    if (rec.ativo === false || rec.ativo === 'false') return;
+    var meses = _mesesEntre(rec.ultima_geracao, mesAtual);
+    if (!meses.length) return;
+    meses.forEach(function (mes) {
+      _fiadoMovCreate({
+        pessoa: String(rec.pessoa || '').toLowerCase(), data: mes + '-01',
+        direcao: 'empresa_deve', motivo: 'recorrente',
+        descricao: rec.descricao + ' (' + mes + ')', valor: Number(rec.valor || 0), status: 'ativo',
+      });
+      geradas++;
+    });
+    update('socio_recorrentes', rec.id, { ultima_geracao: mesAtual });
+  });
+  return { success: true, geradas: geradas };
+}
+
+// ── Fechar o mês do sócio: salário (despesa REAL, no resultado) + acerto da ficha
+//    (quitação, FORA do resultado) no mesmo dia/conta. Um pagamento p/ o dono, dois
+//    lançamentos no razão pra o resultado não contar em dobro. Idempotente por
+//    (pessoa, ano_mes) via a parcela de salário (origem 'salario').
+function fecharMesSocio(data) {
+  // data: { pessoa, ano_mes, conta_id, data, salario_base }
+  var pessoa = String(data.pessoa || '').toLowerCase();
+  var ano_mes = String(data.ano_mes || '');
+  if (!pessoa) return { success: false, error: 'Sócio não informado' };
+  if (!/^\d{4}-\d{2}$/.test(ano_mes)) return { success: false, error: 'Mês inválido (use yyyy-MM)' };
+  if (!data.conta_id) return { success: false, error: 'Selecione a conta do pagamento' };
+
+  var marcador = pessoa + ':' + ano_mes;
+  var jaFechado = read('parcelas').data.some(function (p) {
+    return p.origem === 'salario' && String(p.origem_id) === marcador;
+  });
+  if (jaFechado) return { success: false, jaFechado: true, error: 'O mês deste sócio já foi fechado.' };
+
+  // Salário base: do payload ou do cadastro do sócio.
+  var salario = Number(data.salario_base);
+  if (!(salario >= 0) || data.salario_base === undefined || data.salario_base === '') {
+    var soc = read('socios').data.filter(function (s) { return String(s.pessoa || '').toLowerCase() === pessoa; })[0];
+    salario = soc ? Number(soc.salario_base || 0) : 0;
+  }
+  if (!(salario > 0)) return { success: false, error: 'Configure o salário base do sócio antes de fechar o mês.' };
+
+  var dataMov = data.data || _hojeStr();
+  var pessoaFmt = pessoa.charAt(0).toUpperCase() + pessoa.slice(1);
+
+  // Garante os recorrentes fixos do mês na ficha antes de somar.
+  gerarSocioRecorrentes({ mes: ano_mes });
+  var saldo = _fiadoSaldoPessoa(pessoa);
+
+  // 1) Salário — despesa real (conta no resultado). É também o marcador de fechado.
+  create('parcelas', {
+    tipo: 'pagar', origem: 'salario', origem_id: marcador, grupo_id: '', cliente_id: '',
+    descricao: 'Salário ' + pessoaFmt + ' — ' + ano_mes,
+    valor: Math.round(salario * 100) / 100,
+    data_competencia: ano_mes + '-01', data_vencimento: dataMov, data_pagamento: dataMov,
+    status: 'pago', categoria_id: data.categoria_id || '', conta_id: data.conta_id,
+    observacoes: data.observacoes || '',
+  });
+
+  // 2) Ficha — quita o saldo (fora do resultado, via acertarFiado) na mesma conta.
+  if (Math.abs(saldo) >= 0.005) {
+    acertarFiado({ pessoa: pessoa, conta_id: data.conta_id, data: dataMov,
+      observacoes: 'Fechamento do mês ' + ano_mes });
+  }
+
+  return { success: true, total: Math.round((salario + saldo) * 100) / 100,
+           salario: Math.round(salario * 100) / 100, saldo_ficha: saldo };
 }
 
 // Movimentação avulsa de estoque: baixa/perda/uso interno/uso em OS (saída),

@@ -56,6 +56,9 @@ const API = (() => {
     excluirOS:          ()     => ['os', 'os_itens', 'diarias', 'fechamentos', 'fechamento_dias', 'fechamento_os', 'estoque', 'estoque_movimentacoes'],
     excluirLancamento:  ()     => ['parcelas', 'fiado', 'fiado_mov'],
     gerarRecorrentes:   ()     => ['parcelas', 'recorrentes'],
+    salvarAlimentacaoMes:  ()  => ['alimentacao_mes', 'fiado_mov'],
+    gerarSocioRecorrentes: ()  => ['socio_recorrentes', 'fiado_mov'],
+    fecharMesSocio:        ()  => ['parcelas', 'fiado_mov', 'fiado', 'socio_recorrentes', 'contas'],
   };
 
   // ─── Epoch de invalidação (corrida SWR × escrita) ─────────
@@ -620,6 +623,9 @@ const API = (() => {
     excluirOS(id) { return post('excluirOS', { id }); },
     excluirLancamento(parcelaId) { return post('excluirLancamento', { parcela_id: parcelaId }); },
     gerarRecorrentes(data) { return post('gerarRecorrentes', data); },
+    salvarAlimentacaoMes(data) { return post('salvarAlimentacaoMes', data); },
+    gerarSocioRecorrentes(data) { return post('gerarSocioRecorrentes', data); },
+    fecharMesSocio(data) { return post('fecharMesSocio', data); },
   };
 
   function clearCache() {
