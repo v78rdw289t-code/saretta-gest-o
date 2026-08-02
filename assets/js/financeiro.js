@@ -115,6 +115,23 @@ const Financeiro = (() => {
   // Contexto p/ ratear compra (itens) e lote de OS (fechamento_os) por categoria — utils.js
   function _ctxCat() { return { osList: allOS, diarias: allDiarias, comprasItensByCompra, fechamentoOsByFech }; }
 
+  // Lançamentos que pedem conferência. Só considera origens OPERACIONAIS (que devem
+  // ter categoria/conta) — de propósito NÃO inclui os fluxos de ficha do sócio
+  // (fiado*) nem transferências, que por design ficam fora de categoria/conta.
+  // "Sem categoria" usa a categoria EFETIVA (herda da OS/sessão). "Sem conta" =
+  // parcela PAGA sem conta na parcela E sem pagamento no razão → o dinheiro pago
+  // não está atribuído a nenhuma conta e some do saldo.
+  const _OPERACIONAL = new Set(['os', 'os_lote', 'compra', 'recorrente', 'manual']);
+  let _conferirOpen = false;
+  function _aConferir() {
+    const oper = p => _OPERACIONAL.has(String(p.origem || ''));
+    const comPag = new Set(allPagamentos.map(pg => String(pg.parcela_id)));
+    const semCat = allParcelas.filter(p => oper(p) && !_catEfetivaId(p));
+    const semConta = allParcelas.filter(p =>
+      oper(p) && p.status === 'pago' && !p.conta_id && !comPag.has(String(p.id)));
+    return { semCat, semConta };
+  }
+
   function renderView() {
     const section = qs('#page-financeiro');
 
@@ -636,9 +653,44 @@ const Financeiro = (() => {
         </label>
         <button class="btn btn-outline btn-sm" onclick="Financeiro.exportarPDF()">📄 Exportar PDF</button>
       </div>
+      <div id="fin-conferir"></div>
       <div id="resumo-content"></div>
     `;
+    renderConferirInner();
     renderResumoMes();
+  }
+
+  // Seção "A conferir" (topo do Resumo): pendências de categoria/conta pra acertar.
+  // Reusa o menu de ações da parcela (tapParcela → Editar). Some quando zerado.
+  function toggleConferir() { _conferirOpen = !_conferirOpen; renderConferirInner(); }
+  function renderConferirInner() {
+    const el = qs('#fin-conferir'); if (!el) return;
+    const { semCat, semConta } = _aConferir();
+    const n = semCat.length + semConta.length;
+    if (n === 0) { el.innerHTML = ''; return; }
+    const esc = s => (Fmt.esc ? Fmt.esc(s) : String(s || ''));
+    const row = p => `
+      <div class="entity-item" onclick="Financeiro.tapParcela('${p.id}')">
+        <div class="entity-info" style="min-width:0">
+          <div class="entity-name">${esc(p.descricao) || '(sem descrição)'}</div>
+          <div class="entity-sub">${p.tipo === 'receber' ? '↓ receber' : '↑ pagar'} · ${Fmt.date(p.data_vencimento || p.data_competencia)}</div>
+        </div>
+        <div class="entity-right"><span class="entity-value ${p.tipo === 'receber' ? 'text-green' : 'text-red'}">${Fmt.currency(p.valor)}</span></div>
+      </div>`;
+    el.innerHTML = `
+      <div style="background:var(--warning-bg,#fff8ec);border:1px solid var(--warning,#e0a800);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+        <div onclick="Financeiro.toggleConferir()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+          <strong>⚠️ A conferir (${n})</strong>
+          <span style="font-size:.8rem;color:var(--text-muted)">${_conferirOpen ? 'ocultar ▲' : 'ver ▼'}</span>
+        </div>
+        ${_conferirOpen ? `
+          <p class="text-muted" style="font-size:.76rem;margin:8px 0 2px">Toque num item pra editar.</p>
+          ${semCat.length ? `<div style="font-size:.78rem;font-weight:700;margin-top:8px">Sem categoria (${semCat.length})</div>
+            <div class="entity-list">${semCat.map(row).join('')}</div>` : ''}
+          ${semConta.length ? `<div style="font-size:.78rem;font-weight:700;margin-top:10px">Despesa/receita paga sem conta (${semConta.length})</div>
+            <div class="entity-list">${semConta.map(row).join('')}</div>` : ''}
+        ` : ''}
+      </div>`;
   }
 
   function renderResumoMes() {
@@ -1738,7 +1790,7 @@ const Financeiro = (() => {
            openTransferencia, salvarTransferencia,
            toggleParcelado, setTipo, setStatus, toggleMaisOpcoes, toggleCancelado,
            onCompChange, onDataChange,
-           editarParcela, excluirParcela, tapParcela,
+           editarParcela, excluirParcela, tapParcela, toggleConferir,
            onBuscaInput, onFilterChange, toggleFilterPanel, limparFiltros,
            onPeriodoTipoChange, openPeriodo,
            toggleSort, removeChip };
