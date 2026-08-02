@@ -11,7 +11,12 @@ const Financeiro = (() => {
   let allRecorrentes = [];         // contas fixas (card no Resumo)
   let _recEditId = null;           // id da recorrente sendo editada no modal manual
   let _compTocada = false;         // usuário mexeu na competência à mão? (senão, derivada da data)
-  let currentTab = 'receber'; // receber | pagar | resumo
+  let currentTab = 'receber'; // receber | pagar | alimentacao | resumo
+  // Aba Alimentação (dias de refeição na casa de cada sócio → crédito na ficha)
+  let _aliMes = '';            // 'yyyy-MM'
+  let _aliValorDia = 25;       // valor por dia em casa (default; editável na tela)
+  let _aliDias = {};           // pessoa -> dias contados no mês
+  let _aliSocios = [];         // [{ pessoa, nome }] — do cadastro, com fallback
   let _lastFiltered = [];    // cache do último resultado filtrado (para paginação)
   let _visibleCount = 30;    // quantos itens mostrar atualmente
   const PAGE_SIZE   = 30;
@@ -140,6 +145,7 @@ const Financeiro = (() => {
         <button class="section-tab ${currentTab==='receber' ? 'active' : ''}" onclick="Financeiro.switchTab('receber')">↓ Receber</button>
         <button class="section-tab ${currentTab==='pagar' ? 'active' : ''}"   onclick="Financeiro.switchTab('pagar')">↑ Pagar</button>
         <button class="section-tab" onclick="App.navigate('fiado')">Fiado</button>
+        <button class="section-tab ${currentTab==='alimentacao' ? 'active' : ''}" onclick="Financeiro.switchTab('alimentacao')">Alimentação</button>
         <button class="section-tab ${currentTab==='resumo' ? 'active' : ''}"  onclick="Financeiro.switchTab('resumo')">Resumo</button>
       </div>
       <div class="page-header">
@@ -170,7 +176,106 @@ const Financeiro = (() => {
 
   function renderTab() {
     if (currentTab === 'resumo') { renderResumo(); return; }
+    if (currentTab === 'alimentacao') { renderAlimentacao(); return; }
     renderParcelas(currentTab);
+  }
+
+  // ─── ABA ALIMENTAÇÃO ─────────────────────────────────────────
+  // Conta os dias de refeição na casa de cada sócio no mês. Salvar gera/atualiza
+  // 1 crédito na ficha de cada anfitrião (backend salvarAlimentacaoMes). Restaurante
+  // fica à parte (despesa normal) — aqui só entram os dias em casa.
+  const _SOCIOS_FALLBACK = [{ pessoa: 'rodrigo', nome: 'Rodrigo' }, { pessoa: 'odinei', nome: 'Odinei' }];
+  const _cap = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
+
+  async function renderAlimentacao() {
+    if (!_aliMes) _aliMes = new Date().toISOString().substring(0, 7);
+    const shown = Loading.maybeShow('socios');
+    const [socRes, aliRes] = await Promise.all([
+      API.db.read('socios'),
+      API.db.read('alimentacao_mes'),
+    ]);
+    if (shown) Loading.hide();
+    const socios = (socRes?.data || []).filter(s => s.ativo !== false && s.ativo !== 'false')
+      .map(s => ({ pessoa: String(s.pessoa || '').toLowerCase(), nome: s.nome || _cap(s.pessoa) }));
+    _aliSocios = socios.length ? socios : _SOCIOS_FALLBACK;
+    // Prefill dias + valor/dia a partir do que já foi salvo neste mês
+    _aliDias = {};
+    const doMes = (aliRes?.data || []).filter(r => String(r.ano_mes) === _aliMes);
+    doMes.forEach(r => { _aliDias[String(r.pessoa || '').toLowerCase()] = Number(r.dias || 0); });
+    if (doMes.length && Number(doMes[0].valor_dia) > 0) _aliValorDia = Number(doMes[0].valor_dia);
+
+    qs('#fin-content').innerHTML = `
+      <div class="filters-bar" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <label style="flex:1;min-width:180px">Mês:
+          ${MonthPicker.render('ali-mes', _aliMes, 'Financeiro.onAliMes()')}
+        </label>
+        <label>Valor por dia em casa:
+          <input type="number" id="ali-valor-dia" class="input" style="width:100px" step="0.01" value="${_aliValorDia}" oninput="Financeiro.onAliValorDia(this.value)">
+        </label>
+      </div>
+      <p class="text-muted" style="font-size:.82rem;line-height:1.45;margin:6px 0 12px">
+        Conte os dias em que a refeição foi na casa de cada sócio. Cada dia vira crédito na ficha dele.
+        Restaurante você lança à parte, como já faz.
+      </p>
+      <div id="ali-list" class="entity-list"></div>
+      <div style="height:70px"></div>
+      <div class="inv-bar">
+        <button id="ali-salvar" class="btn btn-gold" onclick="Financeiro.salvarAlimentacao()">Salvar alimentação do mês</button>
+      </div>
+    `;
+    _renderAliList();
+  }
+
+  function _renderAliList() {
+    const el = qs('#ali-list'); if (!el) return;
+    el.innerHTML = _aliSocios.map(s => {
+      const dias = Number(_aliDias[s.pessoa] || 0);
+      const total = Math.round(dias * _aliValorDia * 100) / 100;
+      return `
+        <div class="entity-item" style="cursor:default">
+          <div class="entity-info" style="min-width:0">
+            <div class="entity-name">Casa do ${s.nome}</div>
+            <div class="entity-sub" id="ali-v-${s.pessoa}">${dias} dia${dias === 1 ? '' : 's'} · ${Fmt.currency(total)}</div>
+          </div>
+          <div class="entity-right" style="display:flex;align-items:center;gap:10px">
+            <button class="btn btn-sm btn-outline" style="width:34px" aria-label="menos" onclick="Financeiro.aliStep('${s.pessoa}',-1)">−</button>
+            <span style="min-width:22px;text-align:center;font-weight:700" id="ali-d-${s.pessoa}">${dias}</span>
+            <button class="btn btn-sm btn-outline" style="width:34px" aria-label="mais" onclick="Financeiro.aliStep('${s.pessoa}',1)">+</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function onAliMes() { _aliMes = MonthPicker.value('ali-mes') || _aliMes; renderAlimentacao(); }
+  function onAliValorDia(v) {
+    _aliValorDia = Math.max(0, Number(v) || 0);
+    _aliSocios.forEach(s => {
+      const dias = Number(_aliDias[s.pessoa] || 0);
+      const sub = qs('#ali-v-' + s.pessoa);
+      if (sub) sub.textContent = `${dias} dia${dias === 1 ? '' : 's'} · ${Fmt.currency(Math.round(dias * _aliValorDia * 100) / 100)}`;
+    });
+  }
+  function aliStep(pessoa, d) {
+    _aliDias[pessoa] = Math.max(0, Number(_aliDias[pessoa] || 0) + d);
+    const dias = _aliDias[pessoa];
+    const dEl = qs('#ali-d-' + pessoa); if (dEl) dEl.textContent = dias;
+    const sub = qs('#ali-v-' + pessoa);
+    if (sub) sub.textContent = `${dias} dia${dias === 1 ? '' : 's'} · ${Fmt.currency(Math.round(dias * _aliValorDia * 100) / 100)}`;
+  }
+  function salvarAlimentacao() { return Guard.run('fin-ali-salvar', _salvarAlimentacao); }
+  async function _salvarAlimentacao() {
+    Loading.show();
+    let ok = 0;
+    for (const s of _aliSocios) {
+      const res = await API.db.salvarAlimentacaoMes({
+        ano_mes: _aliMes, pessoa: s.pessoa,
+        dias: Number(_aliDias[s.pessoa] || 0), valor_dia: _aliValorDia,
+      });
+      if (res?.success) ok++;
+    }
+    Loading.hide();
+    if (ok) Toast.success('Alimentação do mês salva — creditada na ficha de cada sócio.');
+    else Toast.error('Não foi possível salvar a alimentação.');
   }
 
   function renderParcelas(tipo) {
@@ -1791,6 +1896,7 @@ const Financeiro = (() => {
            toggleParcelado, setTipo, setStatus, toggleMaisOpcoes, toggleCancelado,
            onCompChange, onDataChange,
            editarParcela, excluirParcela, tapParcela, toggleConferir,
+           onAliMes, onAliValorDia, aliStep, salvarAlimentacao,
            onBuscaInput, onFilterChange, toggleFilterPanel, limparFiltros,
            onPeriodoTipoChange, openPeriodo,
            toggleSort, removeChip };
