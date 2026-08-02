@@ -81,6 +81,7 @@ const Estoque = (() => {
   function abrirMais() {
     ActionSheet.open('Mais', [
       { icon: '📋', label: 'Inventário / Contagem', fn: () => goTab('inventario') },
+      { icon: '🧮', label: 'Reconciliação (Saldo × Razão)', fn: () => goTab('reconc') },
       { icon: '📝', label: 'Lista de compras',      fn: () => goTab('lista') },
       { icon: '📊', label: 'Relatório',             fn: () => goTab('rel') },
       { icon: '🔄', label: 'Movimentações',         fn: () => goTab('mov') },
@@ -113,6 +114,7 @@ const Estoque = (() => {
     if (_tab === 'mov') return renderMov();
     if (_tab === 'rel') return renderRel();
     if (_tab === 'inventario') return renderInventario();
+    if (_tab === 'reconc') return renderReconciliacao();
     return renderItens();
   }
 
@@ -275,7 +277,7 @@ const Estoque = (() => {
           : movs.map(m => {
             const ent  = m.tipo === 'entrada';
             const cor  = ent ? 'var(--success)' : (m.motivo === 'perda' ? 'var(--danger)' : 'var(--text)');
-            const sinal= ent ? '+' : (m.tipo === 'saida' ? '−' : '±');
+            const sinal= ent ? '+' : (m.tipo === 'saida' ? '−' : (Number(m.quantidade || 0) < 0 ? '−' : '+'));
             return `
               <div class="entity-item" style="cursor:default">
                 <div class="entity-info">
@@ -283,7 +285,7 @@ const Estoque = (() => {
                   <div class="entity-sub">${Fmt.date(m.data)}${m.origem && m.origem !== 'manual' ? ' · ' + (m.origem === 'os' ? 'OS' : m.origem === 'compra' ? 'Compra' + (fornDaCompra(m) ? ' — ' + fornDaCompra(m) : '') : m.origem) : ''}${m.observacoes ? ' · ' + m.observacoes : ''}</div>
                 </div>
                 <div class="entity-right">
-                  <span class="entity-value" style="color:${cor}">${sinal}${Number(m.quantidade || 0)}</span>
+                  <span class="entity-value" style="color:${cor}">${sinal}${Math.abs(Number(m.quantidade || 0))}</span>
                 </div>
               </div>`;
           }).join('')}
@@ -523,7 +525,7 @@ const Estoque = (() => {
           : movs.map(m => {
             const ent   = m.tipo === 'entrada';
             const cor   = ent ? 'var(--success)' : (m.motivo === 'perda' ? 'var(--danger)' : 'var(--text)');
-            const sinal = ent ? '+' : (m.tipo === 'saida' ? '−' : '±');
+            const sinal = ent ? '+' : (m.tipo === 'saida' ? '−' : (Number(m.quantidade || 0) < 0 ? '−' : '+'));
             return `
               <div class="entity-item" style="cursor:default">
                 <div class="entity-info">
@@ -531,7 +533,7 @@ const Estoque = (() => {
                   <div class="entity-sub">${MOTIVOS[m.motivo] || m.motivo} · ${Fmt.date(m.data)}${m.origem && m.origem !== 'manual' ? ' · ' + (m.origem === 'os' ? 'OS' : 'Compra') : ''}</div>
                 </div>
                 <div class="entity-right">
-                  <span class="entity-value" style="color:${cor}">${sinal}${Number(m.quantidade || 0)}</span>
+                  <span class="entity-value" style="color:${cor}">${sinal}${Math.abs(Number(m.quantidade || 0))}</span>
                   <span class="entity-sub">${Fmt.currency(m.valor_total)}</span>
                 </div>
               </div>`;
@@ -647,6 +649,129 @@ const Estoque = (() => {
       Loading.hide();
       Toast.success(`${ids.length} ajuste(s) aplicado(s)!`);
       _contagem = {};
+      await render();
+    });
+  }
+
+  // ─── ABA RECONCILIAÇÃO (Saldo × Razão) ───────────────────────
+  // Compara o saldo guardado (estoque.quantidade) com o que o razão reconstrói:
+  //   Σ(entrada) − Σ(saída) + Σ(ajuste COM SINAL).  Divergência = saldo − razão.
+  // Reconciliar injeta UM ajuste no razão igual à divergência — alinhando o razão
+  // ao saldo que o dono confia, SEM alterar o saldo. Frontend-only (create direto
+  // em estoque_movimentacoes; NÃO passa por registrarMovEstoque, que mexeria no saldo).
+  function _reconMap() {
+    const rec = {};
+    for (const m of allMovs) {
+      const k = String(m.estoque_id || '');
+      if (!k) continue;
+      const q = Number(m.quantidade || 0);
+      const v = m.tipo === 'entrada' ? Math.abs(q)
+              : m.tipo === 'saida'   ? -Math.abs(q)
+              : q;                                  // ajuste = com sinal
+      rec[k] = (rec[k] || 0) + v;
+    }
+    return rec;
+  }
+  function _divergentes() {
+    const rec = _reconMap();
+    return allEstoque.map(e => {
+      const saldo = Number(e.quantidade || 0);
+      const razao = Math.round((rec[String(e.id)] || 0) * 100) / 100;
+      const delta = Math.round((saldo - razao) * 100) / 100;
+      return { e, saldo, razao, delta };
+    }).filter(x => Math.abs(x.delta) > 0.001)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  }
+  // Descrições repetidas entre itens ativos = possíveis cadastros duplicados.
+  function _duplicados() {
+    const byNome = {};
+    allEstoque.forEach(e => {
+      const k = (e.descricao || '').trim().toLowerCase();
+      if (!k) return;
+      (byNome[k] = byNome[k] || []).push(e);
+    });
+    return Object.values(byNome).filter(g => g.length > 1);
+  }
+
+  function renderReconciliacao() {
+    const divs = _divergentes();
+    const dups = _duplicados();
+    qs('#page-estoque').innerHTML = `
+      ${tabsHTML('reconc')}
+      <div class="page-header"><h1>Reconciliação</h1></div>
+      <p class="text-muted" style="font-size:.82rem;line-height:1.45;margin-bottom:10px">
+        Compara o <strong>saldo</strong> de cada item com o que o <strong>razão</strong>
+        (entradas − saídas ± ajustes) reconstrói. Reconciliar lança um ajuste no razão pra
+        ele bater com o saldo — <strong>sem alterar o saldo</strong>.
+      </p>
+      ${divs.length === 0
+        ? '<div class="entity-empty">✓ Tudo reconciliado — saldo e razão batem</div>'
+        : `<div class="entity-list">
+            ${divs.map(({ e, saldo, razao, delta }) => `
+              <div class="entity-item" style="cursor:default">
+                <div class="entity-info" style="min-width:0">
+                  <div class="entity-name">${e.descricao}</div>
+                  <div class="entity-sub">saldo: <strong>${saldo}</strong> ${e.unidade || 'un'} · razão: ${razao} ·
+                    <span style="color:var(--danger);font-weight:700">ajuste ${delta > 0 ? '+' : ''}${delta}</span></div>
+                </div>
+                <div class="entity-right">
+                  <button class="btn btn-sm btn-outline" onclick="Estoque.reconciliarItem('${e.id}')">Reconciliar</button>
+                </div>
+              </div>`).join('')}
+          </div>
+          <div style="height:80px"></div>
+          <div class="inv-bar">
+            <button class="btn btn-gold" onclick="Estoque.reconciliarTodos()">Reconciliar todos (${divs.length})</button>
+          </div>`}
+      ${dups.length ? `
+        <div class="home-section-head" style="margin-top:18px"><h2 class="home-section-title">⚠️ Possíveis duplicados</h2></div>
+        <div class="entity-list">
+          ${dups.map(g => `
+            <div class="entity-item" style="cursor:default">
+              <div class="entity-info"><div class="entity-name">${g[0].descricao}</div>
+                <div class="entity-sub">${g.length} cadastros · saldos: ${g.map(x => Number(x.quantidade || 0)).join(' / ')}</div></div>
+            </div>`).join('')}
+        </div>
+        <p class="text-muted" style="font-size:.76rem;margin-top:6px">Juntar cadastros duplicados precisa de decisão — me avise qual manter.</p>
+      ` : ''}
+    `;
+  }
+
+  // Injeta UM ajuste no razão (sem tocar no saldo). Convenção com sinal da Fase 1a.
+  async function _lancaAjusteRazao(e, delta) {
+    const custo = Number(e.valor_unit || 0);
+    await API.db.create('estoque_movimentacoes', {
+      estoque_id: e.id, tipo: 'ajuste', motivo: 'ajuste',
+      quantidade: delta,                                        // COM SINAL
+      valor_unit: custo, valor_total: Math.round(Math.abs(delta) * custo * 100) / 100,
+      origem: 'inventario', origem_id: '',
+      data: DateUtil.today(), observacoes: 'Reconciliação (alinhado ao saldo)',
+    });
+  }
+  function reconciliarItem(id) { return Guard.run('estq-reconc-' + id, () => _reconciliarItem(id)); }
+  async function _reconciliarItem(id) {
+    const e = allEstoque.find(x => String(x.id) === String(id));
+    if (!e) return;
+    const razao = Math.round((_reconMap()[String(id)] || 0) * 100) / 100;
+    const delta = Math.round((Number(e.quantidade || 0) - razao) * 100) / 100;
+    if (Math.abs(delta) < 0.001) { Toast.warning('Este item já está reconciliado'); return; }
+    Modal.confirm(`Lançar ajuste de ${delta > 0 ? '+' : ''}${delta} no razão de "${e.descricao}" pra bater com o saldo (${Number(e.quantidade || 0)})?`, async () => {
+      Loading.show();
+      await _lancaAjusteRazao(e, delta);
+      Loading.hide();
+      Toast.success('Reconciliado!');
+      await render();
+    });
+  }
+  function reconciliarTodos() { return Guard.run('estq-reconc-all', _reconciliarTodos); }
+  async function _reconciliarTodos() {
+    const divs = _divergentes();
+    if (!divs.length) { Toast.warning('Nada a reconciliar'); return; }
+    Modal.confirm(`Reconciliar ${divs.length} item(s)? Cada um recebe um ajuste no razão pra bater com o saldo atual.`, async () => {
+      Loading.show();
+      for (const d of divs) await _lancaAjusteRazao(d.e, d.delta);
+      Loading.hide();
+      Toast.success(`${divs.length} item(s) reconciliado(s)!`);
       await render();
     });
   }
@@ -873,8 +998,9 @@ const Estoque = (() => {
     render, goTab, switchTab, tabsHTML, abrirMais,
     onSearch, onCatFiltro, onRelCat, toggleGrupo, openDetail, voltarLista,
     openForm, saveForm, onGrupoChange, scanMarca, addMarca, openBaixa, saveBaixa, confirmDelete,
-    // movimentações + inventário
+    // movimentações + inventário + reconciliação
     onMovSearch, onMovMotivo, onContagem, onInvSearch, finalizarContagem,
+    reconciliarItem, reconciliarTodos,
     // lista
     openNovaListaForm, fecharNovaLista, addItensCliente, _setNovaListaCliente,
     addItemNovaLista, removeItemNovaLista, salvarNovaLista, toggleComprado, deleteListaItem,

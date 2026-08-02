@@ -1053,7 +1053,11 @@ function registrarMovEstoque(data) {
     estoque_id:  data.estoque_id,
     tipo:        tipo,
     motivo:      motivo,
-    quantidade:  Math.abs(qtdMov),
+    // Ajuste guarda a quantidade COM SINAL (qNew - qOld pode ser + ou −): só o
+    // 'tipo' não revela a direção de um ajuste, então sem o sinal o saldo deixa
+    // de ser reconstruível a partir do razão. Entrada/saída seguem em módulo
+    // (a direção já está no 'tipo'), preservando leitores e telas existentes.
+    quantidade:  data.tipo === 'ajuste' ? r2(qtdMov) : Math.abs(qtdMov),
     valor_unit:  custoMov,
     valor_total: r2(Math.abs(qtdMov) * custoMov),
     origem:      data.origem || 'manual',

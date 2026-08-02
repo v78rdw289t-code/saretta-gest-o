@@ -526,6 +526,40 @@ function makeGsSandbox() {
     //  sheet do mock não implementa — testado no app, não aqui.)
   }
 
+  console.log('\n— Code.gs: ajuste de estoque guarda quantidade COM SINAL —');
+  {
+    const g = makeGsSandbox();
+    test('ajuste p/ baixo grava quantidade negativa; p/ cima positiva; saldo reconstrói do razão', () => {
+      const est = vm.runInContext(`create('estoque', { descricao:'Cabo 2.5', quantidade:10, valor_unit:2 })`, g);
+      const id = est.data.id;
+      // Ajuste para baixo: 10 → 6  (delta −4)
+      const r1 = vm.runInContext(`registrarMovEstoque({ estoque_id:'${id}', tipo:'ajuste', nova_quantidade:6 })`, g);
+      assert.ok(r1.success);
+      assert.equal(r1.quantidade, 6);
+      // Ajuste para cima: 6 → 9  (delta +3)
+      vm.runInContext(`registrarMovEstoque({ estoque_id:'${id}', tipo:'ajuste', nova_quantidade:9 })`, g);
+      const movs = vm.runInContext(`read('estoque_movimentacoes', null, { estoque_id:'${id}' }).data`, g);
+      const ajustes = movs.filter(m => m.tipo === 'ajuste').map(m => Number(m.quantidade));
+      assert.deepEqual(ajustes.sort((a,b)=>a-b), [-4, 3]);   // sinais preservados
+      // Saldo do estoque (9) = soma reconstruída do razão a partir do saldo inicial.
+      // Aqui: início 10 (setado no create, sem razão) + Σ(ajustes) = 10 + (−4) + 3 = 9.
+      const somaAjuste = ajustes.reduce((s,n)=>s+n, 0);
+      assert.equal(10 + somaAjuste, vm.runInContext(`read('estoque','${id}').data[0].quantidade`, g));
+    });
+    test('entrada e saída seguem em módulo (direção vem do tipo, leitores preservados)', () => {
+      const est = vm.runInContext(`create('estoque', { descricao:'Disjuntor', quantidade:0, valor_unit:5 })`, g);
+      const id = est.data.id;
+      vm.runInContext(`registrarMovEstoque({ estoque_id:'${id}', tipo:'entrada', quantidade:8, valor_unit:5 })`, g);
+      vm.runInContext(`registrarMovEstoque({ estoque_id:'${id}', tipo:'saida', motivo:'uso_os', quantidade:3 })`, g);
+      const movs = vm.runInContext(`read('estoque_movimentacoes', null, { estoque_id:'${id}' }).data`, g);
+      const ent = movs.find(m => m.tipo === 'entrada');
+      const sai = movs.find(m => m.tipo === 'saida');
+      assert.equal(Number(ent.quantidade), 8);   // positivo
+      assert.equal(Number(sai.quantidade), 3);   // módulo (não −3)
+      assert.equal(vm.runInContext(`read('estoque','${id}').data[0].quantidade`, g), 5); // 8 − 3
+    });
+  }
+
   console.log('\n— api.js: OS/sessões/materiais com cache longo (offline) —');
   {
     // Semeia o cache com 2h de idade. Sheets de trabalho da OS (TTL 30d) devem
