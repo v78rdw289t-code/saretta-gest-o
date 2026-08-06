@@ -42,7 +42,9 @@ const SHEET_HEADERS = {
   // origem: 'normal' | 'urgencia' | 'orcamento' (como a OS nasceu; nem toda OS
   //   vem de orçamento). prioridade: 'normal' | 'alta' | 'urgente'.
   // retorno_de: id da OS original quando esta é um retrabalho (Declarar retorno).
-  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao','registro','prazo_dias','orcamento_id','orcado_valor','orcado_data','data_acerto','origem','prioridade','retorno_de'],
+  // descricao_servico: texto livre dos serviços realizados; sai como bloco
+  //   dedicado no PDF da OS (o valor segue por horas/valor fechado, não muda).
+  os:             ['id','numero','nome','tipo','cliente_id','categoria_id','status','data_inicio','data_fim','horas_calculadas','valor_calculado','valor_fechamento','observacoes','data_criacao','data_atualizacao','registro','prazo_dias','orcamento_id','orcado_valor','orcado_data','data_acerto','origem','prioridade','retorno_de','descricao_servico'],
   // pagador: 'empresa' | 'cliente' (material pago pelo cliente NÃO soma no valor
   //   a cobrar). no_pdf: '1' | '0' (oculta o item no PDF de orçamento/lista).
   os_itens:       ['id','os_id','tipo','descricao','estoque_id','quantidade','valor_unit','valor_total','pagador','no_pdf'],
@@ -115,7 +117,7 @@ function doGet(e) {
     checkAuth(params.token);
     const action = params.action;
     let result;
-    if (action === 'read')           result = read(params.sheet, params.id || null, parseFilters(params));
+    if (action === 'read')           result = read(params.sheet, params.id || null, parseFilters(params), params.limit || null);
     else if (action === 'readMany')  result = readMany(params.sheets);
     else if (action === 'initDB')    result = initializeSheets();
     else if (action === 'stats')     result = getDashboardStats();
@@ -184,7 +186,8 @@ function parseFilters(params) {
   const filters = {};
   // 'token' é metadado de autenticação, NÃO um filtro de coluna — senão todo
   // read com token autenticado filtra por uma coluna inexistente e volta vazio.
-  const skip = ['action', 'sheet', 'id', 'token'];
+  // 'limit' pede só as últimas N linhas (tail) — é opção de leitura, não filtro.
+  const skip = ['action', 'sheet', 'id', 'token', 'limit'];
   Object.keys(params).forEach(k => {
     if (!skip.includes(k)) filters[k] = params[k];
   });
@@ -212,7 +215,7 @@ function sheetToRecords(sh) {
   }, []);
 }
 
-function read(sheetName, id = null, filters = null) {
+function read(sheetName, id = null, filters = null, limit = null) {
   // Aba ainda não criada (ex.: initializeSheets pendente): volta vazio em vez
   // de derrubar a tela — mesma tolerância do readMany.
   const sh = ss.getSheetByName(sheetName);
@@ -224,6 +227,11 @@ function read(sheetName, id = null, filters = null) {
       records = records.filter(r => String(r[k]) === String(v));
     });
   }
+  // limit = só as últimas N linhas (tail). Sheets append-only que crescem sem
+  // limite (ex.: os_eventos) não precisam voltar inteiras pra tela — a home só
+  // olha o histórico recente. Aplicado por último (depois de id/filtros).
+  const n = Number(limit);
+  if (n > 0 && records.length > n) records = records.slice(-n);
   return { success: true, data: records };
 }
 

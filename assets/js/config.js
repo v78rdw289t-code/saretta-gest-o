@@ -385,7 +385,8 @@ const Config = (() => {
     }
   }
 
-  async function saveHoras(e) {
+  function saveHoras(e) { return Guard.run('cfg-horas', () => _saveHoras(e)); }
+  async function _saveHoras(e) {
     e.preventDefault();
     const fd   = new FormData(e.target);
     const data = Object.fromEntries(fd.entries());
@@ -429,7 +430,8 @@ const Config = (() => {
     toggleCat(_editCatId, cat ? cat.ativo : true);
   }
 
-  async function saveCat() {
+  function saveCat() { return Guard.run('cfg-cat', _saveCat); }
+  async function _saveCat() {
     const nome = qs('#cat-form-nome').value.trim();
     const tipo = qs('#cat-form-tipo').value;
     if (!nome) { Toast.warning('Informe o nome'); return; }
@@ -455,7 +457,8 @@ const Config = (() => {
     renderView();
   }
 
-  async function saveFatores() {
+  function saveFatores() { return Guard.run('cfg-fatores', _saveFatores); }
+  async function _saveFatores() {
     const inputs = qsa('.fator-perc');
     const fatores = inputs.map(inp => {
       const id = Number(inp.dataset.id);
@@ -488,7 +491,8 @@ const Config = (() => {
     Modal.open('modal-conta');
   }
 
-  async function saveConta() {
+  function saveConta() { return Guard.run('cfg-conta', _saveConta); }
+  async function _saveConta() {
     const nome  = qs('#conta-form-nome').value.trim();
     const saldo = Number(qs('#conta-form-saldo').value) || 0;
     const obs   = qs('#conta-form-obs').value;
@@ -591,7 +595,8 @@ const Config = (() => {
         </div>
       </div>`).join('');
   }
-  async function saveSocios() {
+  function saveSocios() { return Guard.run('cfg-socios', _saveSocios); }
+  async function _saveSocios() {
     const ops = [];
     _sociosLista().forEach(s => {
       const el = qs('#cfg-sal-' + s.pessoa); if (!el) return;
@@ -614,7 +619,8 @@ const Config = (() => {
     renderView();
     Toast.success('Sócios salvos!');
   }
-  async function addSocioRec() {
+  function addSocioRec() { return Guard.run('cfg-sociorec', _addSocioRec); }
+  async function _addSocioRec() {
     const pessoa    = qs('#cfg-sr-pessoa').value;
     const descricao = qs('#cfg-sr-desc').value.trim();
     const valor     = Number(qs('#cfg-sr-valor').value) || 0;

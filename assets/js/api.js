@@ -376,6 +376,8 @@ const API = (() => {
     if (ovSheet && !soSheet) {
       ovFilters = { ...params };
       delete ovFilters.sheet;
+      delete ovFilters.limit;   // 'limit' é opção de leitura (tail), não filtro de coluna
+      if (!Object.keys(ovFilters).length) ovFilters = null;
     }
 
     if (useCache && cache.has(key)) {

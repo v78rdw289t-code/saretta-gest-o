@@ -136,7 +136,9 @@ const Home = (() => {
     if (!el) return;
     const [osRes, evRes] = await Promise.all([
       API.db.read('os').catch(() => null),
-      API.db.read('os_eventos').catch(() => null),
+      // os_eventos é append-only e cresce sem limite; a inteligência da home só
+      // olha o histórico recente → só a cauda (backend antigo ignora e volta tudo).
+      API.db.read('os_eventos', null, { limit: 1200 }).catch(() => null),
     ]);
     const cfg = await Calculator.getConfig().catch(() => ({}));
     const osList = (osRes?.data || []);

@@ -414,6 +414,7 @@ const OS = (() => {
             <div class="info-row" style="font-weight:800;margin-top:4px;padding-top:6px;border-top:1px solid var(--border)"><span>Total</span><strong class="text-navy" style="font-size:1.1rem">${Fmt.currency(_somaTotal)}</strong></div>
           </div>`}
           ${currentOS.valor_fechamento ? `<div style="grid-column:1/-1"><div class="info-label">Valor Fechado</div><strong class="text-green" style="font-size:1.2rem">${Fmt.currency(currentOS.valor_fechamento)}</strong></div>` : ''}
+          ${currentOS.descricao_servico ? `<div style="grid-column:1/-1"><div class="info-label">Serviços realizados</div><span style="color:var(--text-muted);white-space:pre-line">${Fmt.esc(currentOS.descricao_servico)}</span></div>` : ''}
           ${currentOS.observacoes ? `<div style="grid-column:1/-1"><div class="info-label">Observações</div><span style="color:var(--text-muted)">${currentOS.observacoes}</span></div>` : ''}
         </div>
       </div>
@@ -1061,6 +1062,11 @@ const OS = (() => {
                 </div>
               </div>
             `}
+            ${!isOrc ? `
+            <div class="form-group">
+              <label>Serviços realizados <small style="color:var(--text-muted);font-weight:400">— descrição que sai no PDF da OS</small></label>
+              <textarea name="descricao_servico" class="input" rows="4" placeholder="Ex: Troca do disjuntor geral, revisão da fiação da cozinha, instalação de 3 tomadas...">${os?.descricao_servico || ''}</textarea>
+            </div>` : ''}
             <div class="form-group">
               <label>Observações</label>
               <textarea name="observacoes" class="input" rows="3">${os?.observacoes || ''}</textarea>

@@ -223,6 +223,14 @@ const Doc = (() => {
           ${catNome && os.nome ? `<div class="doc-cli-info">Categoria: ${catNome}</div>` : ''}
         </section>
 
+        <!-- Serviços realizados (só na OS): descrição livre do que foi feito.
+             O valor segue por horas/valor fechado — este bloco é só descritivo. -->
+        ${!isOrc && opts.detalhes && os.descricao_servico ? `
+        <section class="doc-bloco">
+          <div class="doc-bloco-titulo">Serviços realizados</div>
+          <div class="doc-obs-texto">${Fmt.esc(os.descricao_servico)}</div>
+        </section>` : ''}
+
         <!-- Dias trabalhados (só na OS executada; orçamento não tem sessões) -->
         ${opts.dias && linhas.length > 0 ? `
         <section class="doc-bloco">

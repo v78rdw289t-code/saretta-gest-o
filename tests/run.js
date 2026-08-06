@@ -852,6 +852,22 @@ function makeGsSandbox() {
       assert.equal(blocos[0].inicio, '13:00');
       assert.equal(blocos[0].fim, '');
     });
+    test('os tem descricao_servico (campo dos serviços feitos no PDF)', () => {
+      assert.ok(vm.runInContext(`SHEET_HEADERS.os`, g).includes('descricao_servico'), 'os.descricao_servico');
+      const r = vm.runInContext(`create('os', { numero:'OS-9', registro:'os', descricao_servico:'Troca do disjuntor geral' })`, g);
+      const back = vm.runInContext(`read('os', '${r.data.id}').data[0]`, g);
+      assert.equal(back.descricao_servico, 'Troca do disjuntor geral');
+    });
+    test('read com limit devolve só a cauda (tail) e ignora limit como filtro', () => {
+      for (let i = 1; i <= 5; i++) vm.runInContext(`create('os_eventos', { os_id:'x', tipo:'marco', obs:'ev${i}' })`, g);
+      const tail = vm.runInContext(`read('os_eventos', null, null, 2).data`, g);
+      assert.equal(tail.length, 2, 'só 2 linhas');
+      assert.equal(tail[0].obs, 'ev4');
+      assert.equal(tail[1].obs, 'ev5');
+      // limit maior que o total não corta; parseFilters exclui 'limit'
+      const full = vm.runInContext(`read('os_eventos', null, parseFilters({sheet:'os_eventos', limit:'999'}), 999).data`, g);
+      assert.equal(full.length, 5, 'limit>total devolve tudo, sem filtrar por coluna limit');
+    });
   }
 
   console.log(`\n${passed} teste(s) OK${process.exitCode ? ' — COM FALHAS' : ''}\n`);
