@@ -381,7 +381,7 @@ const OS = (() => {
         </div>
         ${!sessAberta ? `
         <button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:16px" onclick="OS.iniciarSessaoAgora('${id}')">
-          ▶ Iniciar sessão agora <small style="color:var(--text-muted);font-weight:400">— marca o horário de início</small>
+          ▶ Iniciar sessão <small style="color:var(--text-muted);font-weight:400">— confirma o horário de início</small>
         </button>` : ''}
       ` : `
         <div style="text-align:center;margin-bottom:16px">${statusBadge('fechado')}</div>
@@ -1193,7 +1193,7 @@ const OS = (() => {
     const ativa = acharSessaoAberta(allDiarias, osId);
     const acoes = [];
     if (!ativa) {
-      acoes.push({ icon: '▶', label: 'Iniciar sessão agora', fn: () => iniciarSessaoAgora(osId) });
+      acoes.push({ icon: '▶', label: 'Iniciar sessão', fn: () => iniciarSessaoAgora(osId) });
       acoes.push({ icon: '⏱', label: 'Registrar sessão', fn: () => registrarDiaEm(osId) });
     } else if (ativa.pausada) {
       acoes.push({ icon: '▶', label: 'Retomar sessão', fn: () => retomarSessao(ativa.diariaId) });
@@ -1264,13 +1264,61 @@ const OS = (() => {
     _refreshSessao(osId);
   }
 
-  // Inicia uma sessão AGORA em 1 toque: diária com um período em execução.
-  function iniciarSessaoAgora(osId) { return Guard.run('os-iniciar-sessao', () => _iniciarSessaoAgora(osId)); }
-  async function _iniciarSessaoAgora(osId) {
+  // Iniciar sessão: abre a telinha pra confirmar/ajustar o horário de início
+  // (o horário já vem em "agora" — 1 toque no caso normal; ajustável pra quando
+  // esqueceu de começar na hora). O create real fica em _confirmarIniciarSessao.
+  function iniciarSessaoAgora(osId) { return openIniciarSessao(osId); }
+
+  function _minNow() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+  function _fmtHM(min) {
+    min = Math.max(0, Math.min(23 * 60 + 59, Math.round(min)));
+    const h = Math.floor(min / 60), m = min % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  function openIniciarSessao(osId) {
     const os = allOS.find(o => o.id === osId) || currentOS;
     if (!os) return;
+    qs('#is-os-id').value = osId;
+    const label = (os.numero || 'OS') + (os.nome ? ' · ' + os.nome : (os.cliente_id ? ' · ' + App.clienteNome(os.cliente_id) : ''));
+    qs('#is-os-label').textContent = label;
+    qs('#is-time').value = _horaAgora();
+    _renderInicioHint();
+    Modal.open('modal-iniciar-sessao');
+  }
+
+  // Atalho: seta o horário pra "agora menos N minutos" (0 = agora).
+  function ajustarInicioSessao(menos) {
     tapFeedback();
-    const inicio = _horaAgora();
+    qs('#is-time').value = _fmtHM(_minNow() - Number(menos || 0));
+    _renderInicioHint();
+  }
+
+  function onInicioSessaoChange() { _renderInicioHint(); }
+
+  function _renderInicioHint() {
+    const el = qs('#is-hint'); if (!el) return;
+    const v = qs('#is-time').value;
+    const parts = (v || '').split(':');
+    const min = (Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0);
+    const diff = _minNow() - min;
+    if (diff <= 0) el.textContent = 'Começando agora';
+    else if (diff < 60) el.textContent = `Começou há ${diff} min (às ${v})`;
+    else el.textContent = `Começou há ${Math.floor(diff / 60)}h${diff % 60 ? String(diff % 60).padStart(2, '0') : ''} (às ${v})`;
+  }
+
+  // Cria a sessão com o horário escolhido na telinha.
+  function confirmarIniciarSessao() { return Guard.run('os-iniciar-sessao', _confirmarIniciarSessao); }
+  async function _confirmarIniciarSessao() {
+    const osId = qs('#is-os-id').value;
+    const os = allOS.find(o => o.id === osId) || currentOS;
+    if (!os) return;
+    const inicio = qs('#is-time').value || _horaAgora();
+    const parts = inicio.split(':');
+    const min = (Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0);
+    if (min > _minNow()) { Toast.warning('O horário de início não pode ser no futuro.'); return; }
+    Modal.close('modal-iniciar-sessao');
+    tapFeedback();
     const t = Toast.progress('Iniciando sessão…');
     const blocos = [{ inicio, fim: '', aberta: true, reajuste: false, fatores: [] }];
     const data = {
@@ -3246,7 +3294,7 @@ const OS = (() => {
     render, renderList, applyFilters, setStatus, setRegistroView, tapCard, _maisOpcoes, openDetail, abrirParcela, openForm, onTipoOSChange, saveForm,
     onFiltroBusca, onFiltroChange, toggleFiltro, setFiltroChip, limparFiltros, removeChip, verMais,
     openInsightsOS,
-    openDiaria, registrarDiaEm, iniciarSessaoAgora, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, excluirDiariaAtual, toggleMaisOpcoes,
+    openDiaria, registrarDiaEm, iniciarSessaoAgora, openIniciarSessao, ajustarInicioSessao, onInicioSessaoChange, confirmarIniciarSessao, sessaoMenu, pausarSessao, retomarSessao, encerrarSessao, calcDiariaPreview, saveDiaria, deleteDiaria, tapDiaria, excluirDiariaAtual, toggleMaisOpcoes,
     renderBlocos, addBloco, removeBloco, setBloco, toggleBlocoReajuste, toggleBlocoFator,
     openItemForm, onItemTipoChange, saveItem, deleteItem, filtrarItemEstoque, escolherItemEstoque, scanItemEstoque,
     escolherServicoRapido, salvarServicoRapido,
